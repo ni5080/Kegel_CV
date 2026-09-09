@@ -197,6 +197,89 @@ class TestSchlechteEingaben:
         assert BoardFinder(min_inlier=10).finde(grau, [t]) is not None
 
 
+class TestAlleTafelnAusEinerVorlage:
+    """EINE Vorlage, alle Tafeln -- der Ablauf, den der Nutzer will.
+
+        "ich moechte, dass ich wenn es eine komplett unbekannte Bahn ist, eine
+         verzerrte Tafel kalibriere, und er dann auch alle anderen Bahnen dazu
+         findet (Sie muessen immer derselbe Bautyp sein)."
+
+    GEMESSEN am Mitschnitt vom 2026-09-08: Aus Bahn 5 allein -- der
+    schraegsten -- wurden alle vier Tafeln gefunden, und die daraus erzeugte
+    Kalibrierung schnitt in der Analyse BESSER ab als die von Hand
+    (64 statt 62 gueltige Wuerfe von 65).
+    """
+
+    def drei_tafeln(self):
+        t = tafel()
+        h, b = t.shape[:2]
+        bild = np.full((BILD_H, BILD_B, 3), 60, dtype=np.uint8)
+        quads = []
+        for x in (40, 240, 440):
+            bild[100:100 + h, x:x + b] = t
+            quads.append([[x, 100], [x + b, 100], [x + b, 100 + h],
+                          [x, 100 + h]])
+        return bild, t, quads
+
+    def test_alle_gleichen_tafeln_werden_gefunden(self):
+        bild, vorlage, quads = self.drei_tafeln()
+        treffer = BoardFinder(min_inlier=10).finde_alle(bild, [vorlage])
+        assert len(treffer) == 3, f"drei Tafeln im Bild, {len(treffer)} gefunden"
+
+    def test_sie_kommen_von_links_nach_rechts(self):
+        """Die Reihenfolge der Bahnen in der Halle -- daran haengt spaeter
+        die Zuordnung der Bahnnummern."""
+        bild, vorlage, _ = self.drei_tafeln()
+        treffer = BoardFinder(min_inlier=10).finde_alle(bild, [vorlage])
+        mitten = [np.float32(t.quad)[:, 0].mean() for t in treffer]
+        assert mitten == sorted(mitten)
+
+    def test_jede_wird_genau_einmal_gefunden(self):
+        """Ohne das Entfernen der Merkmale faende jeder Durchgang dieselbe."""
+        bild, vorlage, quads = self.drei_tafeln()
+        treffer = BoardFinder(min_inlier=10).finde_alle(bild, [vorlage])
+        mitten = sorted(np.float32(t.quad)[:, 0].mean() for t in treffer)
+        for a, b in zip(mitten, mitten[1:]):
+            assert b - a > 100, "zwei Treffer auf derselben Tafel"
+
+    def test_die_ecken_stimmen(self):
+        """Die Schranke ist hier bewusst weit.
+
+        Am ECHTEN Material lag die Abweichung bei 0,5 bis 6,2 Pixeln. Die
+        synthetische Tafel dieses Tests ist mit 120x130 klein und traegt
+        weniger Struktur als eine FUNK-Tafel; drei identische Kacheln
+        nebeneinander sind ausserdem der unguenstigste denkbare Fall.
+        Gemessen wurden hier bis zu 10,6 px.
+
+        Der Test soll auch nicht die Genauigkeit sichern -- das tut die
+        Messung am Material -- sondern die GROBE Zuordnung: Ein Treffer auf
+        der falschen Kachel laege 200 Pixel daneben.
+        """
+        bild, vorlage, quads = self.drei_tafeln()
+        treffer = BoardFinder(min_inlier=10).finde_alle(bild, [vorlage])
+        for t in treffer:
+            mitte = np.float32(t.quad).mean(axis=0)
+            naechstes = min(quads, key=lambda q:
+                            abs(np.float32(q).mean(axis=0)[0] - mitte[0]))
+            abw = np.linalg.norm(np.float32(t.quad) - np.float32(naechstes),
+                                 axis=1).max()
+            assert abw < 15.0, f"Ecken {abw:.1f} px daneben"
+
+    def test_max_tafeln_wird_eingehalten(self):
+        bild, vorlage, _ = self.drei_tafeln()
+        treffer = BoardFinder(min_inlier=10).finde_alle(bild, [vorlage],
+                                                        max_tafeln=2)
+        assert len(treffer) == 2
+
+    def test_ein_leeres_bild_ergibt_nichts(self):
+        leer = np.full((BILD_H, BILD_B, 3), 60, dtype=np.uint8)
+        assert BoardFinder(min_inlier=10).finde_alle(leer, [tafel()]) == []
+
+    def test_ohne_vorlage_nichts(self):
+        bild, _, _ = self.drei_tafeln()
+        assert BoardFinder().finde_alle(bild, []) == []
+
+
 @pytest.mark.parametrize("versatz", [(0, 0), (50, 30), (200, 100)])
 def test_versatz_wird_aufaddiert(versatz):
     """Fuer die Suche in einem Ausschnitt des Vollbilds."""

@@ -146,8 +146,28 @@ class BoardFinder:
     Vorlagen wiederverwendet -- das ist der teuerste Schritt.
     """
 
-    def __init__(self, *, nfeatures: int = 20000, ratio: float = 0.75,
+    def __init__(self, *, nfeatures: int = 20000, ratio: float = 0.88,
                  ransac_reproj: float = 4.0, min_inlier: int = 18) -> None:
+        """
+        `ratio` ist Lowes Verhaeltnistest -- und der wichtigste Wert hier.
+
+        GEMESSEN 2026-09-09, EINE Tafel als Vorlage, alle vier finden:
+
+            ratio 0,75   Vorlage Bahn 2 -> nur sie selbst
+                         Vorlage Bahn 5 -> nur sie selbst
+            ratio 0,82   Vorlage Bahn 2 -> alle vier
+                         Vorlage Bahn 5 -> zwei
+            ratio 0,88   Vorlage Bahn 2 -> alle vier (0,5 bis 2,4 px)
+                         Vorlage Bahn 5 -> alle vier (1,2 bis 6,2 px)
+
+        WARUM LOCKER BESSER IST, obwohl die Lehrbuecher 0,7 empfehlen: Der
+        Test verwirft ein Merkmal, wenn der zweitbeste Partner fast genauso
+        gut passt. Bei vier praktisch IDENTISCHEN Tafeln ist der zweitbeste
+        aber immer fast genauso gut -- der strenge Test wirft damit genau die
+        Treffer weg, um die es geht. Aussortiert wird stattdessen durch RANSAC
+        und die Plausibilitaetspruefung, und die Zahl tragender Merkmale
+        bleibt das letzte Wort.
+        """
         self.nfeatures = nfeatures
         self.ratio = ratio
         self.ransac_reproj = ransac_reproj
@@ -193,6 +213,90 @@ class BoardFinder:
             return None
         return bester
 
+    def finde_alle(self, ziel: np.ndarray, vorlagen: list[np.ndarray],
+                   *, max_tafeln: int = 8) -> list[Treffer]:
+        """Sucht ALLE Tafeln desselben Bautyps -- aus EINER Vorlage.
+
+        WARUM ES DAS BRAUCHT -- Wunsch des Nutzers am 2026-09-09:
+
+            "ich moechte, dass ich wenn es eine komplett unbekannte Bahn ist,
+             eine verzerrte Tafel kalibriere, und er dann auch alle anderen
+             Bahnen dazu findet (Sie muessen immer derselbe Bautyp sein).
+             Also soll auch hier bitte immer nur ein Template genommen werden."
+
+        Das ist der eigentliche Nutzen: In einer fremden Halle EINE Tafel von
+        Hand vermessen -- gern die am schraegsten stehende, denn eine Vorlage
+        mit viel Perspektive traegt auch die geraden Faelle -- und den Rest
+        findet der Rechner.
+
+        DAS VERFAHREN: Beste Uebereinstimmung suchen, deren Merkmale aus dem
+        Zielbild ENTFERNEN, wieder suchen. Ohne das Entfernen faende jeder
+        Durchgang dieselbe Tafel; die vier Tafeln sehen einander ja gleich.
+
+        Die Treffer kommen von LINKS NACH RECHTS sortiert zurueck -- so, wie
+        die Bahnen in der Halle stehen. Welche Bahnnummer welche Tafel traegt,
+        entscheidet der Mensch; der Rechner kann es nicht wissen.
+        """
+        if ziel is None or ziel.size == 0 or not vorlagen:
+            return []
+
+        ziel_grau = self._grau(ziel)
+        kp_ziel, des_ziel = self._orb.detectAndCompute(ziel_grau, None)
+        if des_ziel is None or len(kp_ziel) < 10:
+            return []
+
+        # Veraenderliche Kopie: Gefundene Merkmale fallen heraus.
+        offen_kp = list(kp_ziel)
+        offen_des = des_ziel.copy()
+        treffer: list[Treffer] = []
+
+        for runde in range(max_tafeln):
+            bester: Treffer | None = None
+            beste_inlier_punkte: np.ndarray | None = None
+            for i, vorlage in enumerate(vorlagen):
+                ergebnis = self._eine_vorlage(
+                    vorlage, ziel, offen_kp, offen_des, i, (0, 0),
+                    mit_punkten=True)
+                if ergebnis is None:
+                    continue
+                kandidat, punkte = ergebnis
+                if bester is None or kandidat.inlier > bester.inlier:
+                    bester, beste_inlier_punkte = kandidat, punkte
+
+            if bester is None or bester.inlier < self.min_inlier:
+                if bester is not None:
+                    log.debug("Runde %d: nur %d tragende Merkmale -- Ende",
+                              runde + 1, bester.inlier)
+                break
+
+            treffer.append(bester)
+            offen_kp, offen_des = self._ohne_bereich(
+                offen_kp, offen_des, np.float32(bester.quad))
+            log.debug("Tafel %d gefunden (%d Merkmale), %d Merkmale bleiben",
+                      len(treffer), bester.inlier, len(offen_kp))
+            if len(offen_kp) < 20:
+                break
+
+        # Von links nach rechts -- die Reihenfolge der Bahnen in der Halle.
+        treffer.sort(key=lambda t: np.float32(t.quad)[:, 0].mean())
+        return treffer
+
+    @staticmethod
+    def _ohne_bereich(kp: list, des: np.ndarray, quad: np.ndarray):
+        """Entfernt alle Merkmale, die INNERHALB des Vierecks liegen.
+
+        Ohne diesen Schritt faende der naechste Durchgang wieder dieselbe
+        Tafel. Entfernt wird nach Lage, nicht nach RANSAC-Zugehoerigkeit:
+        Auch die Merkmale, die diesmal nicht getragen haben, gehoeren zu
+        dieser Tafel und wuerden den naechsten Durchgang stoeren.
+        """
+        kontur = quad.reshape(-1, 1, 2).astype(np.float32)
+        behalten = [i for i, p in enumerate(kp)
+                    if cv2.pointPolygonTest(kontur, p.pt, False) < 0]
+        if not behalten:
+            return [], np.empty((0, des.shape[1]), dtype=des.dtype)
+        return [kp[i] for i in behalten], des[behalten]
+
     # ------------------------------------------------------------- intern
 
     @staticmethod
@@ -203,9 +307,14 @@ class BoardFinder:
 
     def _eine_vorlage(self, vorlage: np.ndarray, ziel: np.ndarray,
                       kp_ziel, des_ziel, index: int,
-                      versatz: tuple[int, int]) -> Treffer | None:
+                      versatz: tuple[int, int], *, mit_punkten: bool = False):
+        """Eine Vorlage gegen ein Zielbild. Liefert `Treffer` oder None.
+
+        Mit `mit_punkten` zusaetzlich die tragenden Zielpunkte -- die braucht
+        `finde_alle`, um die gefundene Tafel aus der Suche zu nehmen.
+        """
         kp, des = self._orb.detectAndCompute(self._grau(vorlage), None)
-        if des is None or len(kp) < 10:
+        if des is None or len(kp) < 10 or des_ziel is None or len(kp_ziel) < 10:
             return None
 
         paare = self._matcher.knnMatch(des, des_ziel, k=2)
@@ -238,6 +347,10 @@ class BoardFinder:
             log.debug("Vorlage %d verworfen: %s", index, grund)
             return None
 
-        return Treffer(quad=[[float(x), float(y)] for x, y in quad],
-                       inlier=int(maske.sum()), paare=len(gut),
-                       vorlage_index=index)
+        gefunden = Treffer(quad=[[float(x), float(y)] for x, y in quad],
+                           inlier=int(maske.sum()), paare=len(gut),
+                           vorlage_index=index)
+        if not mit_punkten:
+            return gefunden
+        tragend = dst.reshape(-1, 2)[maske.ravel().astype(bool)]
+        return gefunden, tragend
