@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kegel-Liveticker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Liveticker</h1>
+  <div class="verbindung">
+    <span id="ampel" class="ampel" data-zustand="aus"></span>
+    <span id="verbindungstext">nicht verbunden</span>
+  </div>
+  <button id="btn-einstellungen" class="ghost" type="button">Einstellungen</button>
+</header>
+
+<section class="steuerung">
+  <div class="feld">
+    <label for="ab-zeit">Würfe ab</label>
+    <div class="zeile">
+      <input type="datetime-local" id="ab-zeit" step="1">
+      <button id="btn-jetzt" class="ghost klein" type="button">jetzt</button>
+      <button id="btn-heute" class="ghost klein" type="button">heute</button>
+    </div>
+  </div>
+
+  <div class="feld wachsend">
+    <label>Bahnen</label>
+    <div id="bahn-chips" class="chips"></div>
+  </div>
+
+  <div class="feld">
+    <label>Alle Bahnen</label>
+    <div class="zeile">
+      <button id="btn-alle-start" class="start" type="button">Start</button>
+      <button id="btn-alle-stopp" class="stopp" type="button">Stopp</button>
+    </div>
+  </div>
+
+  <div class="feld">
+    <label>CSV je Bahn</label>
+    <div class="zeile">
+      <button id="btn-ordner" class="ghost" type="button">Ordner wählen</button>
+      <button id="btn-download" class="ghost klein" type="button">herunterladen</button>
+    </div>
+    <small id="ordner-text" class="hinweis">kein Ordner gewählt — es wird nichts gespeichert</small>
+  </div>
+</section>
+
+<p id="meldung" class="meldung" hidden></p>
+
+<main id="bahnen" class="bahnen"></main>
+
+<p id="leer" class="leer">Noch keine Würfe. Sobald die Analyse Würfe an Supabase meldet, erscheinen sie hier.</p>
+
+<!-- Vorlage einer Bahnkarte. Wird je sichtbarer Bahn geklont. -->
+<template id="vorlage-bahn">
+  <article class="bahn">
+    <header class="bahn-kopf">
+      <h2 class="bahn-name">Bahn</h2>
+      <span class="abschnitt"></span>
+      <div class="zeile">
+        <button class="phase" type="button" title="Umschalten — gilt ab dem nächsten Wurf"></button>
+        <button class="phase-auto ghost klein" type="button" hidden>auto</button>
+        <button class="start" type="button">Start</button>
+        <button class="stopp" type="button">Stopp</button>
+      </div>
+    </header>
+
+    <div class="hero">
+      <figure class="letzter-wurf">
+        <div class="raute-gross"></div>
+        <figcaption class="letzter-text">noch kein Wurf</figcaption>
+      </figure>
+      <div class="kennzahlen">
+        <div class="kennzahl"><b class="k-summe">0</b><span>Gesamtsumme</span></div>
+        <div class="kennzahl"><b class="k-fehl">0</b><span>Fehlwürfe</span></div>
+        <div class="kennzahl"><b class="k-anzahl">0</b><span>Würfe</span></div>
+      </div>
+    </div>
+
+    <div class="tabelle-rahmen">
+      <table class="wuerfe">
+        <thead>
+          <tr><th>Nr.</th><th>Wert</th><th>Kegel</th><th>Bild</th><th>Zeit</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </article>
+</template>
+
+<dialog id="dlg-einstellungen">
+  <form method="dialog" class="einstellungen" id="cfg-form">
+    <h2 id="cfg-titel">Einstellungen</h2>
+
+    <!-- Wird ausgeblendet, sobald URL und Schlüssel fest eingebaut sind
+         (build.py). Dann bleibt nur noch die Bahnauswahl übrig. -->
+    <div id="cfg-verbindung" class="einstellungen">
+      <label>Projekt-URL
+        <input type="url" id="cfg-url" placeholder="https://….supabase.co">
+      </label>
+      <label>Schlüssel <small>(publishable / anon — nicht der geheime)</small>
+        <input type="password" id="cfg-key">
+      </label>
+      <label>Tabelle
+        <input type="text" id="cfg-table" value="throws">
+      </label>
+    </div>
+
+    <label>Bahnnummern <small>(durch Komma getrennt)</small>
+      <input type="text" id="cfg-lanes" placeholder="2,3,4,5">
+    </label>
+    <small id="cfg-fest" class="hinweis" hidden>
+      Verbindung ist fest eingebaut — es sind nur die Bahnnummern einzustellen.
+    </small>
+    <div class="dlg-knoepfe">
+      <button value="abbruch" class="ghost" type="submit">Abbrechen</button>
+      <button value="ok" id="cfg-ok" type="submit">Übernehmen</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-korrektur">
+  <form method="dialog" class="einstellungen" id="korrektur-form">
+    <h2>Wurf korrigieren</h2>
+    <p id="korrektur-kopf" class="hinweis"></p>
+
+    <p class="hinweis">
+      Anklicken, welche Kegel <b>wirklich gefallen</b> sind. Die Datenbank wird
+      dabei <b>nicht</b> geändert — die Messung bleibt erhalten und steht in der
+      CSV daneben.
+    </p>
+
+    <div id="korrektur-beleg" class="belege" hidden>
+      <figure class="beleg">
+        <img id="korrektur-bild-vorher" alt="Anzeigetafel vor dem Wurf">
+        <figcaption class="hinweis">davor — hierauf wurde geworfen</figcaption>
+      </figure>
+      <figure class="beleg">
+        <img id="korrektur-bild" alt="Anzeigetafel nach dem Wurf">
+        <figcaption class="hinweis">danach — daraus stammt das Ergebnis</figcaption>
+      </figure>
+    </div>
+    <p id="korrektur-beleg-fehlt" class="hinweis" hidden></p>
+
+    <div id="korrektur-raute" class="korrektur-raute"></div>
+    <p id="korrektur-stand" class="hinweis"></p>
+
+    <label>Bemerkung <small>(optional, landet in der CSV)</small>
+      <input type="text" id="korrektur-notiz" placeholder="z. B. Kegel 3 stand noch">
+    </label>
+
+    <div class="dlg-knoepfe">
+      <button value="zuruecknehmen" class="ghost klein" type="submit">Zurücknehmen</button>
+      <button value="abbruch" class="ghost" type="submit">Abbrechen</button>
+      <button value="ok" type="submit">Übernehmen</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Wird von start.py aus config/default.yaml und .env erzeugt und ist über
+     .gitignore ausgeschlossen. Fehlt sie, fragt der Einstellungsdialog. -->
+<script src="config.local.js" onerror="void 0"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

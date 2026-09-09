@@ -1,0 +1,3 @@
+# Von start.py erzeugt und enthaelt den Schluessel -- gehoert nicht in die
+# Versionsverwaltung, auch wenn es "nur" der oeffentliche ist.
+config.local.js

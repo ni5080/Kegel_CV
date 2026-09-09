@@ -1,0 +1,423 @@
+/*
+ * Dunkle Darstellung, bewusst und ohne Umschalter: Der Ticker steht neben der
+ * Bahn in einer abgedunkelten Halle. Die Zahlen sollen aus zwei Metern lesbar
+ * sein, deshalb sind sie gross und die Beschriftungen klein.
+ */
+
+:root {
+    --grund:      #14161a;
+    --karte:      #1c1f26;
+    --karte-rand: #2b303a;
+    --schrift:    #e8eaee;
+    --gedaempft:  #9aa2b1;
+    --akzent:     #ffaa3c;   /* Gefallene Kegel -- wie die Lampen der Tafel */
+    --akzent-warm:#ffd28a;
+    --gruen:      #4ec97a;
+    --rot:        #e2565a;
+    --stehend:    #3a4150;
+}
+
+* { box-sizing: border-box; }
+
+/* `hidden` muss staerker sein als jede Klasse, die `display` setzt.
+   Die eingebaute Regel des Browsers ist nur `[hidden] { display: none }` und
+   verliert damit gegen jeden Klassenselektor -- der Verbindungsblock im Dialog
+   blieb dadurch sichtbar, obwohl er ausgeblendet war (gemessen 2026-09-07). */
+[hidden] { display: none !important; }
+
+body {
+    margin: 0;
+    background: var(--grund);
+    color: var(--schrift);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+}
+
+/* ---------------------------------------------------------------- Kopfzeile */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: var(--karte);
+    border-bottom: 1px solid var(--karte-rand);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.topbar h1 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: 0.02em;
+}
+
+.verbindung {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    color: var(--gedaempft);
+    font-size: 13px;
+}
+
+.ampel {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--stehend);
+    flex: none;
+}
+.ampel[data-zustand="an"]     { background: var(--gruen); }
+.ampel[data-zustand="fehler"] { background: var(--rot); }
+
+/* --------------------------------------------------------------- Steuerung */
+
+.steuerung {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--karte-rand);
+}
+
+.feld { display: flex; flex-direction: column; gap: 6px; }
+.feld.wachsend { flex: 1 1 240px; }
+
+.feld > label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gedaempft);
+}
+
+.zeile { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+input[type="datetime-local"],
+input[type="text"],
+input[type="url"],
+input[type="password"] {
+    background: var(--grund);
+    color: var(--schrift);
+    border: 1px solid var(--karte-rand);
+    border-radius: 7px;
+    padding: 7px 9px;
+    font: inherit;
+    color-scheme: dark;
+}
+
+button {
+    font: inherit;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 7px 14px;
+    cursor: pointer;
+    background: var(--akzent);
+    color: #23180a;
+}
+button:disabled { opacity: 0.4; cursor: default; }
+
+button.ghost {
+    background: transparent;
+    border-color: var(--karte-rand);
+    color: var(--schrift);
+}
+button.klein { padding: 5px 10px; font-size: 13px; font-weight: 500; }
+button.start { background: var(--gruen); color: #0d2116; }
+button.stopp { background: transparent; border-color: var(--rot); color: var(--rot); }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.chip {
+    background: transparent;
+    border: 1px solid var(--karte-rand);
+    color: var(--gedaempft);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-weight: 600;
+}
+.chip[aria-pressed="true"] {
+    border-color: var(--akzent);
+    color: var(--akzent);
+    background: rgba(255, 170, 60, 0.10);
+}
+/* Sichtbar heisst: steht gerade wirklich im Bild. Auf dem Handy ist das
+   hoechstens eine Bahn -- ohne diese Markierung waere nicht erkennbar, welche. */
+.chip[data-sichtbar="ja"] {
+    background: var(--akzent);
+    color: #23180a;
+    border-color: var(--akzent);
+}
+
+.hinweis { color: var(--gedaempft); font-size: 12px; }
+
+.meldung {
+    margin: 0;
+    padding: 10px 16px;
+    background: rgba(226, 86, 90, 0.15);
+    border-bottom: 1px solid var(--rot);
+    color: var(--akzent-warm);
+    font-size: 13px;
+}
+
+.leer { color: var(--gedaempft); padding: 40px 16px; text-align: center; }
+
+/* ------------------------------------------------------------ Bahnenraster */
+
+.bahnen {
+    display: grid;
+    gap: 14px;
+    padding: 14px 16px 40px;
+    grid-template-columns: repeat(var(--spalten, 2), minmax(0, 1fr));
+}
+
+.bahn {
+    background: var(--karte);
+    border: 1px solid var(--karte-rand);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    /* Der Kopfbereich richtet sich nach der Breite der KARTE, nicht nach der
+       des Fensters. Bei vier Bahnen nebeneinander sind die Karten schmal,
+       obwohl das Fenster breit ist -- an der Fensterbreite gemessen liefen die
+       Beschriftungen ineinander. */
+    container-type: inline-size;
+}
+.bahn[data-laeuft="ja"] { border-color: var(--gruen); }
+
+.bahn-kopf {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--karte-rand);
+}
+.bahn-name { margin: 0; font-size: 18px; white-space: nowrap; }
+.abschnitt { color: var(--gedaempft); font-size: 12px; margin-right: auto; }
+.bahn-kopf button { padding: 6px 12px; white-space: nowrap; }
+
+/* -------------------------------------------------------------- Kopfbereich */
+
+.hero {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 14px;
+    border-bottom: 1px solid var(--karte-rand);
+}
+
+.letzter-wurf { margin: 0; text-align: center; flex: none; }
+.letzter-text { color: var(--gedaempft); font-size: 12px; margin-top: 6px; }
+
+.kennzahlen {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+.kennzahl { display: flex; flex-direction: column; min-width: 0; }
+.kennzahl b {
+    /* Nach oben begrenzt, weil die Gesamtsumme vierstellig wird: Bei 40 px
+       lief "2728" in die Nachbarspalte. Gemessen an einer Karte von 430 px. */
+    font-size: clamp(20px, 8cqw, 34px);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+}
+.kennzahl span {
+    /* Klein und eng: "GESAMTSUMME" ist das laengste Wort und brach sonst mit
+       einem einzelnen "E" in die zweite Zeile um. */
+    font-size: clamp(9px, 2.2cqw, 10px);
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    color: var(--gedaempft);
+    overflow-wrap: anywhere;
+    hyphens: none;
+}
+.k-fehl { color: var(--rot); }
+
+/* Schmale Karte (vier Bahnen nebeneinander, oder Handy): Das Kegelbild steht
+   dann ueber den Zahlen statt daneben -- nebeneinander bliebe fuer beides zu
+   wenig Platz. */
+@container (max-width: 380px) {
+    .hero { flex-direction: column; align-items: stretch; gap: 12px; }
+    .letzter-wurf { align-self: center; }
+}
+
+/* ---------------------------------------------------------------- Tabelle */
+
+.tabelle-rahmen { overflow: auto; max-height: 46vh; }
+
+table.wuerfe { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+
+table.wuerfe th {
+    position: sticky;
+    top: 0;
+    background: var(--karte);
+    color: var(--gedaempft);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--karte-rand);
+}
+
+table.wuerfe td {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(43, 48, 58, 0.6);
+    vertical-align: middle;
+}
+
+.nr   { font-weight: 700; }
+.wert { font-size: 20px; font-weight: 700; }
+.kegel { color: var(--gedaempft); font-size: 13px; letter-spacing: 0.08em; }
+.zeit  { color: var(--gedaempft); font-size: 12px; white-space: nowrap; }
+
+/* Ein Wurf ausserhalb eines Abschnitts -- Warmwerfen. Er wird gezeigt, aber er
+   zaehlt nicht: die Daempfung ist die Begruendung dafuer. */
+tr.ausserhalb { opacity: 0.42; }
+tr.fehlwurf .wert { color: var(--rot); }
+
+/* Neu eingetroffener Wurf blitzt kurz auf -- sonst uebersieht man ihn. */
+@keyframes neu {
+    from { background: rgba(255, 170, 60, 0.30); }
+    to   { background: transparent; }
+}
+tr.neu { animation: neu 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { tr.neu { animation: none; } }
+
+/* ------------------------------------------------------------------- Raute */
+
+svg.raute .gefallen { fill: var(--akzent); stroke: var(--akzent-warm); }
+svg.raute .steht    { fill: var(--stehend); stroke: #4b5468; }
+/* Lag schon vor diesem Wurf: nur ein Umriss. Im Abraeumen ist das der
+   Unterschied zwischen "steht noch" und "war schon weg" -- ohne ihn waere aus
+   dem Bild nicht zu erkennen, worauf geworfen wurde. */
+svg.raute .weg      { fill: none; stroke: #333a47; stroke-dasharray: 2 2; }
+svg.raute circle    { stroke-width: 1.5; }
+
+/* ------------------------------------------------------- Phase und Marken */
+
+button.phase {
+    background: transparent;
+    border-color: var(--karte-rand);
+    color: var(--gedaempft);
+    font-size: 12px;
+    padding: 5px 10px;
+}
+button.phase[data-phase="abraeumen"] { color: var(--akzent); border-color: var(--akzent); }
+/* Von Hand gesetzt: ausgefuellt, damit man es von der Automatik unterscheidet. */
+button.phase[data-von-hand="ja"] {
+    background: var(--akzent);
+    color: #23180a;
+    border-color: var(--akzent);
+}
+
+td.marken { text-align: right; white-space: nowrap; }
+.marke {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 2px 5px;
+    margin-left: 4px;
+}
+.marke.korr     { background: rgba(78, 201, 122, 0.18); color: var(--gruen); }
+.marke.konflikt { background: rgba(226, 86, 90, 0.20); color: var(--rot); }
+
+tr.klickbar { cursor: pointer; }
+tr.klickbar:hover { background: rgba(255, 255, 255, 0.04); }
+tr.widerspruch td { box-shadow: inset 2px 0 0 var(--rot); }
+tr.korrigiert .wert { color: var(--gruen); }
+
+/* ------------------------------------------------------- Korrektur-Raute */
+
+.korrektur-raute {
+    position: relative;
+    /* Faellt bei niedrigen Fenstern mit -- sonst passt der Dialog nicht. */
+    width: min(220px, 42vh);
+    height: min(240px, 46vh);
+    align-self: center;
+    margin: 4px 0;
+}
+.kegel-knopf {
+    position: absolute;
+    /* `left`/`top` bezeichnen den Mittelpunkt -- siehe app.js. */
+    transform: translate(-50%, -50%);
+    width: 18%;
+    aspect-ratio: 1;
+    min-width: 30px;
+    font-size: clamp(12px, 3.5vh, 15px);
+    padding: 0;
+    border-radius: 50%;
+    font-weight: 700;
+    background: var(--stehend);
+    color: var(--gedaempft);
+    border: 2px solid #4b5468;
+}
+.kegel-knopf[data-gefallen="ja"] {
+    background: var(--akzent);
+    color: #23180a;
+    border-color: var(--akzent-warm);
+}
+
+/* --------------------------------------------------------------- Dialog */
+
+dialog {
+    background: var(--karte);
+    color: var(--schrift);
+    border: 1px solid var(--karte-rand);
+    border-radius: 12px;
+    padding: 20px;
+    max-width: 420px;
+    width: calc(100% - 32px);
+    /* Sonst waechst der Korrekturdialog ueber den Bildschirmrand hinaus und
+       die Ueberschrift wird oben abgeschnitten (gemessen bei 455 px Hoehe). */
+    max-height: 90vh;
+    /* Nur senkrecht rollen. Waagerecht gibt es nichts zu sehen -- `auto` zeigte
+       dort trotzdem eine Leiste, sobald der senkrechte Balken Platz nahm. */
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.einstellungen { display: flex; flex-direction: column; gap: 12px; }
+.einstellungen h2 { margin: 0; font-size: 16px; }
+.einstellungen label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.einstellungen small { color: var(--gedaempft); font-weight: 400; }
+/* Umbrechen erlaubt: Drei Knoepfe passen im Korrekturdialog nicht in eine
+   Zeile und erzeugten sonst einen waagerechten Rollbalken. */
+.dlg-knoepfe { display: flex; gap: 10px; justify-content: flex-end;
+               margin-top: 6px; flex-wrap: wrap; }
+
+/* --------------------------------------------------------------- Schmal */
+
+@media (max-width: 700px) {
+    .steuerung { gap: 12px; padding: 12px; }
+    .bahnen { padding: 12px 12px 32px; }
+    .hero { flex-direction: column; align-items: stretch; gap: 12px; }
+    .letzter-wurf { align-self: center; }
+    .tabelle-rahmen { max-height: none; }
+}
+
+/* -------------------------------------------------- Beleg im Korrekturdialog */
+
+.belege { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+/* Begrenzt, damit ein EINZELNES Bild den Dialog nicht auseinanderzieht -- und
+   damit zwei nebeneinander passen, ohne umzubrechen. */
+.beleg { margin: 0; text-align: center; flex: 0 1 165px; min-width: 0; }
+.beleg img {
+    /* Der Ausschnitt ist rund 152 px breit -- vergroessert dargestellt, damit
+       die Lampen und Ziffern erkennbar bleiben. `pixelated`, weil Glaetten die
+       einzelnen Lampen ineinanderlaufen liesse. */
+    width: 100%;
+    image-rendering: pixelated;
+    border-radius: 6px;
+    border: 1px solid var(--karte-rand);
+    background: #000;
+}
+.beleg figcaption { margin-top: 5px; }

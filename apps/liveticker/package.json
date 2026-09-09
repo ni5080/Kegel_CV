@@ -1,0 +1,10 @@
+{
+  "name": "kegel-liveticker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Liveticker: liest die erkannten Wuerfe aus Supabase und fuehrt Wurfnummer, Summe und Fehlwuerfe selbst",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

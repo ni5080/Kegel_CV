@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kegel-cv"
+version = "0.1.0"
+description = "Automatische Kegelerfassung aus Kegelbahn-Videos"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.8",
+    "numpy>=1.23",
+    "PySide6>=6.5",
+    "PyYAML>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+
+[project.scripts]
+kegel-cv = "kegel_cv.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: Test benoetigt echte Frames oder Videodateien",
+    "gui: Test benoetigt eine QApplication",
+]
+
+[tool.coverage.run]
+source = ["src/kegel_cv"]
+omit = ["*/gui/*"]

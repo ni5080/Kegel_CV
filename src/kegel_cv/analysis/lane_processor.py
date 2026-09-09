@@ -1,0 +1,1172 @@
+"""Verarbeitung einer einzelnen Bahn.
+
+Eine Instanz pro Bahn (Prinzip P6). Der Prozessor kennt die Kalibrierung seiner
+Bahn, schneidet die ROIs aus jedem Frame und fuehrt die Zustandsmaschine.
+
+Kostenstaffel (Auftrag Paragraph 20):
+    JEDER Frame        -> nur die gruene Lampe (ein ROI von ca. 60 px)
+    BEI GREEN_OFF      -> die neun Kegellampen als WURFERGEBNIS
+    jeden n-ten Frame  -> die neun Kegellampen nur fuer die ANZEIGE
+"""
+
+from __future__ import annotations
+
+import logging
+from collections import deque
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from ..calibration.geometry import GeometryError, norm_rect_to_frame_bbox
+from ..calibration.model import LaneCalibration
+from ..config.schema import AppConfig
+from ..detection.digit_detector import DigitReading
+from ..detection.digit_reader import CalibratedDigitReader
+from ..detection.digit_templates import TemplateDigitDetector
+from ..detection.lamp_detectors import HsvGreenDetector, WarmthLampDetector
+from ..detection.state_machine import EventType, LaneEvent, LaneState, LaneStateMachine
+from ..models.readings import (LampReading, LampState, PinLampReading,
+                              baseline_aus_zwei,
+                              aggregate_pin_readings)
+from ..video.source import Frame, FrameBuffer
+from .frame_sampler import FrameSampler, SampleEvent
+from .board_image import encode_board
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class LaneObservation:
+    """Momentaufnahme einer Bahn -- das, was die GUI live anzeigt."""
+
+    lane_id: int
+    display_number: int
+    state: LaneState
+    green: LampReading
+    pins: PinLampReading | None = None
+    throw_count: int = 0
+    running_total: int = 0
+    last_event: LaneEvent | None = None
+    sampling: bool = False          # laeuft gerade ein Sampling-Vorgang?
+
+    @property
+    def green_text(self) -> str:
+        return {LampState.ON: "AN", LampState.OFF: "AUS"}.get(self.green.state, "?")
+
+
+class LaneProcessor:
+    """Verarbeitet Frames einer Bahn und meldet Ereignisse."""
+
+    def __init__(self, lane: LaneCalibration, cfg: AppConfig) -> None:
+        self.lane = lane
+        self.cfg = cfg
+        self.lane_id = lane.lane_id
+        self.display_number = lane.display_number
+
+        self.green_detector = HsvGreenDetector(cfg.detection.green)
+        self.lamp_detector = WarmthLampDetector(cfg.detection.lamps)
+        self.state_machine = LaneStateMachine(
+            lane_id=lane.lane_id,
+            cfg=cfg.state_machine,
+            min_stable_frames=cfg.detection.green.min_stable_frames,
+        )
+        # KEIN eigener Punktestand: Gebucht wird ausschliesslich im
+        # ThrowAnalyzer. Zwei Zaehler waeren zwei Wahrheiten -- die Anzeige
+        # zeigte 0, waehrend die Tabelle korrekte Summen enthielt.
+        self.throw_count = 0
+        self.running_total = 0
+
+        # Die ROI-Rechtecke haengen nur von der Kalibrierung ab, nicht vom Frame.
+        # Einmal vorberechnen statt 25-mal pro Sekunde -- das ist der Unterschied
+        # zwischen Echtzeit und Diashow.
+        self._transform = None
+        self._green_box: tuple[int, int, int, int] | None = None
+        self._lamp_boxes: list[tuple[int, int, int, int]] = []
+        # Das Tafelbild, VOR dem der Spieler stand: der letzte Ausschnitt,
+        # solange Gruen noch an war. Beim Abraeumen ist das die Aufstellung,
+        # in die geworfen wird -- aus der Datenbank allein nicht zu
+        # rekonstruieren. Roh gehalten und erst bei GREEN_OFF kodiert:
+        # ein JPEG je Frame und Bahn waere reine Verschwendung.
+        self._green_on_frame: int | None = None
+        self._board_before: str | None = None
+        self._pin_numbers: list[int] = []
+        self._boxes_ready = False
+
+        self._last_green = LampReading.unknown("green_lamp")
+        # Ergebniswert (nur bei GREEN_OFF) und Anzeigewert (regelmaessig) sind
+        # bewusst getrennt -- siehe process()
+        self._result_pins: PinLampReading | None = None
+        self._display_pins: PinLampReading | None = None
+        # RAEUMEN (vom Nutzer erklaert): Geht die gruene Lampe an und es
+        # leuchten bereits Kegellampen, muessen nur die noch stehenden Kegel
+        # geraeumt werden. Die schon leuchtenden Lampen gehoeren NICHT zu diesem
+        # Wurf. Das Wurfergebnis ist deshalb die DIFFERENZ zwischen dem Stand
+        # bei GREEN_OFF und dem Stand bei GREEN_ON -- nicht der Endstand.
+        self._pending_baseline: PinLampReading | None = None   # Wurf laeuft
+        self._baseline_samples: list[PinLampReading] = []
+        self._baseline_start: int | None = None                # Frame des GREEN_ON
+        self._baseline_pins: PinLampReading | None = None      # Wurf beendet
+        # Alle Lampenmessungen des laufenden Ereignisses. Siehe BUG-007a:
+        # Die Blinkperiode ist mit 28-30 Frames LAENGER als das Sampling-Fenster,
+        # die Dunkelphase mit bis zu 15 Frames ebenfalls. Vier Frames innerhalb
+        # von zehn koennen daher vollstaendig in einer Dunkelphase liegen.
+        # Deshalb wird ueber das GANZE Fenster zwischen GREEN_OFF und dem
+        # naechsten GREEN_ON gesammelt -- die Messungen dafuer laufen ohnehin.
+        self._result_samples: list[PinLampReading] = []
+        # Mitlesungen der SPAET aktualisierten Felder (Summe). Siehe
+        # `read_late_fields`: Die Tafel traegt das Wurfergebnis erst kurz vor dem
+        # naechsten GREEN_ON ein -- der Nutzer hat darauf hingewiesen, die
+        # Messung bestaetigt es.
+        self._late_samples: dict[str, deque[DigitReading]] = {}
+        # SPIELWECHSEL (vom Nutzer beschrieben, 2026-08-28): Zwischen zwei
+        # Spielen zeigt die untere Reihe `000  0000` -- Wurfnummer und Summe
+        # zugleich auf null. GEMESSEN am 52-Minuten-Video: Der Zustand steht
+        # 20 bis 90 Sekunden, tritt an allen drei Satzgrenzen auf allen vier
+        # Bahnen auf und kam in 3000 Kontrollframes mitten im Satz KEIN
+        # einziges Mal vor. Die Bahnen wechseln dabei NICHT gleichzeitig --
+        # zwischen der ersten und der letzten lagen 36 Sekunden. Deshalb wird
+        # je Bahn eigenstaendig gezaehlt (P6).
+        #
+        # Der Zustand steht in der PAUSE -- also im Fenster des LETZTEN Wurfs
+        # des alten Spiels, nicht im Fenster des ersten neuen. GEMESSEN auf
+        # Bahn 2 an der ersten Satzgrenze:
+        #
+        #     F18594   letzter Wurf Satz 1, gruen aus
+        #     F18900   Nullzustand beginnt      <- Fenster dieses Wurfs
+        #     F20025   Nullzustand endet
+        #     F20148   erster Wurf Satz 2, gruen aus
+        #
+        # Deshalb wird das Zeichen um genau einen Wurf verzoegert weitergegeben.
+        self._reset_observations = 0
+        self._reset_latch = False
+        self._verlassen_observations = 0
+        self._reset_seen = False        # im laufenden Fenster gesehen
+        self._reset_carry = False       # gilt dem naechsten ausgewerteten Wurf
+        self._reset_pending = False     # gilt dem Wurf, der gerade ausgewertet wird
+
+        # Das SAMMELFENSTER (Gruen-AUS bis zum naechsten Gruen-AN) ist nicht
+        # mehr dasselbe wie das Wurffenster: Der Wurf wird frueher gemeldet
+        # (`sampling.report_after_green_off`), aber Summe und Spielwechsel
+        # stehen erst spaeter in der Anzeige und werden weiter mitgelesen.
+        self._window_open = False
+        self._green_off_frame: int | None = None
+        # Lampenmessungen WAEHREND der Gruenphase -- dort fallen die Kegel.
+        self._green_phase_samples: list[PinLampReading] = []
+        # VERDECKUNG IM LAUFENDEN FENSTER (BUG-017). Die Verdeckungsbremse
+        # friert Zustand und Messung waehrend der Verdeckung zwar ein, aber
+        # wenn das Fenster GENAU beim Wiedersichtbarwerden mit GREEN_ON
+        # schliesst, geht ein leeres Ergebnis (0 Kegel) trotzdem als
+        # bestaetigt durch -- dabei wurde in Wahrheit nichts gesehen, nicht
+        # nichts geworfen. GEMESSEN an drei Faellen (Bahn5 F15569/F16256,
+        # Bahn2 F265724): Alle drei haben eine Verdeckung MITTEN in ihrem
+        # eigenen Sammelfenster, alle drei wurden als "0 Kegel, EMPTY"
+        # gebucht. Deshalb: Merken, ob die Verdeckungsbremse waehrend eines
+        # offenen Fensters ausgeloest hat, und dem Analyzer mitgeben.
+        self._occlusion_during_window = False
+
+        # FEHLWURFZAEHLER. Faellt bei einem Wurf kein Kegel, schaltet die
+        # Anlage die gruene Lampe gar nicht aus -- es gibt nichts zu zaehlen
+        # und nichts aufzustellen. Der Wurf ist damit fuer den Trigger
+        # unsichtbar (Q10). Der Zaehler im linken Display ist die einzige
+        # unabhaengige Quelle dafuer.
+        #
+        # Deshalb wird er IMMER gelesen, nicht nur im Wurffenster: Der Nullwurf
+        # geschieht ja, waehrend die gruene Lampe an ist.
+        self._foul_value: int | None = None        # letzter stabiler Stand
+        self._foul_candidate: int | None = None
+        self._foul_repeats = 0
+        # Frame, Zeit, Wurfnummer der Tafel (soweit lesbar). Die Nummer
+        # kommt mit, damit der Fehlwurf nicht blind fortgezaehlt wird --
+        # sonst ist dieser Pfad blind fuer Spielgrenzen.
+        self._foul_events: list[tuple[int, float, int | None]] = []
+
+        # Wie viele Frames in Folge die Tafel verdeckt war
+        self._occlusion_frames = 0
+        self._live_interval = cfg.detection.lamps.live_preview_interval
+        # Die letzten Anzeigemessungen -- NUR fuer die Live-Anzeige; die
+        # Zaehlung ruehrt sie nicht an (siehe `_geglaettete_anzeige`).
+        # Frames -> Messungen: Gelesen wird nur jeder `live_interval`-te.
+        takt_anzeige = max(1, self._live_interval)
+        self._display_history = deque(maxlen=max(1,
+            cfg.detection.lamps.live_preview_smoothing_frames // takt_anzeige))
+
+        # Der Lampenstand WAEHREND der Pause (BUG-016). Er ist die zweite,
+        # von der Gruenerkennung unabhaengige Quelle fuer die Grundlinie:
+        # Beim Raeumen bleiben die Ergebnislampen an, bis der naechste Wurf
+        # abgeschlossen ist -- der Stand kurz vor dem Gruen-AN muss also
+        # derselbe sein wie kurz danach. Weicht er ab, ist inzwischen etwas
+        # gefallen, und das gehoert zum Wurf.
+        takt = max(1, self._live_interval)
+        self._pause_samples: deque[PinLampReading] = deque(
+            maxlen=max(1, cfg.sampling.baseline_before_frames // takt))
+        self._before_pins: PinLampReading | None = None
+        # Wird von der Pipeline gesetzt. None heisst: keine Spur.
+        self.lamp_trace = None
+        self._late_interval = cfg.detection.digits.late_read_interval
+        self._late_keep = cfg.detection.digits.late_keep
+        self.sampler = FrameSampler(lane.lane_id, cfg.sampling)
+        self._preview_warned = False
+
+        # Ziffernfelder: Name -> Stellenzahl. Die Ziffern sind Gegenprobe,
+        # nicht Hauptquelle (siehe throw_analyzer).
+        self.digit_detector = TemplateDigitDetector(cfg.detection.digits)
+        # Leser fuer einzeln eingerahmte Ziffern. Wird bevorzugt, wo Rahmen
+        # vorliegen: GEMESSEN 8/12 gegenueber 7/12 -- und bei der Wurfnummer,
+        # die den Double-Counting-Schutz traegt, 4/4 statt 2/4.
+        self.digit_reader = CalibratedDigitReader(cfg.detection.digits)
+        self._digit_boxes: dict[str, tuple[tuple[int, int, int, int], int]] = {}
+        # Name -> Liste der Boxen je Stelle (nur wo einzeln eingerahmt)
+        self._digit_cell_boxes: dict[str, list[tuple[int, int, int, int]]] = {}
+        # Feinausrichtung je Stelle, einmal je Video bestimmt (siehe
+        # refine_digit_boxes). Die Rahmen werden von Hand gesetzt; ein Versatz
+        # von ein bis zwei Pixeln entscheidet bei 13x18 px grossen Ziffern
+        # darueber, ob ein Segment in seiner Messflaeche liegt.
+        self._digit_shifts: dict[str, list[tuple[int, int]]] = {}
+        self._refined = False
+
+    # ------------------------------------------------------------- Vorbereitung
+
+    def prepare(self, frame_shape: tuple[int, ...]) -> bool:
+        """Berechnet die ROI-Rechtecke fuer die Bildgroesse. Einmal pro Video."""
+        try:
+            self._transform = self.lane.transform(
+                self.cfg.calibration.warped_width, self.cfg.calibration.warped_height
+            )
+        except GeometryError as exc:
+            log.error("Bahn %d: Kalibrierung unbrauchbar: %s", self.display_number, exc)
+            return False
+
+        green_roi = self.lane.get_roi("green_lamp")
+        if green_roi is None:
+            log.error("Bahn %d: keine ROI fuer die gruene Lampe -- Bahn wird "
+                      "uebersprungen", self.display_number)
+            return False
+
+        self._green_box = norm_rect_to_frame_bbox(
+            self._transform, green_roi.rect, frame_shape
+        )
+
+        self._lamp_boxes = []
+        self._pin_numbers = []
+        for roi in self.lane.pin_lamps():
+            if not roi.enabled:
+                continue
+            self._lamp_boxes.append(
+                norm_rect_to_frame_bbox(self._transform, roi.rect, frame_shape)
+            )
+            # Fallback auf den Lampenindex, falls kein Mapping gepflegt ist.
+            # Das trifft nur alte Kalibrierungen -- seit Q5 (2026-09-01) traegt
+            # jede Lampe ihre Kegelnummer, und die ist NICHT ihr Index.
+            self._pin_numbers.append(
+                roi.pin_number if roi.pin_number is not None
+                else int(roi.name.removeprefix("pin_lamp_"))
+            )
+
+        if not self._lamp_boxes:
+            log.warning("Bahn %d: keine Kegellampen kalibriert -- nur "
+                        "Gruenerkennung moeglich", self.display_number)
+
+        # Ziffernfelder mit ihrer Stellenzahl
+        self._digit_boxes = {}
+        self._digit_cell_boxes = {}
+        for name, digits in (("throw_number", 3), ("pin_count", 1),
+                             ("total_a", 4), ("total_b", 4), ("left_display", 2)):
+            # Einzeln eingerahmte Stellen haben Vorrang
+            cells = self.lane.digit_rois(name)
+            if cells:
+                self._digit_cell_boxes[name] = [
+                    norm_rect_to_frame_bbox(self._transform, c.rect, frame_shape)
+                    for c in cells
+                ]
+                continue
+            roi = self.lane.get_roi(name)
+            if roi is None or not roi.enabled:
+                continue
+            self._digit_boxes[name] = (
+                norm_rect_to_frame_bbox(self._transform, roi.rect, frame_shape), digits
+            )
+
+        self._boxes_ready = True
+        log.info("Bahn %d vorbereitet: Gruenlampe %s, %d Kegellampen, "
+                 "%d Ziffernfelder (%d davon stellenweise eingerahmt)",
+                 self.display_number, self._green_box, len(self._lamp_boxes),
+                 len(self._digit_boxes) + len(self._digit_cell_boxes),
+                 len(self._digit_cell_boxes))
+        return True
+
+    def _read_late_fields(self, frame: Frame) -> None:
+        """Liest die spaet aktualisierten Felder und behaelt die juengsten Werte.
+
+        GEMESSEN auf Bahn 4 ueber drei vollstaendige Wurffenster (216-338 Frames
+        zwischen GREEN_OFF und dem naechsten GREEN_ON):
+
+            Wurf 1   frueh (+2 .. +30):  001 6 0000     Summe noch der alte Stand
+                     spaet (-60 .. -8):  001 6 0006     Summe eingetragen (0+6)
+            Wurf 3   frueh:              003 5 0014
+                     spaet:              003 5 0019     14+5 stimmt
+
+        Das Sampling-Fenster umfasst rund 34 Frames -- die Summe wurde damit
+        ausnahmslos im ALTEN Stand gelesen. Genau daher passte der Summenzuwachs
+        zum jeweils VORHERIGEN Wurf (gemessen 18 Treffer gegen 8).
+        """
+        for name in self.cfg.detection.digits.late_fields:
+            boxes = self._digit_cell_boxes.get(name)
+            if not boxes:
+                continue
+            try:
+                reading = self.digit_reader.read_field(
+                    [self._crop(frame.image, box) for box in boxes])
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Bahn %d: Feld '%s' in Frame %d nicht lesbar: %s",
+                          self.display_number, name, frame.index, exc)
+                continue
+            self._late_samples.setdefault(
+                name, deque(maxlen=self._late_keep)).append(reading)
+
+    def _pruefe_nullzustand(self, frame: Frame) -> None:
+        """Zaehlt Frames, in denen die untere Reihe auf `000  0000` steht.
+
+        WARUM UNABHAENGIG VOM WURFFENSTER: Frueher hing diese Pruefung an
+        `_read_late_fields`, also an der Zeit zwischen GREEN_OFF und dem
+        naechsten GREEN_ON. Ob ein Spielwechsel erkannt wurde, entschied damit
+        der Zufall -- naemlich ob die Anlage die Anzeige gerade waehrend einer
+        Gruenpause zuruecksetzte. GEMESSEN am 2026-08-30:
+
+            Bahn 2   000/0000 stand F127115-F128475 (54 s)
+                     Fenster offen bis F127177 -- 62 Frames.  NICHT erkannt
+            Bahn 3   000/0000 stand F126680-F128715 (81 s)
+                     Fenster offen bis F126964 -- 284 Frames. erkannt
+
+        Ueber die ganze Aufzeichnung fand Bahn 2 dadurch 2 Spielenden, Bahn 3
+        dreizehn -- bei nahezu gleicher Wurfzahl (~370 je Bahn).
+
+        Die Wurfnummer wird NUR gelesen, wenn die Summe null zeigt. Damit
+        kostet die Pruefung im laufenden Spiel fast nichts -- dort ist die
+        Summe fast immer von null verschieden. Mit
+        `scoring.game_reset_number_only` entfaellt diese Abkuerzung: Dann wird
+        die Wurfnummer in jedem geprueften Frame gelesen, was Rechenzeit
+        kostet. Das Tempo eines Laufs zeigt, wieviel.
+
+        Warum urspruenglich beide Felder und nicht nur die Wurfnummer: Eine
+        unlesbare Anzeige koennte einzeln als Null durchgehen. Zwei getrennt
+        gelesene Felder, die gleichzeitig null zeigen, sind das nicht.
+
+        WARUM DAS INZWISCHEN SCHADET (`scoring.game_reset_number_only`): Die
+        Summe ist der TORWAECHTER -- ist sie unlesbar, wird die Wurfnummer nie
+        geprueft. Gemessen am Spieltag 2026-08-22 ist die Summe aber genau das
+        schwaechere der beiden Felder, die Wurfnummer das staerkere. Der zweite
+        Zeuge kostet damit mehr, als er einbringt. Die Absicherung gegen eine
+        einzelne Fehllesung leistet ohnehin `game_reset_min_frames`: Mehrere
+        Messungen in Folge muessen null zeigen, und `is_readable` faengt die
+        unlesbare Anzeige ab, bevor sie als Null durchgeht.
+        """
+        summe_boxes = self._digit_cell_boxes.get(
+            self.cfg.scoring.game_reset_total_field)
+        nummer_boxes = self._digit_cell_boxes.get(
+            self.cfg.scoring.game_reset_number_field)
+        nur_nummer = self.cfg.scoring.game_reset_number_only
+        if not nummer_boxes or (not summe_boxes and not nur_nummer):
+            return
+        if not nur_nummer:
+            try:
+                summe = self.digit_reader.read_field(
+                    [self._crop(frame.image, box) for box in summe_boxes])
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Bahn %d: Summe in Frame %d nicht lesbar: %s",
+                          self.display_number, frame.index, exc)
+                return
+            if not summe.is_readable:
+                return
+            if summe.value != 0:
+                self._nullzustand_verlassen()
+                return
+        try:
+            nummer = self.digit_reader.read_field(
+                [self._crop(frame.image, box) for box in nummer_boxes])
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Bahn %d: Wurfnummer in Frame %d nicht lesbar: %s",
+                      self.display_number, frame.index, exc)
+            return
+        if not nummer.is_readable:
+            return
+        if nummer.value != 0:
+            self._nullzustand_verlassen()
+            return
+
+        self._verlassen_observations = 0
+        self._reset_observations += 1
+        # SPERRE gegen Doppelmeldungen. Der Nullzustand steht gemessen 40 bis
+        # 91 Sekunden; die Pruefung trifft ihn in dieser Zeit vielfach. Ohne
+        # Sperre wurde derselbe Spielwechsel zweimal gemeldet -- GEMESSEN 60
+        # bis 255 Frames auseinander, beide Male innerhalb desselben
+        # Abschnitts. Jede zweite Meldung erzeugte einen Geisterlauf mit
+        # "voriges Spiel endete mit 0 Kegeln".
+        #
+        # Die Sperre faellt erst, wenn die Anzeige den Nullzustand
+        # nachweislich VERLASSEN hat -- nicht nach einer Zeitspanne. Wie lange
+        # die Anlage stehen bleibt, entscheidet die Halle, nicht wir.
+        if (not self._reset_latch
+                and self._reset_observations >= self.cfg.scoring.game_reset_min_frames):
+            self._reset_seen = True
+            self._reset_latch = True
+            log.info("Bahn %d: Anzeige steht bei Frame %d auf 000/0000 "
+                     "-- die Anlage hat das Spiel beendet",
+                     self.display_number, frame.index)
+
+    def _nullzustand_verlassen(self) -> None:
+        """Die Anzeige zeigt etwas anderes als null -- aber sagt EINE Messung das?
+
+        Nein. GEMESSEN am 2026-08-30 auf Bahn 2, Frames 127115-128475: Die
+        Anzeige stand 54 Sekunden auf 000/0000, aber nur 184 von 273 Messungen
+        lasen sie auch so (67 %). Der Rest war unlesbar oder falsch.
+
+        Eine einzelne Fehllesung hob dadurch die Sperre auf, und derselbe
+        Spielwechsel wurde FUENFMAL gemeldet -- bei F127250, F127375, F127825,
+        F128075 und F128225, alle innerhalb desselben Abschnitts.
+
+        Deshalb dieselbe Regel wie beim Betreten: Erst mehrere Messungen in
+        Folge belegen, dass die Anzeige den Nullzustand wirklich verlassen hat.
+
+        WIE VIELE, ist gemessen (Abschnitt F164535-F166780, Takt 25 Frames):
+        die laengste Straehne von Nicht-Null-Messungen INNERHALB des
+        Nullzustands lag bei 6 (Bahn 4), auf Bahn 2 bei 3. Mit einer Schwelle
+        von 3 meldete Bahn 4 denselben Wechsel dreimal.
+        """
+        self._reset_observations = 0
+        self._verlassen_observations += 1
+        if self._verlassen_observations >= self.cfg.scoring.game_reset_leave_frames:
+            self._reset_latch = False
+
+    def _pruefe_fehlwurfzaehler(self, frame: Frame) -> None:
+        """Verfolgt den Fehlwurfzaehler und meldet stabile ANSTIEGE.
+
+        Ein Anstieg heisst: Auf dieser Bahn ist ein Wurf gefallen, bei dem kein
+        Kegel umging. Ein RUECKFALL ist der Spielwechsel -- die Anlage setzt
+        den Zaehler mit allem anderen zurueck; das ist kein Wurf.
+
+        GEMESSEN ueber 52 Minuten auf Bahn 2 (tools/verify_foul_counter.py):
+
+            11 638 von 15 557 Messungen lesbar (74,8 %)
+            Rohwerte: {0: 10711, 1: 776, 3: 147, 7: 3, 70: 1}
+
+            nach dem Stabilitaetsfilter blieben drei Werte:
+                F    35   Zaehler = 0
+                F 51230   Zaehler = 1   <- der Nullwurf aus dem Wurfprotokoll
+                F 58585   Zaehler = 0   <- Ruecksetzung beim Spielwechsel
+
+        Genau EIN Anstieg, und genau an der Stelle, an der im handgefuehrten
+        Protokoll der einzige Nullwurf dieser Bahn steht. Das Rauschen (147-mal
+        "3") ueberstand den Filter nirgends.
+        """
+        boxes = self._digit_cell_boxes.get(self.cfg.detection.digits.foul_field)
+        if not boxes:
+            return          # Feld nicht stellenweise kalibriert -- nichts zu tun
+        try:
+            lesung = self.digit_reader.read_field(
+                [self._crop(frame.image, box) for box in boxes])
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Bahn %d: Fehlwurfzaehler in Frame %d nicht lesbar: %s",
+                      self.display_number, frame.index, exc)
+            return
+        if not lesung.is_readable:
+            return
+
+        wert = lesung.value
+        if wert == self._foul_candidate:
+            self._foul_repeats += 1
+        else:
+            self._foul_candidate = wert
+            self._foul_repeats = 1
+        if self._foul_repeats < self.cfg.detection.digits.foul_stable_readings:
+            return
+        if wert == self._foul_value:
+            return
+
+        vorher = self._foul_value
+        # PLAUSIBILITAET VOR UEBERNAHME: Ein zu grosser Sprung ist keine Serie
+        # von Nullwuerfen, sondern eine Fehllesung -- und dann darf er auch
+        # nicht zum neuen Bezugspunkt werden. Sonst gilt der Ruecksprung auf
+        # den richtigen Wert anschliessend als Spielwechsel.
+        #
+        # Gelesen wird alle `foul_read_interval` Frames (10), ein Wurfzyklus
+        # dauert gemessen 216 bis 338 Frames. Zwischen zwei Lesungen kann also
+        # hoechstens EIN Wurf liegen.
+        #
+        # GEMESSEN ueber den vollen Spieltag 2026-08-29: Bahn 4 hatte 14
+        # Spruenge um drei, die 42 Wuerfe erfanden. Bildbeleg Frame 270290 --
+        # die Tafel zeigt `00`, gelesen wurde `03`.
+        if (vorher is not None and wert > vorher
+                and wert - vorher > self.cfg.detection.digits.foul_max_rise):
+            log.warning(
+                "Bahn %d: Fehlwurfzaehler springt %d -> %d bei Frame %d -- "
+                "das waeren %d Wuerfe zwischen zwei Lesungen (10 Frames), "
+                "ein Wurfzyklus dauert aber 216-338. Verworfen als Fehllesung.",
+                self.display_number, vorher, wert, frame.index, wert - vorher)
+            # Der Stoerwert muss sich neu bewaehren, bevor er wieder zaehlt.
+            self._foul_candidate = None
+            self._foul_repeats = 0
+            return
+
+        self._foul_value = wert
+        if vorher is None:
+            return          # erster stabiler Stand -- kein Ereignis
+        if wert > vorher:
+            log.info("Bahn %d: Fehlwurfzaehler %d -> %d bei Frame %d "
+                     "-- Wurf ohne Kegel", self.display_number, vorher, wert,
+                     frame.index)
+            for _ in range(wert - vorher):
+                # DER FRAME, BEI DEM DER ZAEHLER GESPRUNGEN IST -- vom
+                # Nutzer so festgelegt (2026-09-07). Ein Wurf ohne Kegel hat
+                # keinen Gruenzyklus und damit keine gesampelten Frames; dieser
+                # hier ist der einzige Beleg, den es gibt.
+                self._foul_events.append(
+                    (frame.index, frame.timestamp,
+                     self._wurfnummer_lesen(frame),
+                     encode_board(frame.image, self.lane_box(),
+                                  self.cfg.output.board_image_quality)))
+        else:
+            log.info("Bahn %d: Fehlwurfzaehler faellt %d -> %d bei Frame %d "
+                     "-- Spielwechsel, kein Wurf", self.display_number,
+                     vorher, wert, frame.index)
+
+    def _wurfnummer_lesen(self, frame: Frame) -> int | None:
+        """Liest die Wurfnummer der Tafel -- nur bei einem Fehlwurf gebraucht.
+
+        Bewusst NICHT im Takt mitgefuehrt: Fehlwuerfe sind selten (ueber einen
+        ganzen Spieltag ein knappes Dutzend), und drei zusaetzliche
+        Ziffernstellen alle zehn Frames waeren dafuer zu teuer.
+        """
+        boxes = self._digit_cell_boxes.get("throw_number")
+        if not boxes:
+            return None
+        try:
+            lesung = self.digit_reader.read_field(
+                [self._crop(frame.image, box) for box in boxes])
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Bahn %d: Wurfnummer bei Fehlwurf nicht lesbar: %s",
+                      self.display_number, exc)
+            return None
+        return lesung.value if lesung.is_readable else None
+
+    def take_zero_throws(self) -> list[tuple[int, float, int | None, str | None]]:
+        """Holt die seit dem letzten Aufruf erkannten Nullwuerfe ab.
+
+        Je Eintrag: Frame, Zeitpunkt, gelesene Wurfnummer und das
+        Tafelbild jenes Frames (Base64-JPEG oder None).
+        """
+        ereignisse = self._foul_events
+        self._foul_events = []
+        return ereignisse
+
+    def _reset_weiterreichen(self) -> None:
+        """Schiebt das Spielwechsel-Zeichen um einen Wurf weiter.
+
+        Wird genau dann aufgerufen, wenn ein Wurf tatsaechlich abgeschlossen
+        wurde -- nicht bei einem als Flackern verworfenen Fenster. Sonst
+        rutschte das Zeichen an einem Wurf vorbei und landete beim falschen.
+        """
+        self._reset_pending = self._reset_carry
+        self._reset_carry = self._reset_seen
+        self._reset_seen = False
+
+    @property
+    def reset_pending(self) -> bool:
+        """Gilt fuer den Wurf, der gerade ausgewertet wird: neues Spiel?"""
+        return self._reset_pending
+
+    @property
+    def window_was_occluded(self) -> bool:
+        """War die Tafel waehrend DIESES Sammelfensters verdeckt? (BUG-017)
+
+        Anders als `reset_pending` braucht das keinen Ein-Wurf-Verzug: Die
+        Verdeckung betrifft immer das Fenster, in dem sie auftrat, nicht das
+        naechste. Das Flag wird bei jedem GREEN_OFF (neues Fenster) auf False
+        gesetzt und bleibt bis zum zugehoerigen GREEN_ON gueltig -- also genau
+        bis der Analyzer diesen Wurf auswertet.
+        """
+        return self._occlusion_during_window
+
+    @property
+    def late_samples(self) -> dict[str, list[DigitReading]]:
+        """Die juengsten Mitlesungen der spaet aktualisierten Felder."""
+        return {name: list(werte) for name, werte in self._late_samples.items()}
+
+    @property
+    def result_samples(self) -> list[PinLampReading]:
+        """Alle Lampenmessungen des zuletzt abgeschlossenen Ereignisses."""
+        return list(self._result_samples)
+
+    @property
+    def baseline_pins(self) -> PinLampReading | None:
+        """Lampenstand zu Beginn des zuletzt beendeten Wurfs (Raeumen)."""
+        return self._baseline_pins
+
+    def read_pin_lamps_at(self, frame: Frame) -> PinLampReading | None:
+        """Liest die Kegellampen eines beliebigen Frames.
+
+        Wird fuer die Aggregation ueber die Sample-Frames gebraucht -- siehe
+        `AnalysisPipeline._aggregate_pins`.
+        """
+        return self._read_pin_lamps(frame, is_result=False)
+
+    def read_digits(self, frame: Frame) -> dict[str, DigitReading]:
+        """Liest alle Ziffernfelder eines Frames.
+
+        Teuer im Vergleich zur Gruenlampe -- deshalb NUR fuer die Frames eines
+        Ereignisses aufrufen, nie fuer jeden Frame (Auftrag Paragraph 20).
+        """
+        readings: dict[str, DigitReading] = {}
+        # Einzeln eingerahmte Stellen -- der genauere Weg
+        for name, boxes in self._digit_cell_boxes.items():
+            shifts = self._digit_shifts.get(name)
+            readings[name] = self.digit_reader.read_field(
+                [self._crop(frame.image, self._shifted(box, shifts, i))
+                 for i, box in enumerate(boxes)]
+            )
+        # Rest ueber das Gesamtfeld
+        for name, (box, digits) in self._digit_boxes.items():
+            readings[name] = self.digit_detector.detect(
+                self._crop(frame.image, box), digits
+            )
+        return readings
+
+    @staticmethod
+    def _shifted(box: tuple[int, int, int, int],
+                 shifts: list[tuple[int, int]] | None,
+                 index: int) -> tuple[int, int, int, int]:
+        """Verschiebt eine Ziffernbox um ihren Feinausrichtungs-Versatz."""
+        if not shifts or index >= len(shifts):
+            return box
+        dx, dy = shifts[index]
+        x, y, w, h = box
+        return x + dx, y + dy, w, h
+
+    def refine_digit_boxes(self, frames: list[Frame]) -> None:
+        """Richtet die Ziffernrahmen einmal je Video pixelgenau aus.
+
+        WARUM: Die Rahmen werden beim Kalibrieren von Hand gesetzt. Bei Ziffern
+        von rund 13x18 px entscheidet ein Versatz von zwei Pixeln darueber, ob
+        ein Segment noch in seiner Messflaeche liegt.
+
+        GEMESSEN ueber 30 Frames einer unveraenderten Anzeige, Feld `total_b`:
+
+            Bahn 3:  0 30x | 0 30x | 5 30x | 7 30x     alle vier Stellen sicher
+            Bahn 4:  0 30x | 0 30x | 5 30x | 1 30x     alle vier Stellen sicher
+            Bahn 2:  ...           | 1 13x / 4 10x     Stelle 3 kippt
+            Bahn 5:  ...                    | ? 27x    Stelle 4 unlesbar
+
+        Zwei Bahnen lasen fehlerfrei, zwei nicht -- bei identischem Verfahren.
+        Der Unterschied lag also nicht im Leser, sondern in den Rahmen.
+
+        Gesucht wird der Versatz mit der hoechsten mittleren Confidence ueber die
+        uebergebenen Frames. Ein Versatz wird nur uebernommen, wenn er den
+        bisherigen deutlich schlaegt (`min_refine_gain`) -- sonst gewinnt
+        Rauschen, und die Ausrichtung wuerde von Video zu Video springen.
+        """
+        if self._refined or not frames:
+            return
+        self._refined = True
+
+        spanne = self.cfg.detection.digits.refine_radius
+        if spanne <= 0:
+            return
+        kandidaten = [(dx, dy)
+                      for dy in range(-spanne, spanne + 1)
+                      for dx in range(-spanne, spanne + 1)]
+
+        for name, boxes in self._digit_cell_boxes.items():
+            versaetze: list[tuple[int, int]] = []
+            for box in boxes:
+                bestes, beste_gute = (0, 0), -1.0
+                for dx, dy in kandidaten:
+                    verschoben = self._shifted(box, [(dx, dy)], 0)
+                    werte = []
+                    for frame in frames:
+                        _, confidence = self.digit_reader.read_digit(
+                            self._crop(frame.image, verschoben))
+                        werte.append(confidence)
+                    guete = float(np.mean(werte)) if werte else 0.0
+                    # Bei Gleichstand gewinnt der kleinere Versatz: Die
+                    # Handkalibrierung ist der Ausgangspunkt, nicht der Feind.
+                    if guete > beste_gute + (0.0 if (dx, dy) == (0, 0) else 1e-9):
+                        bestes, beste_gute = (dx, dy), guete
+                # Nullversatz als Vergleichsmass
+                null = float(np.mean([
+                    self.digit_reader.read_digit(self._crop(f.image, box))[1]
+                    for f in frames
+                ])) if frames else 0.0
+                if beste_gute < null + self.cfg.detection.digits.min_refine_gain:
+                    bestes = (0, 0)
+                versaetze.append(bestes)
+
+            if any(v != (0, 0) for v in versaetze):
+                log.info("Bahn %d: Ziffernrahmen '%s' feinausgerichtet: %s",
+                         self.display_number, name, versaetze)
+            self._digit_shifts[name] = versaetze
+
+    @property
+    def lamp_boxes(self) -> list[tuple[int, int, int, int]]:
+        """Die neun Lampenrechtecke -- fuer die Auswahl des besten Frames."""
+        return list(self._lamp_boxes)
+
+    @property
+    def board_before(self) -> str | None:
+        """Die Tafel, bevor geworfen wurde (Base64-JPEG oder None)."""
+        return self._board_before
+
+    def lane_box(self) -> tuple[int, int, int, int] | None:
+        """Umschliessendes Rechteck der Anzeigetafel im Frame.
+
+        Fuer die Debug-Ausgabe: Statt eines 1920x1080-Vollframes genuegt dieser
+        Ausschnitt -- er enthaelt alles Auswertbare bei einem Bruchteil der Groesse.
+        """
+        xs = [p[0] for p in self.lane.quad]
+        ys = [p[1] for p in self.lane.quad]
+        # Etwas Rand, damit die Tafelkanten sichtbar bleiben
+        margin = 8
+        x0 = max(0, int(min(xs)) - margin)
+        y0 = max(0, int(min(ys)) - margin)
+        x1 = int(max(xs)) + margin
+        y1 = int(max(ys)) + margin
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return x0, y0, x1 - x0, y1 - y0
+
+    def warped_board(self, image):
+        """Die entzerrte Anzeigetafel dieser Bahn -- nur fuer Debug-Ausgaben.
+
+        Die Analyse selbst entzerrt NICHT: Sie schneidet die ROIs direkt aus dem
+        Originalframe, was pro Frame billiger ist. Fuer ein Belegbild lohnt die
+        Entzerrung trotzdem, weil sie einmal je Wurf anfaellt und die Tafel erst
+        dadurch gerade und vergleichbar aussieht.
+        """
+        if self._transform is None:
+            return None
+        return self._transform.warp(image)
+
+    def roi_boxes(self) -> dict[str, tuple[int, int, int, int]]:
+        """Alle ROI-Rechtecke dieser Bahn -- fuer die Debug-Ausschnitte."""
+        boxes: dict[str, tuple[int, int, int, int]] = {}
+        if self._green_box is not None:
+            boxes["green_lamp"] = self._green_box
+        # Bewusst `kegel_N` und nicht `pin_lamp_N`: Der ROI-Name zaehlt die
+        # Lampen von oben, `_pin_numbers` zaehlt die Kegel von vorn. Beides
+        # `pin_lamp_3` zu nennen hiesse, zwei verschiedene Lampen gleich zu
+        # benennen -- der Debug-Ausschnitt traegt darum die Kegelnummer.
+        for pin, box in zip(self._pin_numbers, self._lamp_boxes):
+            boxes[f"kegel_{pin}"] = box
+        # Ziffernfelder nur auf Wunsch: Sie verdreifachen die Dateizahl, sind
+        # aber die einzige Moeglichkeit, eine Ziffernfrage nachtraeglich zu
+        # klaeren (siehe `debug.save_digit_rois`).
+        if self.cfg.debug.save_digit_rois:
+            for feld, zellen in self._digit_cell_boxes.items():
+                for i, box in enumerate(zellen):
+                    boxes[f"ziffer_{feld}_{i}"] = box
+        return boxes
+
+    @property
+    def result_pins(self) -> PinLampReading | None:
+        """Lampenstand zum Zeitpunkt GREEN_OFF -- die Grundlage des Wurfergebnisses."""
+        return self._result_pins
+
+    @staticmethod
+    def _crop(image: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
+        """ROI-Ausschnitt als View, ohne Kopie.
+
+        Eine leere Box liefert ein leeres Array -- der Detektor meldet dann
+        UNKNOWN statt einen Messwert zu erfinden (siehe BUG-001).
+        """
+        x, y, w, h = box
+        if w <= 0 or h <= 0:
+            return np.empty((0, 0, 3), dtype=image.dtype)
+        return image[y:y + h, x:x + w]
+
+    # ---------------------------------------------------------------- Pro Frame
+
+    def process(self, frame: Frame,
+                buffer: FrameBuffer | None = None
+                ) -> tuple[LaneObservation, LaneEvent | None, SampleEvent | None]:
+        """Verarbeitet einen Frame. Das ist der Hot Path.
+
+        Ausgewertet wird zunaechst nur die gruene Lampe. Die teurere
+        Lampenauswertung laeuft erst, wenn ein Ereignis dazu Anlass gibt.
+
+        Returns:
+            (Beobachtung, Zustandsereignis, abgeschlossenes Sampling)
+            Das Sampling ist nur gesetzt, wenn in diesem Frame ein Ereignis
+            vollstaendig wurde -- dann liegen alle Frames zur Auswertung vor.
+        """
+        if not self._boxes_ready or self._green_box is None:
+            return self._observation(LampReading.unknown("green_lamp")), None, None
+
+        green = self.green_detector.detect(self._crop(frame.image, self._green_box))
+        self._last_green = green
+
+        # --- VERDECKTE TAFEL ---
+        # Ein Score nahe null ist keine Lampenaussage, sondern gar keine: Selbst
+        # die unbeleuchtete Lampe sitzt auf beigem Gehaeuse mit Gruenanteil, die
+        # AUS-Grundlinie ist deshalb nie null. Null heisst, dass etwas anderes
+        # davor ist -- im Bild nachgesehen: ein Spieler vor der Tafel.
+        #
+        # Als "aus" gelesen erzeugt das einen Wurf, den es nie gab. GEMESSEN:
+        # Beide Phantomwuerfe des 52-Minuten-Videos fallen exakt in eine
+        # Verdeckung (F3228 in F3229-3255, F43514 in F43512-43560), und einer
+        # davon hat zusaetzlich die Grundlinie des naechsten echten Wurfs
+        # vergiftet -- dessen neun Kegel wurden dadurch zu null.
+        #
+        # Eingefroren wird ALLES: kein Zustandswechsel, keine Lampenmessung,
+        # keine Ziffern. Waehrend der Verdeckung ist keine Aussage moeglich,
+        # und eine Luecke im Protokoll ist besser als ein erfundener Wurf.
+        if green.score < self.cfg.detection.green.occlusion_score:
+            self._occlusion_frames += 1
+        else:
+            if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
+                log.info("Bahn %d: Tafel war %d Frames verdeckt, ab Frame %d "
+                         "wieder sichtbar", self.display_number,
+                         self._occlusion_frames, frame.index)
+            self._occlusion_frames = 0
+
+        if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
+            if self._occlusion_frames == self.cfg.detection.green.occlusion_min_frames:
+                log.info("Bahn %d: Tafel ab Frame %d verdeckt (Gruen-Score %.1f) "
+                         "-- Auswertung ausgesetzt", self.display_number,
+                         frame.index, green.score)
+            # BUG-017: Merken, dass DIESES Fenster durch eine Verdeckung
+            # gelaufen ist -- unabhaengig davon, ob das Fenster gerade jetzt
+            # oder erst spaeter (beim naechsten GREEN_ON) schliesst.
+            if self._window_open:
+                self._occlusion_during_window = True
+            # Regelmaessig erinnern. Ohne das bliebe eine dauerhaft
+            # eingefrorene Bahn nach EINER Logzeile stumm -- und genau so
+            # sieht es aus, wenn die Schwelle zum Material nicht passt: Die
+            # Bahn meldet nie wieder einen Wurf, ohne dass etwas danach
+            # aussieht. Die Schwelle ist an EINER Halle gemessen.
+            takt = self.cfg.detection.green.occlusion_reminder_frames
+            if takt > 0 and self._occlusion_frames % takt == 0:
+                log.warning("Bahn %d: seit %d Frames (%.0f s) verdeckt, "
+                            "Gruen-Score %.1f -- kommt hier nichts mehr, passt "
+                            "womoeglich die Kalibrierung nicht zur Tafel",
+                            self.display_number, self._occlusion_frames,
+                            self._occlusion_frames / 25.0, green.score)
+            return self._observation(green), None, None
+
+        event = self.state_machine.update(green, frame.index, frame.timestamp)
+
+        # --- Frame-Sampling (Auftrag Paragraph 7) ---
+        completed: SampleEvent | None = None
+        if event is not None and event.event is EventType.GREEN_OFF:
+            self.sampler.start(frame)
+            self._window_open = True
+            self._green_off_frame = frame.index
+            self._occlusion_during_window = False
+
+        elif event is not None and event.event is EventType.GREEN_ON and buffer is not None:
+            # Freigabe: GENAU DIESER FRAME ist das Bild, auf das geworfen
+            # wird. Vom Nutzer so festgelegt (2026-09-07) -- und es raeumt zwei
+            # gescheiterte Anlaeufe ab, die mit Nachlauf und Mitschreiben
+            # gearbeitet hatten und beide ein Bild lieferten, auf dem das
+            # Ergebnis schon stand.
+            #
+            # Sofort kodiert und weggelegt: Der naechste GREEN_OFF gehoert zu
+            # dem Wurf, der auf DIESES Bild geworfen wird.
+            self._green_on_frame = frame.index
+            self._board_before = encode_board(
+                frame.image, self.lane_box(),
+                self.cfg.output.board_image_quality)
+            # Gruen wieder an -> das Fenster ist zu Ende. Ist der Wurf zu diesem
+            # Zeitpunkt noch offen (Wartezeit 0 oder Gruen kam frueher zurueck
+            # als die Wartezeit), wird er JETZT abgeschlossen.
+            # Zu kurzes Fenster? Dann war es Flackern, kein Wurf.
+            #
+            # Die Sperre steht voreingestellt auf AUS: Sie kann echt und falsch
+            # nicht trennen (siehe schema.py, `min_throw_frames`).
+            offen = self.sampler.open_event
+            mindest = self.cfg.state_machine.min_throw_frames
+            if (offen is not None and mindest > 0
+                    and frame.index - offen.trigger_frame < mindest):
+                log.warning("Bahn %d: Fenster bei Frame %d war nur %d Frames lang "
+                            "(mindestens %d) -- als Flackern verworfen",
+                            self.display_number, offen.trigger_frame,
+                            frame.index - offen.trigger_frame, mindest)
+                self.sampler.abort("Fenster zu kurz -- Flackern")
+                completed = None
+            else:
+                completed = self.sampler.finish(frame, buffer)
+            if completed is not None:
+                # Spaete Meldung: Der Wurf wird JETZT ausgewertet, und der
+                # Nullzustand lag in seinem eigenen Fenster -- er gilt also erst
+                # dem naechsten. Zwei Schritte.
+                self._reset_weiterreichen()
+            else:
+                # Fruehe Meldung: Der Wurf ist laengst gemeldet, die Pause ist
+                # erst jetzt zu Ende. Was in ihr gesehen wurde, gilt direkt dem
+                # naechsten gemeldeten Wurf. Ein Schritt.
+                self._reset_pending = self._reset_seen
+                self._reset_seen = False
+            self._window_open = False
+            self._green_off_frame = None
+            # Die Gruenphase des naechsten Wurfs beginnt -- was die Lampen ab
+            # jetzt zeigen, gehoert zu IHM.
+            self._green_phase_samples = []
+            # ... und zugleich beginnt der naechste Wurf: Der jetzige Lampenstand
+            # ist dessen Grundlinie (Raeumen). `_baseline_pins` bleibt dabei
+            # unberuehrt -- es traegt noch die Grundlinie des Wurfs, der in
+            # genau diesem Aufruf ausgewertet wird.
+            # Grundlinie NACH GREEN_ON sammeln, nicht davor: Vor GREEN_ON
+            # steht noch das Ergebnis des vorherigen Wurfs auf der Tafel.
+            self._baseline_start = frame.index
+            self._baseline_samples = []
+            # Was die Pause zuletzt zeigte, bevor die Anlage freigab. Die
+            # Vereinigung ist hier unbedenklich: In der Pause steht der Stand
+            # still, sie faengt nur das Blinken ab.
+            self._before_pins = (aggregate_pin_readings(list(self._pause_samples))
+                                 if self.cfg.sampling.baseline_before_green
+                                 else None)
+            self._pause_samples.clear()
+        elif event is not None and event.event is EventType.TIMEOUT:
+            completed = self.sampler.abort("Timeout")
+        else:
+            self.sampler.offer(frame)
+
+            # --- Frueher melden statt bis zum naechsten Gruen-AN zu warten ---
+            # GEMESSEN: Ab 40 Frames nach GREEN_OFF ist nichts mehr zu gewinnen
+            # (471 von 474 richtig, blinkende Wuerfe 100 %). Gewartet wurde
+            # vorher im Mittel 15 Sekunden, beim Spielwechsel bis zu einer
+            # Minute -- und der letzte Wurf einer Aufnahme ging ganz verloren.
+            #
+            # Das SAMMELFENSTER bleibt offen: Die Summe traegt die Anlage erst
+            # kurz vor dem naechsten Gruen-AN ein (BUG-010), und der
+            # Nullzustand des Spielwechsels steht ebenfalls erst spaeter da.
+            # Beides wird weiter mitgelesen, nur haengt das Wurfergebnis nicht
+            # mehr daran.
+            wartezeit = self.cfg.sampling.report_after_green_off
+            if (wartezeit > 0 and self._window_open and buffer is not None
+                    and self._green_off_frame is not None
+                    and frame.index - self._green_off_frame >= wartezeit
+                    and self.sampler.open_event is not None):
+                completed = self.sampler.finish(frame, buffer)
+                # Hier wird das Spielwechsel-Zeichen NICHT weitergereicht: Der
+                # Nullzustand steht erst spaeter in der Pause (gemessen 306
+                # Frames nach Gruen-AUS). Das erledigt der Gruen-AN-Zweig.
+
+        # --- Grundlinie des laufenden Wurfs ---
+        # Die Kegel fallen, waehrend die gruene Lampe an ist (Nutzerhinweis,
+        # gemessen bestaetigt). Kurz NACH GREEN_ON ist die Anlage neu
+        # aufgestellt und der Ball noch unterwegs -- dort steht, welche Kegel
+        # bereits lagen.
+        if self._baseline_start is not None:
+            versatz = frame.index - self._baseline_start
+            if versatz in self.cfg.sampling.baseline_offsets:
+                messung = self._read_pin_lamps(frame)
+                if messung is not None:
+                    self._baseline_samples.append(messung)
+            if versatz >= max(self.cfg.sampling.baseline_offsets):
+                nachher = aggregate_pin_readings(self._baseline_samples)
+                # Beide Messungen koennen zu HOCH liegen, keine zu niedrig --
+                # darum die Schnittmenge. Siehe `baseline_aus_zwei`.
+                self._pending_baseline = baseline_aus_zwei(
+                    self._before_pins, nachher)
+                if (self._before_pins is not None and nachher is not None
+                        and self._before_pins.pins != nachher.pins):
+                    log.info("Bahn %d: Grundlinie vor Gruen %s, danach %s -- "
+                             "es gilt %s", self.display_number,
+                             list(self._before_pins.pins), list(nachher.pins),
+                             list(self._pending_baseline.pins))
+                self._before_pins = None
+                self._baseline_start = None
+
+        # --- Mitlesen WAEHREND der Gruenphase ---
+        # Vom Nutzer vorgeschlagen: Die Kegel fallen ja gerade jetzt, also steigt
+        # die Zahl waehrend der Gruenphase an. Wer erst danach misst, verlaesst
+        # sich darauf, dass das Ergebnis stehen bleibt -- und verliert es, wenn
+        # die Pause kurz ist. GEMESSEN: Auf Bahn 4 rettet die Gruenphase drei
+        # Wuerfe, bei denen das Fenster danach zu kurz war.
+        #
+        # Erst NACH dem Grundlinienfenster: Davor steht dort, was bereits lag.
+        raster = self.cfg.sampling.green_phase_interval
+        if (raster > 0 and not self._window_open
+                and self._baseline_start is None
+                and self._pending_baseline is not None
+                and frame.index % raster == 0):
+            messung = self._read_pin_lamps(frame)
+            if messung is not None:
+                self._green_phase_samples.append(messung)
+
+        # Zwei getrennte Zwecke, bewusst unterschieden:
+        #
+        # 1. WURFERGEBNIS -- nur bei GREEN_OFF. Der Auftrag (Paragraph 5A) verlangt,
+        #    dass die Lampen erst als Ergebnis gelten, wenn die gruene Lampe aus ist.
+        #    Dieser Wert fliesst spaeter in den ThrowResult.
+        if event is not None and event.event is EventType.GREEN_OFF:
+            self._result_pins = self._read_pin_lamps(frame, is_result=True)
+            self._display_pins = self._result_pins
+            # Das Ergebnis gilt, nicht der geglaettete Verlauf davor.
+            self._display_history.clear()
+            # Die Grundlinie dieses Wurfs wurde beim zugehoerigen GREEN_ON
+            # gemessen und wird jetzt festgeschrieben.
+            self._baseline_pins = self._pending_baseline
+            # Die Messungen der Gruenphase gehoeren zum Ergebnis: Waehrend ihr
+            # sind die Kegel gefallen. Sie stehen VOR der Messung bei GREEN_OFF,
+            # tragen aber zum selben Maximum bei.
+            self._result_samples = list(self._green_phase_samples)
+            if self._result_pins is not None:
+                self._result_samples.append(self._result_pins)
+            # Neues Fenster: Die Mitlesungen des vorigen Wurfs sind verbraucht.
+            # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
+            # vorletzten -- genau der Versatz, der behoben werden soll.
+            self._late_samples = {}
+
+        # 2. ANZEIGE -- regelmaessig, damit in der Oberflaeche sichtbar ist, was
+        #    die Tafel gerade zeigt. Ohne das bliebe die Kegelraute waehrend des
+        #    ganzen Videos grau, und Fehlkalibrierungen fielen erst beim ersten
+        #    Wurf auf. Kostet rund 1 ms bei einem Budget von 40 ms.
+        elif (self._live_interval > 0
+              and frame.index % self._live_interval == 0):
+            self._display_pins = self._read_pin_lamps(frame)
+            if self._display_pins is not None:
+                self._display_history.append(self._display_pins)
+            # Laeuft gerade ein Ereignis, zaehlt diese Messung zum Wurfergebnis.
+            # Das kostet nichts zusaetzlich: Der Wert wurde soeben ohnehin fuer
+            # die Anzeige gelesen.
+            if self.sampler.open_event is not None and self._display_pins is not None:
+                self._result_samples.append(self._display_pins)
+            # ... und zugleich die Pause mitschreiben: `_window_open` ist genau
+            # zwischen GREEN_OFF und GREEN_ON wahr. Kostet nichts, die Messung
+            # ist soeben ohnehin entstanden.
+            if self._window_open and self._display_pins is not None:
+                self._pause_samples.append(self._display_pins)
+
+        # Die spaet aktualisierten Felder waehrend des Fensters mitlesen.
+        # Bewusst NICHT ueber den Ringpuffer geloest: Um 60 Frames zurueckgreifen
+        # zu koennen, muesste er auf ueber 500 MB wachsen (1920x1080x3 je Frame).
+        # Das Mitlesen kostet vier kleine Ausschnitte alle acht Frames.
+        #
+        # Gebunden an `_window_open`, NICHT an den Sampler: Der Wurf wird
+        # inzwischen frueher gemeldet, die Summe traegt die Anlage aber erst
+        # kurz vor dem naechsten Gruen-AN ein (BUG-010), und der Nullzustand des
+        # Spielwechsels steht ebenfalls erst spaeter da. Beides braucht das
+        # ganze Fenster, das Wurfergebnis nicht mehr.
+        if (self._window_open
+                and self._late_interval > 0
+                and frame.index % self._late_interval == 0):
+            self._read_late_fields(frame)
+
+        # Der Nullzustand ebenfalls IMMER, aus demselben Grund: Ob er in eine
+        # Gruenpause faellt, entscheidet die Anlage -- nicht wir.
+        nulltakt = self.cfg.scoring.game_reset_check_interval
+        if (self.cfg.scoring.game_reset_by_zero_display and nulltakt > 0
+                and frame.index % nulltakt == 0):
+            self._pruefe_nullzustand(frame)
+
+        # Der Fehlwurfzaehler dagegen IMMER -- ein Wurf ohne Kegel faellt,
+        # waehrend die gruene Lampe an ist, also ausserhalb jedes Fensters.
+        takt = self.cfg.detection.digits.foul_read_interval
+        if (self.cfg.scoring.detect_zero_throws and takt > 0
+                and frame.index % takt == 0):
+            self._pruefe_fehlwurfzaehler(frame)
+
+        return self._observation(green), event, completed
+
+    def _read_pin_lamps(self, frame: Frame,
+                        is_result: bool = False) -> PinLampReading | None:
+        """Liest die neun Kegellampen.
+
+        Args:
+            is_result: True, wenn dies die Messung fuer das Wurfergebnis ist.
+                Nur dann ist eine unlesbare Lampe eine Warnung wert -- bei der
+                Live-Vorschau (alle paar Frames, vier Bahnen) entstuenden sonst
+                hunderte identischer Meldungen, in denen die eine echte Warnung
+                untergeht.
+        """
+        if not self._lamp_boxes:
+            return None
+        patches = [self._crop(frame.image, box) for box in self._lamp_boxes]
+        reading = self.lamp_detector.detect(patches, self._pin_numbers)
+        # Die Spur haengt bewusst HIER und nicht an einem eigenen Takt: So
+        # steht in ihr genau das, was der Detektor gesehen hat -- nicht eine
+        # zweite, unabhaengig entstandene Messung.
+        if self.lamp_trace is not None:
+            self.lamp_trace.add(frame.index, frame.timestamp,
+                                self.display_number, reading, self.lamp_detector)
+
+        if not reading.is_complete:
+            if is_result:
+                log.warning("Bahn %d: nicht alle Kegellampen lesbar bei Frame %d "
+                            "-- Wurfergebnis unsicher", self.display_number, frame.index)
+            elif not self._preview_warned:
+                # Nur EINMAL je Lauf melden. Frueher wurde das Flag nach jedem
+                # gelungenen Frame zurueckgesetzt -- bei flackernden Lampen
+                # entstand dadurch trotzdem Log-Spam. Die Ursache (meist eine
+                # unpassende Kalibrierung) aendert sich waehrend eines Laufs
+                # ohnehin nicht, eine Meldung genuegt also.
+                log.warning("Bahn %d: Kegellampen zeitweise nicht lesbar "
+                            "(erstmals Frame %d) -- passt die Kalibrierung zu "
+                            "diesem Video?", self.display_number, frame.index)
+                self._preview_warned = True
+        return reading
+
+    def _geglaettete_anzeige(self) -> PinLampReading | None:
+        """Der Lampenstand fuer die LIVE-ANZEIGE -- blinkfest.
+
+        NUR fuer die Anzeige. Die Wurfzaehlung benutzt diesen Wert nicht; sie
+        fasst ihre eigenen Messungen ueber das ganze Ereignisfenster zusammen.
+
+        WARUM -- gemessen 2026-09-08 an der Hallenkamera: Die neun Kegellampen
+        blinken GEMEINSAM, Periode rund 15 Frames (1 Sekunde), etwa 40 Prozent
+        davon dunkel. Die Anzeige liest EINEN Frame und meldete darum
+        regelmaessig "aus", waehrend die Lampe sichtbar leuchtete.
+
+        Zusammengefasst wird mit derselben Regel wie beim Wurfergebnis: AN,
+        wenn in mindestens einer Messung an. Das ist keine Beschoenigung,
+        sondern Physik -- Blinken kann eine leuchtende Lampe dunkel erscheinen
+        lassen, aber keine dunkle zum Leuchten bringen.
+        """
+        if not self._display_history:
+            return self._display_pins
+        return aggregate_pin_readings(list(self._display_history))             or self._display_pins
+
+
+    def _observation(self, green: LampReading) -> LaneObservation:
+        return LaneObservation(
+            lane_id=self.lane_id,
+            display_number=self.display_number,
+            state=self.state_machine.state,
+            green=green,
+            pins=self._geglaettete_anzeige(),
+            throw_count=self.throw_count,
+            running_total=self.running_total,
+            sampling=self.sampler.open_event is not None,
+        )
+
+    def reset(self) -> None:
+        self.state_machine.reset()
+        self.throw_count = 0
+        self.running_total = 0
+        self._result_pins = None
+        self._display_pins = None
+        self._display_history.clear()
+        self._pending_baseline = None
+        self._baseline_pins = None
+        self._baseline_samples = []
+        self._baseline_start = None
+        self._result_samples = []
+        self._late_samples = {}
+        self._green_phase_samples = []
+        self._pause_samples.clear()
+        self._before_pins = None
+        self._window_open = False
+        self._green_off_frame = None
+        self._occlusion_during_window = False
+        self._foul_value = None
+        self._foul_candidate = None
+        self._foul_repeats = 0
+        self._foul_events = []
+        self._occlusion_frames = 0
+        self._reset_observations = 0
+        self._reset_latch = False
+        self._verlassen_observations = 0
+        self._reset_seen = False
+        self._reset_carry = False
+        self._reset_pending = False
+        self.sampler.reset()
+        self._preview_warned = False
