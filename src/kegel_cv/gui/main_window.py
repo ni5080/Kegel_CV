@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSlider,
+    QSpinBox,
     QScrollArea,
     QSplitter,
     QStatusBar,
@@ -270,6 +271,26 @@ class MainWindow(QMainWindow):
         lane_row.addWidget(self.active_lane_combo, 1)
         cal_layout.addLayout(lane_row)
 
+        # UNTER WELCHER BAHNNUMMER DIESE TAFEL GEMELDET WIRD.
+        #
+        # Die Tafeln im Bild sind von links durchnummeriert, die Ergebnisse
+        # tragen aber die Bahnnummer der Halle. In der Stammhalle sind das die
+        # Bahnen 2 bis 5; auswaerts kann dieselbe Anordnung 1 bis 4 heissen.
+        # Bisher stand die Zuordnung nur in der Konfigurationsdatei -- also
+        # nicht dort, wo man vor Ort steht.
+        nummer_row = QHBoxLayout()
+        nummer_row.addWidget(QLabel("meldet als Bahn:"))
+        self.lane_number_spin = QSpinBox()
+        self.lane_number_spin.setRange(1, 99)
+        self.lane_number_spin.setToolTip(
+            "Diese Zahl steht als Bahnnummer in der Datenbank und im "
+            "Liveticker. Sie gilt fuer die oben gewaehlte Tafel und wird mit "
+            "der Kalibrierung gespeichert."
+        )
+        self.lane_number_spin.valueChanged.connect(self._on_lane_number_changed)
+        nummer_row.addWidget(self.lane_number_spin, 1)
+        cal_layout.addLayout(nummer_row)
+
         # Die frueheren Knoepfe "Bahn N kalibrieren" sind entfallen: Sie
         # starteten denselben Vorgang wie die gefuehrte Kalibrierung, nur ohne
         # Fuehrung und je Bahn einzeln. Zwei Wege zum selben Ziel, von denen
@@ -499,6 +520,40 @@ class MainWindow(QMainWindow):
         self._rebuild_lane_panels()
         return self.lane_container
 
+    def _refresh_lane_number_spin(self) -> None:
+        """Zeigt die Bahnnummer der gerade gewaehlten Tafel an.
+
+        `blockSignals`, damit das Nachfuehren nicht als Nutzereingabe gilt --
+        sonst schriebe die Anzeige den Wert zurueck, den sie gerade erst
+        gelesen hat.
+        """
+        if not hasattr(self, "lane_number_spin"):
+            return
+        aktiv = self.session.active_lane
+        bahn = next((l for l in self.session.calibration.lanes
+                     if l.lane_id == aktiv), None)
+        self.lane_number_spin.blockSignals(True)
+        self.lane_number_spin.setEnabled(bahn is not None)
+        if bahn is not None:
+            self.lane_number_spin.setValue(bahn.display_number)
+        self.lane_number_spin.blockSignals(False)
+
+    def _on_lane_number_changed(self, wert: int) -> None:
+        aktiv = self.session.active_lane
+        if aktiv is None:
+            return
+        warnung = self.session.set_real_lane_number(aktiv, wert)
+        # Die Beschriftungen tragen die Bahnnummer -- sie muessen mit.
+        self._refresh_active_lane_combo()
+        self._rebuild_lane_panels()
+        if warnung:
+            self.statusBar().showMessage(warnung, 8000)
+            log.warning("%s", warnung)
+        else:
+            self.statusBar().showMessage(
+                f"Tafel {aktiv} von links meldet als Bahn {wert}. "
+                f"Nicht vergessen: Kalibrierung speichern.", 5000)
+
     def _refresh_active_lane_combo(self) -> None:
         """Fuellt die Bahnauswahl passend zur aktuellen Kalibrierung."""
         if not hasattr(self, "active_lane_combo"):
@@ -512,6 +567,7 @@ class MainWindow(QMainWindow):
         if not self.session.calibration.lanes:
             self.active_lane_combo.addItem("(noch nicht kalibriert)", None)
         self.active_lane_combo.blockSignals(False)
+        self._refresh_lane_number_spin()
 
         # Erste Bahn automatisch aktiv setzen
         first = self.active_lane_combo.itemData(0)
@@ -531,6 +587,9 @@ class MainWindow(QMainWindow):
         self.session.active_roi = None
         self.session.step = CalibrationStep.EDIT_ROIS
         self._zoom_to_lane(lane_id)
+        # Die Bahnnummer gehoert zur Tafel, nicht zur Sitzung -- beim Wechsel
+        # muss die Anzeige mit.
+        self._refresh_lane_number_spin()
         self._update_calibration_hint()
 
     def _rebuild_lane_panels(self) -> None:

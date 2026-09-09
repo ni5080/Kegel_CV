@@ -764,6 +764,48 @@ class CalibrationSession:
                   self.active_lane, self.active_roi, x0, y0, x1 - x0, y1 - y0)
         return self._advance_roi()
 
+    # ------------------------------------------------------- Reale Bahnnummer
+
+    def set_real_lane_number(self, lane_id: int, nummer: int | None) -> str | None:
+        """Legt fest, unter welcher Bahnnummer diese Tafel gemeldet wird.
+
+        WARUM DAS EINSTELLBAR SEIN MUSS
+
+        Die Tafeln im Bild sind von links durchnummeriert (`lane_id` 1..4), die
+        Ergebnisse tragen aber die BAHNNUMMER der Halle. In der Stammhalle sind
+        das die Bahnen 2 bis 5; auswaerts kann dieselbe Anordnung 1 bis 4 oder
+        6 bis 9 heissen. Bisher kam die Zuordnung allein aus
+        `calibration.lane_number_mapping` und liess sich nur in der Datei
+        aendern -- also nicht dort, wo man vor Ort steht.
+
+        Diese Zahl ist es, die als `lane` in der Datenbank landet
+        (`ThrowAnalyzer(lane.lane_id, cfg, lane.display_number)`).
+
+        Rueckgabe: None, wenn alles in Ordnung ist -- sonst ein Warntext.
+        Doppelte Nummern werden NICHT verhindert, aber gemeldet: Sie sind fast
+        immer ein Versehen, und in der Datenbank verschmelzen dann zwei Bahnen
+        zu einer, ohne dass es auffiele. Es gibt aber keinen Grund, dem Nutzer
+        einen Zwischenzustand zu verbieten, waehrend er die Nummern umsortiert.
+        """
+        bahn = next((l for l in self.calibration.lanes if l.lane_id == lane_id),
+                    None)
+        if bahn is None:
+            raise KeyError(f"Bahn {lane_id} ist nicht kalibriert")
+
+        bahn.real_lane_number = nummer
+        log.info("Bahn (Tafel %d von links) meldet ab jetzt als Bahn %s",
+                 lane_id, bahn.display_number)
+
+        doppelt = [l.lane_id for l in self.calibration.lanes
+                   if l.lane_id != lane_id
+                   and l.display_number == bahn.display_number]
+        if doppelt:
+            andere = ", ".join(f"Tafel {i}" for i in sorted(doppelt))
+            return (f"Bahnnummer {bahn.display_number} ist jetzt doppelt "
+                    f"vergeben ({andere}). In der Datenbank verschmelzen "
+                    f"diese Tafeln zu einer Bahn.")
+        return None
+
     # --------------------------------------------------------------- Speichern
 
     def set_source_hint(self, width: int, height: int, video: str | None) -> None:
