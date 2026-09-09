@@ -77,6 +77,14 @@ class CalibrationConfig(BaseModel):
     directory: str = "data/calibrations"
     warped_width: int = Field(default=440, ge=50)
     warped_height: int = Field(default=530, ge=50)
+    # Bibliothek bekannter Tafelbauarten. Beim Laden eines Videos oder
+    # Streams wird darin gesucht -- kennt das Werkzeug die Bauart, schlaegt es
+    # die fertige Kalibrierung vor.
+    boardtype_directory: str = "data/boardtypes"
+    # So viele tragende Merkmale muss ein Treffer haben. GEMESSEN 2026-09-09
+    # ueber zwei verschiedene Quellen: gelungene Treffer hatten 15 bis 197,
+    # ein Fehltreffer 7 -- und der lag 1429 Pixel daneben.
+    boardtype_min_inlier: int = Field(default=14, ge=4)
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).

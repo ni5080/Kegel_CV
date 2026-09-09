@@ -46,40 +46,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from kegel_cv.calibration.digit_shift import (  # noqa: E402
+    ZIFFERNFELDER, tafelmasse, verschiebe_ziffern)
 from kegel_cv.calibration.model import Calibration  # noqa: E402
-
-# Diese ROIs tragen Ziffern; alles andere bleibt unberuehrt.
-#
-# ACHTUNG, HIER LAG EIN FEHLER: Die einzelnen Stellen heissen
-# `digit_<feld>_<n>` -- ein Filter auf die Feldnamen allein trifft sie NICHT.
-# Er verschiebt dann nur die Sammel-ROI des Feldes, die fuer das Lesen gar
-# nicht benutzt wird, und die Messung sieht keinerlei Wirkung.
-ZIFFERNFELDER = ("throw_number", "pin_count", "total_a", "total_b",
-                 "left_display")
-DIGIT_PRAEFIX = "digit_"
-
-
-def ist_ziffern_roi(name: str, felder: tuple[str, ...]) -> bool:
-    """Trifft sowohl das Sammelfeld als auch seine einzelnen Stellen."""
-    if name.startswith(felder):
-        return True
-    if not name.startswith(DIGIT_PRAEFIX):
-        return False
-    return name[len(DIGIT_PRAEFIX):].startswith(felder)
-
-
-def tafelbreite(quad) -> float:
-    """Mittlere Kantenlaenge des Tafelvierecks in Pixeln."""
-    q = np.float32(quad)
-    return float((np.linalg.norm(q[1] - q[0])
-                  + np.linalg.norm(q[2] - q[3])) / 2)
-
-
-def tafelhoehe(quad) -> float:
-    q = np.float32(quad)
-    return float((np.linalg.norm(q[3] - q[0])
-                  + np.linalg.norm(q[2] - q[1])) / 2)
-
 
 def main() -> int:
     p = argparse.ArgumentParser(
@@ -102,24 +71,12 @@ def main() -> int:
         print("Die Kalibrierung enthaelt keine Bahn.")
         return 1
 
-    geaendert = 0
     for bahn in kal.lanes:
-        # Pixel -> normierte Tafelkoordinaten. Die ROIs liegen in 0..1 der
-        # Tafel, nicht des Bildes -- deshalb durch die TAFELgroesse teilen.
-        breite, hoehe = tafelbreite(bahn.quad), tafelhoehe(bahn.quad)
-        if breite <= 0 or hoehe <= 0:
-            print(f"Bahn {bahn.display_number}: unbrauchbares Viereck")
-            continue
-        nx, ny = a.dx / breite, a.dy / hoehe
-        for roi in bahn.rois:
-            if not ist_ziffern_roi(roi.name, felder):
-                continue
-            x, y, w, h = roi.rect
-            neu = (min(max(x + nx, 0.0), 1.0), min(max(y + ny, 0.0), 1.0), w, h)
-            roi.rect = neu
-            geaendert += 1
+        breite, hoehe = tafelmasse(bahn.quad)
         print(f"Bahn {bahn.display_number}: Tafel {breite:.0f}x{hoehe:.0f} px "
-              f"-> Versatz {nx:+.5f} / {ny:+.5f} in Tafelkoordinaten")
+              f"-> Versatz {a.dx/breite:+.5f} / {a.dy/hoehe:+.5f} in "
+              f"Tafelkoordinaten")
+    geaendert = verschiebe_ziffern(kal, a.dx, a.dy, felder=felder)
 
     ziel = a.ausgabe or a.kalibrierung
     kal.save(ziel)

@@ -340,6 +340,32 @@ class MainWindow(QMainWindow):
         self.btn_find_lanes.clicked.connect(self._on_find_lanes)
         cal_layout.addWidget(self.btn_find_lanes)
 
+        # DER LETZTE PIXEL. Eine automatisch gefundene Tafel sitzt auf ein bis
+        # drei Pixel genau. Fuer die Lampen genuegt das, fuer die Ziffern
+        # nicht: GEMESSEN entscheidet EIN Pixel ueber neun Prozentpunkte
+        # Lesegenauigkeit (54 -> 60 von 66 richtigen Stellen).
+        ziffern_row = QHBoxLayout()
+        ziffern_row.addWidget(QLabel("Ziffern verschieben:"))
+        self.digit_dx = QSpinBox()
+        self.digit_dx.setRange(-8, 8)
+        self.digit_dx.setPrefix("x ")
+        self.digit_dx.setToolTip(
+            "Verschiebt NUR die Ziffernrahmen, in Pixeln. Ein Pixel zu weit "
+            "rechts, und der Balken der 1 rutscht zur Zellmitte -- dann lesen "
+            "die waagerechten Segmente mit, und aus 1 wird 3.")
+        self.digit_dy = QSpinBox()
+        self.digit_dy.setRange(-8, 8)
+        self.digit_dy.setPrefix("y ")
+        self.digit_dy.setToolTip(self.digit_dx.toolTip())
+        self.digit_dx.valueChanged.connect(self._on_digit_shift)
+        self.digit_dy.valueChanged.connect(self._on_digit_shift)
+        ziffern_row.addWidget(self.digit_dx)
+        ziffern_row.addWidget(self.digit_dy)
+        cal_layout.addLayout(ziffern_row)
+        # Was bereits angewandt ist -- die Felder zeigen den GESAMTversatz,
+        # verschoben wird aber jeweils nur die Differenz.
+        self._digit_shift_angewandt = (0, 0)
+
         # ENTFALLEN mit dem Umbau vom 2026-09-03: "Bereiche anklicken (14)",
         # "nur Raute" und "Ziffern einzeln einrahmen (8)" samt Feldauswahl.
         #
@@ -534,6 +560,31 @@ class MainWindow(QMainWindow):
         self.lane_panels: dict[int, LanePanel] = {}
         self._rebuild_lane_panels()
         return self.lane_container
+
+    def _on_digit_shift(self) -> None:
+        """Verschiebt die Ziffernrahmen um die Differenz zum bisherigen Stand.
+
+        Die Felder zeigen den GESAMTversatz. Angewandt wird nur, was seit dem
+        letzten Mal dazugekommen ist -- sonst summierte sich jeder Klick auf
+        den vorigen und der angezeigte Wert loege.
+        """
+        from ..calibration.digit_shift import verschiebe_ziffern
+
+        if not self.session.calibration.lanes:
+            return
+        soll = (self.digit_dx.value(), self.digit_dy.value())
+        alt_x, alt_y = self._digit_shift_angewandt
+        dx, dy = soll[0] - alt_x, soll[1] - alt_y
+        if dx == 0 and dy == 0:
+            return
+        anzahl = verschiebe_ziffern(self.session.calibration, dx, dy)
+        self._digit_shift_angewandt = soll
+        self.statusBar().showMessage(
+            f"{anzahl} Ziffernrahmen verschoben, Gesamtversatz "
+            f"x {soll[0]:+d} / y {soll[1]:+d} px. Nicht vergessen: speichern.",
+            6000)
+        log.info("Ziffernrahmen um %+d/%+d px verschoben (gesamt %+d/%+d)",
+                 dx, dy, soll[0], soll[1])
 
     def _on_find_lanes(self) -> None:
         """Sucht alle Tafeln desselben Bautyps anhand der aktiven Bahn.
@@ -881,6 +932,90 @@ class MainWindow(QMainWindow):
         self._slider_erlaubt = True
         self.position_slider.setRange(0, max(0, (info.frame_count or 1) - 1))
         self._update_controls()
+        self._pruefe_tafeltyp()
+
+    def _pruefe_tafeltyp(self) -> None:
+        """Kennt das Werkzeug diese Bauart schon?
+
+        WOFUER -- Wunsch des Nutzers am 2026-09-09:
+
+            "cool waere, wenn er standardmaessig wenn ein Stream startet
+             schaut, ob er eins der bekannten Kegelboards aus seinem
+             Repertoire kennt."
+
+        GEFRAGT WIRD NUR, WENN NOCH NICHTS KALIBRIERT IST. Wer gerade eine
+        Kalibrierung geladen oder gesetzt hat, will sie nicht beim naechsten
+        Videowechsel ueberschrieben bekommen -- ein Vorschlag zur falschen
+        Zeit ist eine Falle, keine Hilfe.
+        """
+        from ..calibration.board_library import (erkenne, lade_bibliothek,
+                                                 uebernimm)
+
+        if self.session.calibration.lanes:
+            return
+        frame = self.player.current_frame
+        if frame is None:
+            return
+
+        ordner = self.cfg.resolve_path(self.cfg.calibration.boardtype_directory)
+        typen = lade_bibliothek(ordner)
+        if not typen:
+            return
+
+        self.statusBar().showMessage(
+            f"Suche unter {len(typen)} bekannten Tafeltypen ...", 3000)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            treffer = erkenne(frame.image, typen,
+                              min_inlier=self.cfg.calibration.boardtype_min_inlier)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if treffer is None:
+            self._melde_unbekannte_bauart()
+            return
+
+        anzahl = len(treffer.treffer)
+        antwort = QMessageBox.question(
+            self, "Bekannte Tafel",
+            f"Das sieht nach der Bauart <b>{treffer.typ.name}</b> aus.\n\n"
+            f"{anzahl} Tafeln gefunden, {treffer.merkmale} tragende "
+            f"Merkmale.\n"
+            f"Kalibrierung daraus uebernehmen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if antwort != QMessageBox.Yes:
+            return
+
+        vorschlag = " ".join(str(i) for i in range(1, anzahl + 1))
+        text, ok = QInputDialog.getText(
+            self, "Bahnnummern",
+            f"{anzahl} Tafeln, von links nach rechts.\n"
+            f"Welche Bahnnummern tragen sie?", text=vorschlag)
+        if not ok:
+            return
+        teile = text.replace(",", " ").split()
+        if len(teile) != anzahl or not all(t.isdigit() for t in teile):
+            QMessageBox.warning(self, "Eingabe passt nicht",
+                                f"{anzahl} Zahlen erwartet.")
+            return
+
+        self.session.calibration = uebernimm(treffer, [int(t) for t in teile])
+        self.session.active_lane = 1
+        self._digit_shift_angewandt = (0, 0)
+        self.digit_dx.setValue(0)
+        self.digit_dy.setValue(0)
+        self._refresh_active_lane_combo()
+        self._rebuild_lane_panels()
+        self._update_calibration_hint()
+        self.statusBar().showMessage(
+            f"Bauart {treffer.typ.name} uebernommen, {anzahl} Bahnen. "
+            f"Rahmen pruefen -- notfalls 'Ziffern verschieben'.", 12000)
+
+    def _melde_unbekannte_bauart(self) -> None:
+        """Unbekannte Bauart ist der Normalfall, kein Fehler."""
+        self.statusBar().showMessage(
+            "Keine bekannte Tafelbauart erkannt -- von Hand kalibrieren. "
+            "Mit tools/merke_tafeltyp.py laesst sie sich danach merken.", 8000)
 
     def _on_player_error(self, message: str) -> None:
         QMessageBox.critical(self, "Videofehler", message)
