@@ -20,6 +20,7 @@ from ..debug.lamp_trace import LampTrace
 from ..debug.cycle_sheet import CycleSheet
 from ..debug.throw_log import ThrowLog
 from ..debug.throw_sheet import ThrowSheet
+from ..detection.person_maske import PersonMaske
 from ..detection.state_machine import LaneEvent
 from ..video.source import Frame, FrameBuffer
 from ..models.readings import (LampReading, LampState, PinLampReading,
@@ -90,6 +91,18 @@ class AnalysisPipeline:
         self.processors: list[LaneProcessor] = [
             LaneProcessor(lane, cfg) for lane in calibration.lanes
         ]
+
+        # PERSONENMASKE. Schwaerzt bewegte Menschen, bevor irgendetwas
+        # ausgewertet wird, und meldet dabei, welche Tafel verdeckt ist.
+        #
+        # Zustandsbehaftet (Hintergrundmodell) -- genau EIN Aufruf je Frame.
+        m = cfg.detection.person_mask
+        self.person_maske = PersonMaske(
+            history=m.history, var_threshold=m.var_threshold, scale=m.scale,
+            min_blob_px=m.min_blob_px, dilate_px=m.dilate_px,
+            occlusion_fraction=m.occlusion_fraction,
+            warmup_frames=m.warmup_frames, enabled=m.enabled)
+        self._verdeckt_gemeldet: set[int] = set()
         self.buffer = FrameBuffer(cfg.processing.frame_buffer_size)
         self.performance = PerformanceMonitor()
         self.frame_logger = FrameLogger(cfg.debug, cfg.project_root, video_id)
@@ -149,12 +162,47 @@ class AnalysisPipeline:
 
         if not self._prepared:
             log.error("Keine einzige Bahn ist nutzbar -- Analyse nicht moeglich")
+
+        # Die Tafelbereiche sind Schutzzonen: Dort wird gemessen, aber NIE
+        # geschwaerzt. Ziffern und Lampen aendern sich staendig und sind damit
+        # selbst bewegter Vordergrund -- wer sie schwaerzt, loescht das Signal.
+        self.person_maske.set_tafeln(
+            {p.display_number: p.lane_box() for p in self.processors})
+        if self.person_maske.enabled:
+            log.info("Personenmaske aktiv: %d Tafeln geschuetzt, Verdeckung ab "
+                     "Vordergrundanteil %.2f", len(self.processors),
+                     self.person_maske.occlusion_fraction)
+        else:
+            log.warning("Personenmaske ist ABGESCHALTET -- Menschen werden "
+                        "nicht geschwaerzt, und eine verdeckte Tafel kann "
+                        "einen Wurf erfinden.")
         return usable
 
     def process(self, frame: Frame) -> FrameResult:
         """Verarbeitet einen Frame ueber alle Bahnen."""
         started = time.perf_counter()
         result = FrameResult(frame_index=frame.index, timestamp=frame.timestamp)
+
+        # ZUERST MASKIEREN, DANN AUSWERTEN. Was danach kommt -- Gruenlampe,
+        # Ziffern, Tafelbilder, Ringpuffer -- sieht nur noch das geschwaerzte
+        # Bild. So kann kein Gesicht in ein Debugbild oder in die Datenbank
+        # geraten, und keine durchlaufende Person einen Wurf erfinden.
+        maskiert = self.person_maske.verarbeite(frame.image)
+        if maskiert.bild is not frame.image:
+            frame = replace(frame, image=maskiert.bild)
+
+        for processor in self.processors:
+            verdeckt = processor.display_number in maskiert.verdeckte_bahnen
+            processor.setze_verdeckung(verdeckt)
+            # Einmal melden, nicht in jedem Frame -- sonst ist das Log voll.
+            if verdeckt and processor.display_number not in self._verdeckt_gemeldet:
+                self._verdeckt_gemeldet.add(processor.display_number)
+                log.info("Bahn %d: Personenmaske sieht die Tafel verdeckt "
+                         "(Frame %d, Vordergrund %.2f) -- Auswertung ausgesetzt",
+                         processor.display_number, frame.index,
+                         maskiert.verdeckung.get(processor.display_number, 0.0))
+            elif not verdeckt:
+                self._verdeckt_gemeldet.discard(processor.display_number)
 
         self.buffer.append(frame)
 

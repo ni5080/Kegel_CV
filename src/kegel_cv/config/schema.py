@@ -582,7 +582,47 @@ class DigitDetectionConfig(BaseModel):
     template_min_score: float = Field(default=0.30, ge=-1.0, le=1.0)
 
 
+class PersonMaskConfig(BaseModel):
+    """Menschen schwaerzen und Tafelverdeckung erkennen.
+
+    Siehe `detection/person_maske.py` fuer die Messungen dahinter.
+    """
+
+    enabled: bool = True
+    # Wie viele Frames das Hintergrundmodell zurueckblickt. 500 Frames sind
+    # bei 15 fps rund 33 Sekunden. Wer laenger stillsteht, wandert ins Modell
+    # und wird nicht mehr geschwaerzt -- die bekannte Grenze des Verfahrens.
+    history: int = Field(default=500, ge=50)
+    var_threshold: float = Field(default=32.0, gt=0)
+    # Gerechnet wird auf dem verkleinerten Bild. 3 heisst ein Neuntel der
+    # Pixel -- das entscheidet ueber die Rechenzeit.
+    scale: int = Field(default=4, ge=1, le=8)
+    # Kleiner als das ist kein Mensch, sondern Kugel, Kegel oder Rauschen
+    # (Pixel im VOLLBILD gerechnet).
+    min_blob_px: int = Field(default=400, ge=0)
+    # Die Person zu einer Flaeche schliessen. Ein halb geschwaerztes Gesicht
+    # ist kein geschwaerztes Gesicht.
+    dilate_px: int = Field(default=9, ge=1)
+    # Ab diesem Anteil bewegten Vordergrunds im Tafelbereich gilt die Bahn als
+    # VERDECKT und wird eingefroren.
+    #
+    # GEMESSEN 2026-09-08 ueber 13 530 Frames des Trainingsmitschnitts:
+    #     Median ueber alle Frames        0,001
+    #     echte Wuerfe, hoechster Wert    0,128
+    #     Phantomwurf F13224 (Bahn 2)     0,197
+    #     Phantomwurf F171   (Bahn 4)     0,150
+    # 0,14 liegt zwischen dem hoechsten echten und dem niedrigsten falschen
+    # Wert. Der Abstand ist knapp -- er stammt aus EINER Aufzeichnung und
+    # gehoert nachgemessen, sobald mehr Material da ist.
+    occlusion_fraction: float = Field(default=0.14, ge=0.0, le=1.0)
+    # Solange das Hintergrundmodell lernt, gilt nichts als verdeckt.
+    # Im ersten Frame ist alles Vordergrund -- gemessen 1,0 auf allen
+    # vier Bahnen. Ohne diese Sperre faellt jeder Laufstart in die Bremse.
+    warmup_frames: int = Field(default=60, ge=0)
+
+
 class DetectionConfig(BaseModel):
+    person_mask: PersonMaskConfig = Field(default_factory=PersonMaskConfig)
     green: GreenDetectionConfig = Field(default_factory=GreenDetectionConfig)
     lamps: LampDetectionConfig = Field(default_factory=LampDetectionConfig)
     digits: DigitDetectionConfig = Field(default_factory=DigitDetectionConfig)

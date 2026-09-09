@@ -182,6 +182,10 @@ class LaneProcessor:
 
         # Wie viele Frames in Folge die Tafel verdeckt war
         self._occlusion_frames = 0
+        # Verdeckung, die von AUSSEN gemeldet wird -- von der Personenmaske.
+        # Sie ist das verlaesslichere Signal: Der Gruen-Score kann eine
+        # Verdeckung nur erraten, die Maske hat die Person gesehen.
+        self._extern_verdeckt = False
         self._live_interval = cfg.detection.lamps.live_preview_interval
         # Die letzten Anzeigemessungen -- NUR fuer die Live-Anzeige; die
         # Zaehlung ruehrt sie nicht an (siehe `_geglaettete_anzeige`).
@@ -601,6 +605,15 @@ class LaneProcessor:
         """Lampenstand zu Beginn des zuletzt beendeten Wurfs (Raeumen)."""
         return self._baseline_pins
 
+    def setze_verdeckung(self, verdeckt: bool) -> None:
+        """Meldet, ob die Personenmaske diese Tafel gerade verdeckt sieht.
+
+        Von der Pipeline VOR `process` zu setzen. Getrennt vom Gruen-Score,
+        weil es eine andere Quelle ist -- und weil zwei Quellen, die sich
+        widersprechen duerfen, mehr wert sind als eine, die immer recht hat.
+        """
+        self._extern_verdeckt = bool(verdeckt)
+
     def read_pin_lamps_at(self, frame: Frame) -> PinLampReading | None:
         """Liest die Kegellampen eines beliebigen Frames.
 
@@ -817,7 +830,20 @@ class LaneProcessor:
         # Eingefroren wird ALLES: kein Zustandswechsel, keine Lampenmessung,
         # keine Ziffern. Waehrend der Verdeckung ist keine Aussage moeglich,
         # und eine Luecke im Protokoll ist besser als ein erfundener Wurf.
-        if green.score < self.cfg.detection.green.occlusion_score:
+        # ZWEI ZEUGEN. Der Gruen-Score erraet eine Verdeckung aus der
+        # Helligkeit; die Personenmaske hat die Person gesehen.
+        #
+        # WARUM DER ZWEITE NOETIG WURDE: An der direkten Hallenkamera faellt
+        # echtes Gruen-AUS selbst auf 0,0 (gemessen 2026-09-08, Bahn 2:
+        # min 0,0, p25 1,3). Ein Schwellwert kann "aus" und "verdeckt" dort
+        # nicht mehr trennen, und `occlusion_score` steht deshalb auf 0 --
+        # die alte Bremse ist an dieser Kamera wirkungslos.
+        #
+        # Genau deshalb entstand am 2026-09-08 der Phantomwurf bei Frame 13224
+        # auf Bahn 2: 0 Kegel, Ziffer unlesbar, und im Tafelbereich der
+        # hoechste Vordergrundanteil des ganzen Laufs (0,197).
+        if (green.score < self.cfg.detection.green.occlusion_score
+                or self._extern_verdeckt):
             self._occlusion_frames += 1
         else:
             if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
