@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QSlider,
@@ -325,6 +326,20 @@ class MainWindow(QMainWindow):
         self.btn_guide.clicked.connect(self._on_start_guide)
         cal_layout.addWidget(self.btn_guide)
 
+        # EINE TAFEL GENUEGT. Ist eine Bahn vermessen, findet der Rechner die
+        # uebrigen desselben Bautyps -- die ROIs liegen in normierten
+        # Tafelkoordinaten, also folgen Lampen und Ziffern aus den vier Ecken.
+        self.btn_find_lanes = QPushButton("Weitere Bahnen finden")
+        self.btn_find_lanes.setToolTip(
+            "Nimmt die aktive Bahn als Muster und sucht alle Tafeln desselben "
+            "Bautyps im aktuellen Bild. Danach werden die Bahnnummern "
+            "abgefragt. Am besten mit einer moeglichst frontal gesehenen "
+            "Tafel als Muster."
+        )
+        self.btn_find_lanes.setStyleSheet("padding:6px;")
+        self.btn_find_lanes.clicked.connect(self._on_find_lanes)
+        cal_layout.addWidget(self.btn_find_lanes)
+
         # ENTFALLEN mit dem Umbau vom 2026-09-03: "Bereiche anklicken (14)",
         # "nur Raute" und "Ziffern einzeln einrahmen (8)" samt Feldauswahl.
         #
@@ -519,6 +534,101 @@ class MainWindow(QMainWindow):
         self.lane_panels: dict[int, LanePanel] = {}
         self._rebuild_lane_panels()
         return self.lane_container
+
+    def _on_find_lanes(self) -> None:
+        """Sucht alle Tafeln desselben Bautyps anhand der aktiven Bahn.
+
+        WOFUER: In einer fremden Halle genuegt es, EINE Tafel von Hand zu
+        vermessen. Die uebrigen findet der Merkmalsabgleich -- an einem
+        Trainingsmitschnitt auf ein bis drei Pixel genau, und die daraus
+        erzeugte Kalibrierung schnitt in der Analyse besser ab als die von
+        Hand gesetzte.
+
+        Welche Bahnnummer welche Tafel traegt, kann der Rechner nicht wissen
+        -- das steht an der Wand. Deshalb die Rueckfrage am Ende.
+        """
+        from ..calibration.board_finder import (BoardFinder, entzerre,
+                                                quad_groesse)
+
+        frame = self.player.current_frame
+        if frame is None or not self.session.calibration.lanes:
+            QMessageBox.information(
+                self, "Noch nichts zu suchen",
+                "Erst ein Video laden und mindestens eine Tafel kalibrieren "
+                "-- sie dient als Muster fuer die uebrigen.")
+            return
+
+        aktiv = self.session.active_lane
+        muster = next((l for l in self.session.calibration.lanes
+                       if l.lane_id == aktiv), self.session.calibration.lanes[0])
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            groesse = quad_groesse(muster.quad)
+            vorlage = entzerre(frame.image, muster.quad, groesse)
+            finder = BoardFinder()
+            treffer = finder.finde_alle(frame.image, [vorlage])
+            # Zweiter Durchgang mit dem besten Treffer als Muster: gleiche
+            # Kamera, gleiches Licht. GEMESSEN: 92 -> 176 tragende Merkmale.
+            if treffer:
+                bester = max(treffer, key=lambda t: t.inlier)
+                eigene = entzerre(frame.image, bester.quad,
+                                  quad_groesse(bester.quad))
+                zweite = BoardFinder().finde_alle(frame.image, [eigene])
+                if (len(zweite) >= len(treffer)
+                        and sum(t.inlier for t in zweite)
+                        > sum(t.inlier for t in treffer)):
+                    treffer = zweite
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not treffer:
+            QMessageBox.warning(
+                self, "Keine Tafel gefunden",
+                "In diesem Bild liess sich keine weitere Tafel zuordnen.\n\n"
+                "Moegliche Gruende: anderer Bautyp, sehr anderer Blickwinkel, "
+                "oder das Bild taugt nicht (jemand davor, Bewegungsunschaerfe). "
+                "Ein anderes Standbild waehlen und erneut versuchen.")
+            return
+
+        vorschlag = " ".join(str(i) for i in range(1, len(treffer) + 1))
+        bestehende = [l.display_number for l in self.session.calibration.lanes]
+        if len(bestehende) == len(treffer):
+            vorschlag = " ".join(str(n) for n in bestehende)
+
+        text, ok = QInputDialog.getText(
+            self, "Bahnnummern",
+            f"{len(treffer)} Tafeln gefunden, von links nach rechts.\n"
+            f"Welche Bahnnummern tragen sie?",
+            text=vorschlag)
+        if not ok:
+            return
+        teile = text.replace(",", " ").split()
+        if len(teile) != len(treffer) or not all(t.isdigit() for t in teile):
+            QMessageBox.warning(
+                self, "Eingabe passt nicht",
+                f"{len(treffer)} Zahlen erwartet, {len(teile)} bekommen.")
+            return
+
+        neu = []
+        for i, (t, nummer) in enumerate(zip(treffer, teile), start=1):
+            bahn = muster.model_copy(deep=True)
+            bahn.lane_id = i
+            bahn.real_lane_number = int(nummer)
+            bahn.quad = t.quad
+            neu.append(bahn)
+        self.session.calibration.lanes = neu
+        self.session.active_lane = 1
+
+        self._refresh_active_lane_combo()
+        self._rebuild_lane_panels()
+        self._update_calibration_hint()
+        traeger = ", ".join(f"{t.inlier}" for t in treffer)
+        self.statusBar().showMessage(
+            f"{len(treffer)} Bahnen uebernommen (tragende Merkmale: "
+            f"{traeger}). Rahmen pruefen, dann speichern.", 10000)
+        log.info("Automatisch gefunden: %d Tafeln, Bahnnummern %s",
+                 len(treffer), teile)
 
     def _refresh_lane_number_spin(self) -> None:
         """Zeigt die Bahnnummer der gerade gewaehlten Tafel an.
