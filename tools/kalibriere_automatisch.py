@@ -122,6 +122,9 @@ def main() -> int:
     p.add_argument("--min-inlier", type=int, default=18,
                    help="weniger tragende Merkmale gelten als kein Treffer")
     p.add_argument("--max-tafeln", type=int, default=8)
+    p.add_argument("--ohne-verfeinerung", action="store_true",
+                   help="den zweiten Durchgang mit einer Vorlage aus "
+                        "dem Zielbild ueberspringen")
     p.add_argument("--bahnen", default=None,
                    help="Bahnnummern von links nach rechts, ohne Rueckfrage")
     a = p.parse_args()
@@ -164,6 +167,39 @@ def main() -> int:
 
     finder = BoardFinder(min_inlier=a.min_inlier)
     treffer = finder.finde_alle(ziel, [muster_bild], max_tafeln=a.max_tafeln)
+
+    # ZWEITER DURCHGANG MIT EINER VORLAGE AUS DEM ZIELBILD SELBST.
+    #
+    # Die mitgebrachte Vorlage stammt aus einer anderen Aufnahme -- anderes
+    # Licht, andere Kamera, anderer Massstab. Sobald der erste Durchgang eine
+    # Tafel gefunden hat, laesst sich aus dem ZIELBILD eine Vorlage schneiden,
+    # die zu allen uebrigen Tafeln desselben Bildes viel besser passt.
+    #
+    # GEMESSEN 2026-09-09, Vorlage von der Hallenkamera gegen ein
+    # Overlay-Video einer anderen Kamera:
+    #
+    #     Tafel     Durchgang 1   Durchgang 2   Verschiebung
+    #     x= 555      25 Merkmale   39            1,9 px
+    #     x= 863      36            85            1,0 px
+    #     x=1096      19            37            3,0 px
+    #     x=1386      12            15           16,3 px
+    #
+    # Die Merkmale verdoppeln sich fast, und die am schlechtesten sitzende
+    # Tafel rueckt um 16 Pixel an die richtige Stelle.
+    if treffer and not a.ohne_verfeinerung:
+        bester = max(treffer, key=lambda t: t.inlier)
+        eigene = entzerre(ziel, bester.quad, quad_groesse(bester.quad))
+        zweite = BoardFinder(min_inlier=a.min_inlier).finde_alle(
+            ziel, [eigene], max_tafeln=a.max_tafeln)
+        if len(zweite) >= len(treffer) and sum(t.inlier for t in zweite) > \
+                sum(t.inlier for t in treffer):
+            print(f"  Zweiter Durchgang mit einer Vorlage aus dem Zielbild: "
+                  f"{sum(t.inlier for t in treffer)} -> "
+                  f"{sum(t.inlier for t in zweite)} tragende Merkmale")
+            treffer = zweite
+        else:
+            print("  Zweiter Durchgang brachte nichts -- es bleibt beim ersten")
+
     if not treffer:
         print("\nKeine Tafel gefunden. Moegliche Gruende: anderer Bautyp, "
               "sehr anderer Blickwinkel, oder der gewaehlte Frame taugt "
