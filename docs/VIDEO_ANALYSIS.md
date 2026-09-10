@@ -2512,3 +2512,40 @@ schlechtester Wert war mit 3,33 px unbrauchbar.
 Die Suchgegend schränkt nur die **Höhe** ein, nicht die Breite: Die Tafeln
 stehen in einer Reihe, und wer die Breite aus dem ersten Bild ableitet,
 schließt die Tafeln aus, die dort noch fehlten (gemessen: 3 statt 4).
+
+### Verkippung: die Ecken einzeln nachziehen (2026-09-10)
+
+Maßstab und Drehung allein beschreiben nur eine **Ähnlichkeit**. Die vier
+Tafeln im Overlay stehen unterschiedlich schräg — die äußeren werden stärker
+perspektivisch verzerrt gesehen. Nach dem Fund wird deshalb jede Ecke einzeln
+versetzt und behalten, was den maskierten ZNCC verbessert.
+
+Wie weit gesucht wird, ist gemessen und nicht geraten: Die Kippung einer
+Rahmenkante gegen die Bildkante lag bei bis zu **9 px**, im Mittel 2,3 (16
+Kanten). Drei Pixel je Ecke und Runde decken das ab.
+
+Dazu **getrennte Maskenränder**: Bei den Lampen greift der Schein weit über
+die ROI hinaus (2,2 %), bei den Ziffern nicht (0,8 %) — dort fraß der große
+Rand die erhabenen Fensterrahmen mit weg.
+
+| Verfahren | Streuung | Zeit |
+|---|---|---|
+| Merkmalsabgleich | 1,43 px | ~7 s |
+| Bild in Bild | 1,00 px | 16 s |
+| + getrennte Ränder | 0,97 px | 20–24 s |
+| **+ Verkippung** | **0,76 px** | 24–32 s |
+| von Hand gesetzt | 0,89 px | Minuten |
+
+Damit sitzt die automatische Kalibrierung erstmals **besser als die von
+Hand**. Je Stelle:
+
+| Start | Merkmale | Bild in Bild + Verkippung |
+|---|---|---|
+| 0 | 0,94 | 0,91 |
+| 42375 | 1,26 | **0,55** |
+| 84750 | 1,07 | 0,76 |
+| 127125 | 1,22 | 0,98 |
+| 169500 | 0,88 | 0,69 |
+| 254250 | 1,63 | 0,69 |
+| 300000 | 3,33 | 0,72 |
+| 317812 | 1,13 | 0,78 |

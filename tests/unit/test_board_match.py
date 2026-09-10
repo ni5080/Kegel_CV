@@ -192,3 +192,73 @@ class TestFinden:
                             stabile_maske(t, rois()), max_tafeln=3,
                             skalen=(1.0,), winkel=(0.0,),
                             bereich=(0, 230, 10 ** 6, 360)) == []
+
+
+class TestVerkippung:
+    """"dann kann man das Bild auch bisschen verzerren und verkippen lassen"
+
+    Massstab und Drehung allein beschreiben nur eine AEHNLICHKEIT. Die vier
+    Tafeln im Overlay stehen unterschiedlich schraeg -- die aeusseren werden
+    staerker perspektivisch verzerrt gesehen.
+
+    GEMESSEN an acht Stellen eines Spiels, Streuung der ROI-Lagen:
+
+        Merkmalsabgleich              1,43 px
+        Bild in Bild ohne Verkippung  0,97 px
+        Bild in Bild mit Verkippung   0,76 px
+        von Hand gesetzt              0,89 px
+    """
+
+    def test_ein_verkipptes_viereck_wird_nachgezogen(self):
+        from kegel_cv.calibration.board_match import verkippe
+        t = muster()
+        bild = szene(t, stellen=(60,))
+        grau = cv2.cvtColor(bild, cv2.COLOR_BGR2GRAY)
+        m = stabile_maske(t, rois())
+        richtig = [[60.0, 80.0], [60.0 + MUSTER_B - 1, 80.0],
+                   [60.0 + MUSTER_B - 1, 80.0 + MUSTER_H - 1],
+                   [60.0, 80.0 + MUSTER_H - 1]]
+        schief = [list(e) for e in richtig]
+        schief[1][1] += 3          # obere rechte Ecke drei Pixel tiefer
+        mg = cv2.cvtColor(t, cv2.COLOR_BGR2GRAY)
+        vorher = guete(mg, m, grau, schief)
+        nachher_quad, nachher = verkippe(mg, m, grau, schief)
+        assert nachher > vorher
+        assert abs(nachher_quad[1][1] - richtig[1][1]) < 3
+
+    def test_ein_sitzendes_viereck_bleibt_stehen(self):
+        """Wird nichts besser, wird auch nichts veraendert."""
+        from kegel_cv.calibration.board_match import verkippe
+        t = muster()
+        bild = szene(t, stellen=(60,))
+        grau = cv2.cvtColor(bild, cv2.COLOR_BGR2GRAY)
+        m = stabile_maske(t, rois())
+        richtig = [[60.0, 80.0], [60.0 + MUSTER_B - 1, 80.0],
+                   [60.0 + MUSTER_B - 1, 80.0 + MUSTER_H - 1],
+                   [60.0, 80.0 + MUSTER_H - 1]]
+        quad, _ = verkippe(cv2.cvtColor(t, cv2.COLOR_BGR2GRAY), m, grau,
+                           richtig, weite=2, runden=1)
+        assert max(abs(a[0] - b[0]) + abs(a[1] - b[1])
+                   for a, b in zip(quad, richtig)) <= 2
+
+    def test_sie_laesst_sich_abschalten(self):
+        t = muster()
+        ohne = finde_tafeln(szene(t), cv2.cvtColor(t, cv2.COLOR_BGR2GRAY),
+                            stabile_maske(t, rois()), max_tafeln=3,
+                            skalen=(1.0,), winkel=(0.0,), kippen=False)
+        assert len(ohne) == 3
+
+
+class TestGetrennteRaender:
+    """Bei den Lampen greift der Schein weit ueber die ROI hinaus, bei den
+    Ziffern nicht -- dort frisst ein grosser Rand die Fensterrahmen mit weg."""
+
+    def test_ziffern_bekommen_weniger_rand(self):
+        from kegel_cv.calibration.board_match import (RAND_LAMPEN,
+                                                      RAND_ZIFFERN)
+        assert RAND_ZIFFERN < RAND_LAMPEN
+
+    def test_der_getrennte_rand_laesst_mehr_stehen(self):
+        eng = stabile_maske(muster(), rois(), rand_ziffern=0.004)
+        weit = stabile_maske(muster(), rois(), rand_ziffern=0.030)
+        assert eng.mean() > weit.mean()

@@ -58,9 +58,14 @@ log = logging.getLogger(__name__)
 
 # Schwelle, ab der eine dunkle Flaeche im Musterbild als Anzeigefenster gilt.
 DUNKEL = 57
-# Rand um Lampen und Ziffernfelder, als Anteil der Tafelkante. Der Schein
-# einer brennenden Lampe greift ueber ihre ROI hinaus.
-MASKENRAND = 0.022
+# Rand um die Lampen, als Anteil der Tafelkante. Der Schein einer brennenden
+# Lampe greift weit ueber ihre ROI hinaus.
+RAND_LAMPEN = 0.022
+# Rand um die Ziffernfelder. GETRENNT, weil der Schein dort schwaecher ist --
+# ein grosser Rand frisst die erhabenen Fensterrahmen mit weg, und die sind
+# unveraenderliche Struktur.
+RAND_ZIFFERN = 0.008
+MASKENRAND = RAND_LAMPEN
 
 
 @dataclass
@@ -78,8 +83,8 @@ class Fund:
         return float(q[:, 0].mean()), float(q[:, 1].mean())
 
 
-def stabile_maske(muster: np.ndarray, rois, rand: float = MASKENRAND
-                  ) -> np.ndarray:
+def stabile_maske(muster: np.ndarray, rois, rand: float = RAND_LAMPEN,
+                  rand_ziffern: float | None = None) -> np.ndarray:
     """1 = wird verglichen, 0 = wird ignoriert.
 
     Verglichen wird, was sich nie aendert: Gehaeuse, Logo, die Rahmen um die
@@ -106,12 +111,14 @@ def stabile_maske(muster: np.ndarray, rois, rand: float = MASKENRAND
 
     # Lampen und Ziffernfelder. Die einzelnen Stellen brauchen es nicht -- ihr
     # Feld deckt sie ab, und einzeln gerechnet fraesse es die Rahmen mit weg.
+    rand_ziffern = RAND_ZIFFERN if rand_ziffern is None else rand_ziffern
     for roi in rois:
         if roi.name.startswith("digit_"):
             continue
+        r = rand if roi.name.startswith(("pin_lamp", "green_lamp"))             else rand_ziffern
         x, y, w, h = roi.rect
-        weg((x - rand) * breite, (y - rand) * hoehe,
-            (x + w + rand) * breite, (y + h + rand) * hoehe)
+        weg((x - r) * breite, (y - r) * hoehe,
+            (x + w + r) * breite, (y + h + r) * hoehe)
     return maske
 
 
@@ -161,9 +168,53 @@ def _ecken(muster: np.ndarray, skala: float, winkel: float, x: int, y: int,
     return [[float(a), float(b)] for a, b in gedreht]
 
 
+def verkippe(muster: np.ndarray, maske: np.ndarray, grau: np.ndarray,
+             quad, *, weite: int = 3, runden: int = 2):
+    """Zieht die vier Ecken einzeln nach -- damit auch Verkippung passt.
+
+    WOFUER -- der Nutzer, 2026-09-10:
+
+        "dann kann man das Bild auch bisschen verzerren und verkippen lassen.
+         Wie sehr, koennte man ja auch grob ausrechnen notfalls."
+
+    Massstab und Drehung allein beschreiben nur eine AEHNLICHKEIT. Die vier
+    Tafeln im Overlay stehen aber unterschiedlich schraeg -- die aeusseren
+    werden staerker perspektivisch verzerrt gesehen als die mittleren. Wer nur
+    Massstab und Drehung zulaesst, kann das nicht abbilden.
+
+    WIE WEIT GESUCHT WIRD, ist gemessen und nicht geraten: Die Kippung einer
+    Rahmenkante gegen die Bildkante lag bei bis zu 9 Pixeln, im Mittel bei 2,3
+    (2026-09-10, 16 Kanten). Drei Pixel je Ecke und Runde decken das ab, ohne
+    dass die Suche in eine ganz andere Lage abwandern kann.
+
+    Jede Ecke wird einzeln versetzt und behalten, was den maskierten ZNCC
+    verbessert. Wird nichts besser, bleibt das Viereck, wie es war.
+    """
+    beste = [list(map(float, e)) for e in quad]
+    bester_wert = guete(muster, maske, grau, beste)
+    for _ in range(max(1, runden)):
+        verbessert = False
+        for i in range(4):
+            for dx in range(-weite, weite + 1):
+                for dy in range(-weite, weite + 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    versuch = [list(e) for e in beste]
+                    versuch[i][0] += dx
+                    versuch[i][1] += dy
+                    wert = guete(muster, maske, grau, versuch)
+                    if wert > bester_wert:
+                        beste, bester_wert = versuch, wert
+                        verbessert = True
+        if not verbessert:
+            break
+    return beste, bester_wert
+
+
 def finde_tafeln(bild: np.ndarray, muster: np.ndarray, maske: np.ndarray, *,
                  max_tafeln: int = 4, skalen=None, winkel=None,
-                 min_guete: float = 0.45, bereich=None) -> list[Fund]:
+                 min_guete: float = 0.45, bereich=None,
+                 kippen: bool = True) -> list[Fund]:
     """Sucht die Vorlage im Bild, ueber ein Raster aus Massstab und Drehung.
 
     Zurueck kommen bis zu `max_tafeln` Funde, von links nach rechts, jeder mit
@@ -222,6 +273,10 @@ def finde_tafeln(bild: np.ndarray, muster: np.ndarray, maske: np.ndarray, *,
             aus.append(fund)
         if len(aus) >= max_tafeln:
             break
+    if kippen:
+        for fund in aus:
+            quad, wert = verkippe(muster, maske, vollbild, fund.quad)
+            fund.quad, fund.guete = quad, wert
     aus.sort(key=lambda f: f.mitte[0])
     if aus:
         log.debug("Bild in Bild: %d Tafeln, Guete %s", len(aus),
