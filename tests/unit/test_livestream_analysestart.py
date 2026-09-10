@@ -36,7 +36,7 @@ from PySide6.QtWidgets import QApplication          # noqa: E402
 
 from kegel_cv.config import load_config             # noqa: E402
 from kegel_cv.gui import main_window as mw          # noqa: E402
-from kegel_cv.video.source import Frame             # noqa: E402
+from kegel_cv.video.source import Frame, VideoInfo             # noqa: E402
 
 pytestmark = pytest.mark.gui
 
@@ -57,10 +57,16 @@ class UnechterPlayer:
         self.geschlossen = False
         self.pausiert = False
         self.geladen_mit: list[str] = []
+        # Der echte Player hat diese Angabe immer. Die Analyse merkt sie sich
+        # beim Start, weil ein Livestream-Player danach geschlossen ist.
+        self.info = VideoInfo(width=1920, height=1080, fps=25.0,
+                              frame_count=None if live else 10000,
+                              source_id=quelle)
 
     def close(self) -> None:
         self.geschlossen = True
         self.source_id = None
+        self.info = None
 
     def pause(self) -> None:
         self.pausiert = True

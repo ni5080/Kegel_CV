@@ -436,3 +436,48 @@ class TestVorDerKalibrierung:
         fenster.session.active_lane = 1
         fenster._on_lane_number_changed(7)
         assert "kalibriert" in fenster.statusBar().currentMessage()
+
+
+class TestPositionsanzeige:
+    """Oben links laufen Frames und Zeit.
+
+    Zwei Wuensche des Nutzers am 2026-09-10:
+
+        "waere das cool, wenn das nicht stoppen wuerde, nur weil ich auf
+         Analyse starten klicke"
+        "waere das cool, wenn da auch noch die Zeit in HH:mm:ss angezeigt
+         wird, weil 5621 Sekunden ist fuer mich nicht so eingaengig"
+    """
+
+    def test_stunden_minuten_sekunden(self):
+        from kegel_cv.gui.main_window import als_uhrzeit
+        assert als_uhrzeit(5621) == "01:33:41"
+        assert als_uhrzeit(0) == "00:00:00"
+        assert als_uhrzeit(11300) == "03:08:20"
+
+    def test_unsinn_stuerzt_nicht_ab(self):
+        from kegel_cv.gui.main_window import als_uhrzeit
+        assert als_uhrzeit(-1) == "--:--:--"
+        assert als_uhrzeit(float("nan")) == "--:--:--"
+
+    def test_die_sekunden_bleiben_lesbar(self, fenster):
+        """Sie stehen in Logs und Debug-Ordnern -- beide Angaben braucht es."""
+        fenster._setze_position(140540, 296103, 5621.6)
+        text = fenster.position_label.text()
+        assert "01:33:41" in text and "5622 s" in text and "140540" in text
+
+    def test_waehrend_der_analyse_laeuft_die_zeit_weiter(self, fenster):
+        """HIER LAG DER FEHLER: Bei einem Livestream ist der Player waehrend
+        der Analyse GESCHLOSSEN. `player.info` war None, also fehlte die
+        Bildrate -- die Frames liefen, die Sekunden standen bei 0.00."""
+        fenster.player = UnechterPlayer(live=True)
+        fenster._analyse_info = fenster.player.info      # beim Start gemerkt
+        fenster.player.close()
+        fenster.player.info = None                       # Player ist zu
+        fenster._on_preview(2500, bild())
+        assert "00:01:40" in fenster.position_label.text()
+
+    def test_ohne_gesamtzahl_keine_null(self, fenster):
+        """"Frame 12345 / 0" sah aus wie ein Fehler und war nur ein Stream."""
+        fenster._setze_position(12345, 0, 493.8)
+        assert "/ 0" not in fenster.position_label.text()

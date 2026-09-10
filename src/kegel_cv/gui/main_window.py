@@ -97,6 +97,22 @@ class StatusLogHandler(logging.Handler):
             0, lambda: self._fenster.statusBar().showMessage(message, 8000))
 
 
+def als_uhrzeit(sekunden: float) -> str:
+    """Sekunden als HH:MM:SS.
+
+    WOFUER -- Nutzer am 2026-09-10: "5621 Sekunden ist fuer mich nicht so
+    eingaengig". Bei einem Spieltag von drei Stunden ist die Sekundenzahl
+    fuenfstellig; die Stelle im Video findet man damit nicht wieder.
+
+    Die Sekunden bleiben trotzdem stehen: Frame-Nummer geteilt durch Bildrate
+    ergibt sie, und in Logs und Debug-Ordnern steht sie so.
+    """
+    if sekunden < 0 or sekunden != sekunden:      # negativ oder NaN
+        return "--:--:--"
+    ganze = int(sekunden)
+    return f"{ganze // 3600:02d}:{ganze % 3600 // 60:02d}:{ganze % 60:02d}"
+
+
 class MainWindow(QMainWindow):
     def __init__(self, cfg: AppConfig) -> None:
         super().__init__()
@@ -126,6 +142,9 @@ class MainWindow(QMainWindow):
         self._analyse_aktiv = False
         # Pfad der Vorschau, solange sie fuer die Analyse geschlossen ist.
         self._vorschau_pfad: str | None = None
+        # Videodaten fuer die Dauer der Analyse. Bei einem
+        # Livestream ist der Player dann geschlossen.
+        self._analyse_info: VideoInfo | None = None
 
         self.setWindowTitle("Kegel_CV - Automatische Kegelerfassung")
         self._apply_window_size()
@@ -563,9 +582,9 @@ class MainWindow(QMainWindow):
         self.position_slider.setEnabled(False)
         layout.addWidget(self.position_slider, 1)
 
-        self.position_label = QLabel("Frame 0 / 0    t = 0.00 s")
+        self.position_label = QLabel("Frame 0    00:00:00  (0 s)")
         self.position_label.setFont(QFont("Consolas", 10))
-        self.position_label.setMinimumWidth(260)
+        self.position_label.setMinimumWidth(320)
         layout.addWidget(self.position_label)
 
         return widget
@@ -1253,6 +1272,22 @@ class MainWindow(QMainWindow):
             f"Auswahl dabei -- auch in einer anderen Halle.")
         self.statusBar().showMessage(f"Bauart {name} aufgenommen", 8000)
 
+    def _setze_position(self, index: int, gesamt: int,
+                        sekunden: float) -> None:
+        """Die eine Stelle, an der die Positionsanzeige geschrieben wird.
+
+        Vorher stand sie an zwei Stellen -- eine fuer die Wiedergabe, eine fuer
+        die Analyse -- und die zweite rechnete die Sekunden aus einem Player,
+        den die Analyse gerade geschlossen hatte.
+        """
+        rest = f" / {gesamt}" if gesamt else ""
+        self.position_label.setText(
+            f"Frame {index}{rest}    {als_uhrzeit(sekunden)}  "
+            f"({sekunden:.0f} s)")
+        if not self.position_slider.isSliderDown():
+            self.position_slider.setValue(index)
+        self._update_overlay_text()
+
     def _on_player_error(self, message: str) -> None:
         QMessageBox.critical(self, "Videofehler", message)
         self.statusBar().showMessage(f"Fehler: {message}", 8000)
@@ -1269,12 +1304,7 @@ class MainWindow(QMainWindow):
 
         info = self.player.info
         total = (info.frame_count or 0) if info else 0
-        self.position_label.setText(
-            f"Frame {frame.index} / {total}    t = {frame.timestamp:6.2f} s"
-        )
-        if not self.position_slider.isSliderDown():
-            self.position_slider.setValue(frame.index)
-        self._update_overlay_text()
+        self._setze_position(frame.index, total, frame.timestamp)
 
     # ------------------------------------------------------------ Kalibrierung
 
@@ -1645,6 +1675,12 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # VOR ALLEM ANDEREN merken. Bei einem Livestream wird der Player
+        # gleich geschlossen, und danach ist `player.info` None -- die
+        # Positionsanzeige haette dann keine Bildrate mehr und die Sekunden
+        # stuenden still, waehrend die Frames weiterlaufen.
+        self._analyse_info = self.player.info
+
         missing = [f"Bahn {l.lane_id}" for l in calibration.lanes
                    if l.get_roi("green_lamp") is None]
         if missing:
@@ -1751,6 +1787,9 @@ class MainWindow(QMainWindow):
         # Hier endet die Analyse fuer die Oberflaeche -- ab jetzt darf die
         # Wiedergabe wieder ans Bild.
         self._analyse_aktiv = False
+        # Ab jetzt liefert der Player wieder eigene Frames -- der Merker aus
+        # der Analyse hat ausgedient.
+        self._analyse_info = None
         self._vorschau_wieder_aufbauen()
         self._update_controls()
 
@@ -1855,15 +1894,14 @@ class MainWindow(QMainWindow):
 
     def _on_preview(self, index: int, image) -> None:
         self.video_view.set_frame(image)
-        info = self.player.info
+        # NICHT vom Player nehmen. Bei einem Livestream ist er fuer die Dauer
+        # der Analyse GESCHLOSSEN -- `self.player.info` ist dann None, und die
+        # Anzeige stand bei "Frame 12345 / 0    t = 0.00 s". Die Frames liefen,
+        # die Sekunden nicht. Deshalb wird die Bildrate beim Start gemerkt.
+        info = self._analyse_info or self.player.info
         total = (info.frame_count or 0) if info else 0
-        timestamp = index / info.fps if info and info.fps else 0.0
-        self.position_label.setText(
-            f"Frame {index} / {total}    t = {timestamp:6.2f} s"
-        )
-        if not self.position_slider.isSliderDown():
-            self.position_slider.setValue(index)
-        self._update_overlay_text()
+        fps = (info.fps if info and info.fps else 0.0)
+        self._setze_position(index, total, index / fps if fps else 0.0)
 
     def _on_analysis_progress(self, current: int, total: int) -> None:
         percent = (current / total * 100.0) if total else 0.0
