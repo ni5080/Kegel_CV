@@ -47,8 +47,28 @@ from .model import Calibration, LaneCalibration
 log = logging.getLogger(__name__)
 
 # Felder, die zu Spielbeginn nachweislich Null zeigen.
-NULLFELDER: tuple[str, ...] = ("throw_number", "pin_count", "total_a",
-                               "total_b")
+#
+# `left_display` ist die FEHLWURFANZEIGE (`detection.foul_field`) und zeigt
+# `00`. Sie hatte hier zunaechst gefehlt, und ich hatte sie ausserdem mit
+# `pin_count` verwechselt -- der Nutzer hat beides richtiggestellt.
+NULLFELDER: tuple[str, ...] = ("throw_number", "total_a", "total_b",
+                               "left_display")
+
+# WAS SICH NICHT SELBST AUSRICHTEN KANN, ERBT VON SEINEN NACHBARN.
+#
+# `pin_count` -- das Feld in der Mitte der unteren Zeile -- zeigt zu
+# Spielbeginn keinen Wert; es ist dunkel. Auf Nullen laesst es sich also nicht
+# einstellen. Es steht aber in DERSELBEN Anzeigezeile wie Wurfnummer und
+# Gesamtsumme, und der Nutzer kennt die Anlage:
+#
+#     "der Abstand zwischen der linkesten 0 bei Gesamtsumme und dem
+#      rechtesten bei Wurfnummer zu dem Wert in der Mitte ist immer identisch"
+#
+# Dieselbe Zeile, derselbe Versatz. Also wird der Mittelwert dessen
+# uebernommen, was fuer die beiden Nachbarn gefunden wurde.
+ERBEN: dict[str, tuple[str, ...]] = {
+    "pin_count": ("throw_number", "total_b"),
+}
 # Suchbereich in Pixeln der Originaltafel, in beiden Richtungen.
 SUCHWEITE = 3
 # So sicher muss eine Stelle gelesen sein, damit sie als Null zaehlt.
@@ -166,6 +186,23 @@ def passe_an_nullen_an(kalibrierung: Calibration, tafeln: dict[int, np.ndarray],
                 continue
             if _verschiebe(bahn, feld, passung.dx, passung.dy):
                 angepasst.append(passung)
+        # Was sich nicht selbst ausrichten kann, erbt von seinen Nachbarn
+        # in derselben Anzeigezeile.
+        gefunden = {p.feld: p for p in angepasst}
+        for feld, nachbarn in ERBEN.items():
+            quellen = [gefunden[n] for n in nachbarn if n in gefunden]
+            if not quellen or not bahn.digit_rois(feld):
+                continue
+            dx = float(np.mean([q.dx for q in quellen]))
+            dy = float(np.mean([q.dy for q in quellen]))
+            if _verschiebe(bahn, feld, dx, dy):
+                angepasst.append(Nullpassung(
+                    feld=feld, dx=dx, dy=dy,
+                    guete=min(q.guete for q in quellen),
+                    plateau=min(q.plateau for q in quellen)))
+                log.debug("Bahn %d: %s von %s geerbt", bahn.display_number,
+                          feld, " und ".join(q.feld for q in quellen))
+
         if angepasst:
             bericht[bahn.display_number] = angepasst
             log.info("Bahn %d an den Nullen ausgerichtet: %s",

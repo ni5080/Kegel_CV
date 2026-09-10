@@ -156,7 +156,20 @@ class TestUeberAlleBahnen:
         assert passe_an_nullen_an(kal, {1: dunkel}, Leser()) == {}
         assert [r.rect for r in kal.lanes[0].rois] == vorher
 
-    @pytest.mark.parametrize("feld", NULLFELDER)
-    def test_alle_nullfelder_sind_benannt(self, feld):
-        """Auch die Fehlwurfanzeige -- ausdruecklicher Wunsch."""
-        assert feld in ("throw_number", "pin_count", "total_a", "total_b")
+    def test_die_fehlwurfanzeige_ist_dabei(self):
+        """HIER LAG EIN FEHLER: Sie hatte gefehlt, und ich hatte sie ausserdem
+        mit `pin_count` verwechselt. Die Fehlwurfanzeige ist `left_display`
+        (`detection.foul_field`) und zeigt zu Spielbeginn `00`."""
+        assert "left_display" in NULLFELDER
+
+    def test_pin_count_richtet_sich_nicht_selbst_aus(self):
+        """Das Feld in der Mitte der unteren Zeile ist zu Spielbeginn DUNKEL
+        -- es zeigt keinen Wert, auch keine Null."""
+        assert "pin_count" not in NULLFELDER
+
+    def test_pin_count_erbt_von_seinen_nachbarn(self):
+        """"der Abstand zwischen der linkesten 0 bei Gesamtsumme und dem
+        rechtesten bei Wurfnummer zu dem Wert in der Mitte ist immer
+        identisch" -- dieselbe Zeile, derselbe Versatz."""
+        from kegel_cv.calibration.digit_zero_fit import ERBEN
+        assert ERBEN["pin_count"] == ("throw_number", "total_b")

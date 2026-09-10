@@ -2390,10 +2390,24 @@ gemessen an *acht späteren*):
 
 ### Zwei Befunde nebenbei
 
-**Die Fehlwurfanzeige zeigt keine Null, sie ist dunkel.** `pin_count` liest auf
-allen vier Bahnen `?` mit Güte 0,00 — das Feld ist zu Spielbeginn schlicht
-aus. Es bleibt in der Liste der Nullfelder, weil andere Anlagen dort eine Null
-anzeigen könnten, aber hier trägt es nichts bei.
+**KORREKTUR (vom Nutzer richtiggestellt).** Ich hatte die Fehlwurfanzeige mit
+`pin_count` verwechselt. Sie ist `left_display` (`detection.foul_field`), zeigt
+zu Spielbeginn `00` und liest sich sauber — sie fehlte in der Liste der
+Nullfelder und ist jetzt drin.
+
+`pin_count` — das Feld in der **Mitte** der unteren Zeile — ist tatsächlich
+dunkel und zeigt keinen Wert, auch keine Null. Auf Nullen einstellen lässt es
+sich also nicht. Der Nutzer kennt die Anlage:
+
+> „der Abstand zwischen der linkesten 0 bei Gesamtsumme und dem rechtesten bei
+> Wurfnummer zu dem Wert in der Mitte ist immer identisch"
+
+Dieselbe Anzeigezeile, derselbe Versatz. `pin_count` **erbt** deshalb den
+Mittelwert dessen, was für Wurfnummer und Gesamtsumme gefunden wurde.
+
+Voller Durchlauf am Hallenstream danach: 8 Bilder in 6,4 s, 4 Tafeln mit 386
+tragenden Merkmalen, **9 Ziffernfelder auf 4 Bahnen** an den Nullen
+ausgerichtet.
 
 **Nicht jede Aufnahme bietet Nullen.** Im Verbandsligavideo zeigt in den ersten
 vier Minuten (24 Stichproben) kein einziges Feld durchgehend Nullen — die
