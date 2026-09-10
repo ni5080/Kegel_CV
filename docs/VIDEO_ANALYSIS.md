@@ -2346,3 +2346,73 @@ größte Gewinn: 6,28 → 1,13 px.
 Kosten im Livestream rund fünf Sekunden. Die Zeitgrenze (`boardtype_live_timeout_s`)
 deckelt auch den Nachlauf — sonst hinge die Suche fest, wenn die Bilder nicht
 schnell genug kommen.
+
+---
+
+## Ziffern an den Nullen ausrichten (2026-09-10)
+
+**Vorschlag des Nutzers:** *„wie wäre es, wenn er Anfangs die Ziffern ganz
+unten verschiebt, bis er die 0en halbwegs sicher sieht? Auch bei der
+Fehlwurfanzeige? so können wir das niemandem als ‚automatisierte
+Kalibrierung' verkaufen…"*
+
+### Warum das nicht zirkulär ist
+
+Zu Spielbeginn steht auf der Tafel `000`, `0`, `0000` — ein **bekannter
+Sollwert**, keine Vermutung. Verschoben wird also nicht auf die Lesequalität
+hin, sondern auf einen Inhalt, der unabhängig davon feststeht. Genau daran war
+der Versuch mit den Anzeigefenstern gescheitert.
+
+Gesucht wird die **Mitte des Plateaus** aus Versätzen, die alle Stellen sicher
+als Null lesen — nicht der beste Einzelpunkt. Ein Rahmen am Rand des lesbaren
+Bereichs liest heute richtig und morgen nicht.
+
+### Der Maßstab: Anteil unlesbarer Stellen
+
+Unabhängig von jeder Justage; gezählt wird, wie oft der Leser `?` sagt.
+
+**Was die Bauart-Korrektur brachte** (Verbandsligaspiel, 8 Frames mitten im
+Spiel, 320 Stellen):
+
+| Kalibrierung | unlesbar | Anteil |
+|---|---|---|
+| von Hand | 18 / 320 | **5,6 %** |
+| automatisch, alte Bauart | 51 / 320 | 15,9 % |
+| automatisch, korrigierte Bauart | 25 / 320 | **7,8 %** |
+
+**Was die Nullpassung bringt** (Hallenstream, angepasst an *einem* Bild,
+gemessen an *acht späteren*):
+
+| | unlesbar | Anteil |
+|---|---|---|
+| ohne | 69 / 320 | 21,6 % |
+| mit Nullpassung | 56 / 320 | **17,5 %** |
+
+### Zwei Befunde nebenbei
+
+**Die Fehlwurfanzeige zeigt keine Null, sie ist dunkel.** `pin_count` liest auf
+allen vier Bahnen `?` mit Güte 0,00 — das Feld ist zu Spielbeginn schlicht
+aus. Es bleibt in der Liste der Nullfelder, weil andere Anlagen dort eine Null
+anzeigen könnten, aber hier trägt es nichts bei.
+
+**Nicht jede Aufnahme bietet Nullen.** Im Verbandsligavideo zeigt in den ersten
+vier Minuten (24 Stichproben) kein einziges Feld durchgehend Nullen — die
+Aufzeichnung beginnt mitten im Einspielen. Dort feuert die Nullpassung nicht
+und ändert nichts. Das ist beabsichtigt.
+
+### Die obere rechte Ecke
+
+Der Nutzer wies auf die Ecken hin. Gemessen an der nächsten Bildkante,
+Hallenaufnahme:
+
+| Bahn | Ecke oben rechts | y | Abweichung senkrecht |
+|---|---|---|---|
+| 1 | | 49 | +1 |
+| 2 | | 46 | −2 |
+| 3 | | 49 | +0 |
+| **4** | | **59** | **+10** |
+
+Bahn 4 sitzt zehn Pixel zu tief, und ihre obere Kante fällt über die Breite um
+elf Pixel ab. Das ist keine Perspektive — die vier Tafeln hängen in einer
+Reihe — sondern ein Schätzfehler des Merkmalsabgleichs auf der äußersten
+Tafel. **Offen.**

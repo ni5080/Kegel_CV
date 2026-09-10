@@ -1225,6 +1225,7 @@ class MainWindow(QMainWindow):
 
         self.session.calibration = uebernimm(
             treffer, [int(t) for t in teile], bild)
+        nullen = self._richte_an_nullen_aus(bild)
         self.session.active_lane = 1
         self._digit_shift_angewandt = (0, 0)
         self.digit_dx.setValue(0)
@@ -1233,9 +1234,47 @@ class MainWindow(QMainWindow):
         self._refresh_lane_number_spin()
         self._rebuild_lane_panels()
         self._update_calibration_hint()
+        zusatz = (f" {nullen} Ziffernfelder an den Nullen ausgerichtet."
+                  if nullen else "")
         self.statusBar().showMessage(
-            f"Bauart {treffer.typ.name} uebernommen, {anzahl} Bahnen. "
+            f"Bauart {treffer.typ.name} uebernommen, {anzahl} Bahnen.{zusatz} "
             f"Rahmen pruefen -- notfalls 'Ziffern verschieben'.", 12000)
+
+    def _richte_an_nullen_aus(self, bild) -> int:
+        """Verschiebt die Ziffernrahmen, bis die Nullen sicher gelesen werden.
+
+        WOFUER -- Vorschlag des Nutzers am 2026-09-10:
+
+            "wie waere es, wenn er Anfangs die Ziffern ganz unten verschiebt,
+             bis er die 0en halbwegs sicher sieht?"
+
+        Zu Spielbeginn steht auf der Tafel `000`, `0`, `0000` -- ein BEKANNTER
+        Sollwert, kein geratener. Deshalb ist das keine Optimierung auf das
+        eigene Ergebnis: Verschoben wird auf einen Inhalt, der unabhaengig
+        feststeht.
+
+        GEMESSEN 2026-09-10 am Hallenstream: angepasst an einem Bild, gemessen
+        an acht spaeteren -- unlesbare Ziffernstellen 21,6 % -> 17,5 %.
+
+        Zeigt die Tafel gerade keine Nullen, geschieht nichts. Das ist der
+        Normalfall mitten im Spiel und kein Fehler.
+        """
+        if bild is None or not self.cfg.calibration.digit_zero_fit:
+            return 0
+        from ..calibration.digit_zero_fit import passe_an_nullen_an
+        from ..calibration.geometry import PerspectiveTransform, Quad
+        from ..detection.digit_reader import CalibratedDigitReader
+
+        tafeln = {}
+        for bahn in self.session.calibration.lanes:
+            ecken = [(float(p[0]), float(p[1])) for p in bahn.quad]
+            tafeln[bahn.lane_id] = PerspectiveTransform(
+                Quad.from_points(ecken), self.cfg.calibration.warped_width,
+                self.cfg.calibration.warped_height).warp(bild)
+        bericht = passe_an_nullen_an(
+            self.session.calibration, tafeln,
+            CalibratedDigitReader(self.cfg.detection.digits))
+        return sum(len(f) for f in bericht.values())
 
     def _on_board_aufnehmen(self) -> None:
         """Nimmt die aktive Bahn als neue Bauart in die Bibliothek auf.

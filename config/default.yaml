@@ -179,6 +179,12 @@ calibration:
   # sechsmal alle vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal
   # nur zwei bzw. drei.
   boardtype_live_timeout_s: 20.0
+  # Ziffernrahmen nach der Erkennung an den NULLEN ausrichten. Zu Spielbeginn
+  # steht auf der Tafel 000, 0, 0000 -- ein bekannter Sollwert, keine
+  # Optimierung auf das eigene Ergebnis. GEMESSEN 2026-09-10 am Hallenstream:
+  # angepasst an einem Bild, gemessen an acht spaeteren, unlesbare
+  # Ziffernstellen 21,6 % -> 17,5 %. Ohne Nullen auf der Tafel passiert nichts.
+  digit_zero_fit: true
   # Anzahl der Bahnen im Overlay
   lane_count: 4
   # Zuordnung Overlay-Position -> reale Bahnnummer.

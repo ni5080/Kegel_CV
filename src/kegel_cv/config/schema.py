@@ -140,6 +140,16 @@ class CalibrationConfig(BaseModel):
     # drei. 20 Sekunden decken die gelungenen Faelle ab, ohne dass jemand
     # ratlos vor der Oberflaeche sitzt.
     boardtype_live_timeout_s: float = Field(default=20.0, gt=0)
+    # Ziffernrahmen nach der Erkennung an den NULLEN ausrichten.
+    #
+    # Zu Spielbeginn steht auf der Tafel 000, 0, 0000 -- ein bekannter
+    # Sollwert. Deshalb ist das keine Optimierung auf das eigene Ergebnis.
+    #
+    # GEMESSEN 2026-09-10 am Hallenstream: angepasst an einem Bild, gemessen
+    # an acht spaeteren -- unlesbare Ziffernstellen 21,6 % -> 17,5 %.
+    #
+    # Zeigt die Tafel keine Nullen, geschieht nichts.
+    digit_zero_fit: bool = True
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).
