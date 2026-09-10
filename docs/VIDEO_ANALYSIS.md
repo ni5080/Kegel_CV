@@ -2095,3 +2095,76 @@ Aufzeichnung, zu der sie zurueckspringen koennte.
 
 **Ergebnis im Betrieb**, 1,5 min live gegen die Kamera:
 12 Gruenzyklen, 12 Wuerfe, Status `{'VALID': 12}`. Vorher nahezu nichts.
+
+---
+
+## Sitzt der automatisch gefundene Rahmen? (2026-09-10)
+
+**Frage des Nutzers**, beim Blick auf die Übersicht: *„ist vielleicht die Maske
+schlecht? weil der nimmt ja nicht ansatzweise den klaren Rand der Tafel"*
+
+### 1. Wo liegt die Rahmenkante gegenüber der Bildkante?
+
+Gemessen **lokal**, nicht über eine globale Maske: senkrecht zu jeder
+Rahmenkante ein Streifen von ±14 px, darin die stärkste Helligkeitsänderung,
+Median über 41 Stützstellen. Negativ = die stärkste Kante liegt *innerhalb* des
+Rahmens.
+
+| | oben | rechts | unten | links |
+|---|---|---|---|---|
+| **automatisch** | −4,2 (σ 3,3) | −0,2 (σ 1,3) | −7,5 (σ 4,9) | +1,5 (σ 1,5) |
+| **von Hand** | −6,5 (σ 3,5) | −2,2 (σ 1,1) | −6,8 (σ 4,0) | +2,0 (σ 0,0) |
+
+**Die Handkalibrierung rahmt genauso.** Der Rahmen ist also nicht „falsch"
+gesetzt, sondern folgt derselben Auffassung davon, wo die Tafel endet.
+
+*Grenze dieser Messung:* Oben und unten liegt innerhalb von 14 px das dunkle
+Anzeigefenster — die stärkste Kante dort ist dessen Rand, nicht die Silhouette
+des Gehäuses. Belastbar sind deshalb nur **links und rechts**, und dort sitzt
+der Rahmen auf 1–2 px.
+
+**Ein gleichmäßiger Versatz ist ohnehin harmlos:** Die ROIs liegen in
+normierten Tafelkoordinaten *derselben* Bezugsfläche. Verschiebt sich der
+Rahmen um 5 px, verschieben sich die ROIs mit — relativ zur Tafel bleibt alles,
+wo es war.
+
+### 2. Sitzen die ROIs? — gemessen an den dunklen Anzeigefenstern
+
+`total_a` und `left_display` sind schwarze Rechtecke auf beigem Gehäuse. Ihre
+Kanten sind unabhängig davon, welche Lampen brennen und welche Ziffern stehen.
+Verglichen wird der Schwerpunkt des dunklen Fensters mit der Mitte der ROI.
+
+Frame 84750, vier Tafeln, zwei Felder je Tafel:
+
+| | dx | dy | Streuung |
+|---|---|---|---|
+| automatisch | −0,9 px | −1,3 px | 0,8 / 0,9 |
+| von Hand | −0,2 px | −1,8 px | 0,8 / 0,5 |
+
+Der systematische Anteil (dy ≈ −1,5 px) ist in **beiden** gleich — er steckt in
+den ROI-Definitionen selbst, nicht im Finden der Tafel.
+
+### 3. Streuung zwischen unabhängigen Suchläufen
+
+Acht Läufe an verschiedenen Stellen des Spiels, 31 gefundene Tafeln, Betrag des
+ROI-Versatzes:
+
+```
+Mittel 2,38 px    Streuung 0,77 px    größter 4,0 px
+```
+
+Zum Vergleich die Handkalibrierung nach demselben Maß: **2,0 px**.
+
+Nach Position von links:
+
+| Tafel | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| mittlerer Versatz | **1,8 px** | 2,6 px | 2,5 px | 2,8 px |
+
+Die linke Tafel sitzt am besten, die rechte rund einen Pixel schlechter — ein
+schwacher Trend, kein Ausreißer. Sieben von acht Läufen fanden alle vier.
+
+**Einordnung:** Ein Pixel entschied bei der Ziffernerkennung über neun
+Prozentpunkte (54 → 60 von 66 Stellen). Ein mittlerer Versatz von 2,4 px ist
+für die Lampen unerheblich und für die Ziffern nicht — genau dafür gibt es
+„Ziffern verschieben".
