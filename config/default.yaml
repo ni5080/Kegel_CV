@@ -185,6 +185,15 @@ calibration:
   # angepasst an einem Bild, gemessen an acht spaeteren, unlesbare
   # Ziffernstellen 21,6 % -> 17,5 %. Ohne Nullen auf der Tafel passiert nichts.
   digit_zero_fit: true
+  # BILD IN BILD: die Tafel als Ganzes suchen statt ueber Merkmalspunkte.
+  # GEMESSEN 2026-09-10 an acht Stellen eines Spiels, Streuung der ROI-Lagen
+  # zwischen den vier baugleichen Tafeln:
+  #     Merkmalsabgleich   1,43 px, groesster Ausreisser 3,33
+  #     Bild in Bild       1,00 px, groesster Wert       1,16
+  #     von Hand gesetzt   0,89 px
+  # Alle acht Stellen finden alle vier Tafeln; der Merkmalsabgleich schaffte
+  # das an dreien nicht. So sicher muss ein Fund sein (maskierter ZNCC):
+  boardmatch_min_guete: 0.45
   # Anzahl der Bahnen im Overlay
   lane_count: 4
   # Zuordnung Overlay-Position -> reale Bahnnummer.

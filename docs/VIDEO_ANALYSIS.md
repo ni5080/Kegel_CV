@@ -2430,3 +2430,85 @@ Bahn 4 sitzt zehn Pixel zu tief, und ihre obere Kante fällt über die Breite um
 elf Pixel ab. Das ist keine Perspektive — die vier Tafeln hängen in einer
 Reihe — sondern ein Schätzfehler des Merkmalsabgleichs auf der äußersten
 Tafel. **Offen.**
+
+---
+
+## Bild in Bild ersetzt den Merkmalsabgleich (2026-09-10)
+
+**Entscheidung des Nutzers:** *„wir lassen alle deine Ansätze und fangen doch
+an, automatische Kalibrierung darüber, das Bild in Bild gesucht wird … dann
+kann man das Bild auch bisschen verzerren und verkippen lassen."*
+
+### Was dabei möglich wird, was ORB nie konnte
+
+Die **veränderlichen Teile lassen sich ausblenden**. Brennende Kegellampen und
+wechselnde Ziffern sind genau das, woran der Merkmalsabgleich scheitert — und
+aus der Bauart wissen wir, wo sie liegen. `matchTemplate` rechnet mit einer
+Maske; ORB kann das nicht.
+
+### Die Maske hatte ein Loch
+
+Die obere Leiste der Tafel ist eine **Matrixanzeige mit wechselndem Text**. Sie
+ist als einzige Fläche kein ROI und blieb deshalb unmaskiert. ZNCC an der von
+Hand gesetzten Kalibrierung, acht Stellen des Spiels:
+
+| | ohne Leistenmaske | mit Leistenmaske |
+|---|---|---|
+| 84750 | 0,684 | 0,577 |
+| 42375 | 0,680 | 0,573 |
+| 127125 | **−0,009** | 0,524 |
+| 169500 | **−0,005** | 0,525 |
+| 211875 | **−0,010** | 0,523 |
+| 254250 | **−0,006** | 0,527 |
+| 300000 | **−0,015** | 0,529 |
+| 330000 | **−0,026** | 0,518 |
+
+An sechs von acht Stellen war die Übereinstimmung **exakt null**. Maskiert wird
+die Leiste als *eigenes Rechteck*, nicht als Band über das obere Drittel — ein
+Band nähme die beiden oberen Fenster mit, und die sind die stabilsten Merkmale
+der Tafel (Streuung 0,02–0,04 px über 20 Frames).
+
+### Warum die Güte eigens gerechnet wird
+
+`TM_CCORR_NORMED` mit Maske ist über verschiedene **Vorlagengrößen** nicht
+vergleichbar: Eine kleiner gerechnete Vorlage erreicht fast überall höhere
+Werte. Wer damit den Maßstab wählt, landet am Rand des Rasters — gemessen an
+zwei von vier Stellen, Streuung 14,8 statt 0,8 px. Die *Lage* wird deshalb
+weiter mit `matchTemplate` gesucht, die *Auswahl* zwischen Maßstäben über den
+maskierten ZNCC im entzerrten Raum.
+
+### Das Ergebnis
+
+Acht Stellen des Spiels, Streuung der ROI-Lagen zwischen den vier baugleichen
+Tafeln:
+
+| Start | Merkmalsabgleich | Bild in Bild |
+|---|---|---|
+| 0 | 0,94 | 0,98 |
+| 42375 | 1,26 | **0,97** |
+| 84750 | 1,07 | 1,08 |
+| 127125 | 1,22 | **1,16** |
+| 169500 | 0,88 | 0,92 |
+| 254250 | 1,63 | **0,92** |
+| 300000 | **3,33** | **0,92** |
+| 317812 | 1,13 | **1,03** |
+| **Mittel** | **1,43** | **1,00** |
+
+Zum Vergleich die Handkalibrierung: **0,89 px**.
+
+Wichtiger noch als der Mittelwert: **Alle acht Stellen finden alle vier
+Tafeln.** Der Merkmalsabgleich schaffte das an dreien nicht, und sein
+schlechtester Wert war mit 3,33 px unbrauchbar.
+
+### Der Preis und wie er gedrückt wurde
+
+| | Zeit je Kalibrierung |
+|---|---|
+| Merkmalsabgleich | ~7 s |
+| Bild in Bild, volles Raster jedes Mal | 98 s |
+| + Maßstab nach dem ersten Fund merken | 27–42 s |
+| + Suchgegend merken | **16 s** |
+
+Die Suchgegend schränkt nur die **Höhe** ein, nicht die Breite: Die Tafeln
+stehen in einer Reihe, und wer die Breite aus dem ersten Bild ableitet,
+schließt die Tafeln aus, die dort noch fehlten (gemessen: 3 statt 4).

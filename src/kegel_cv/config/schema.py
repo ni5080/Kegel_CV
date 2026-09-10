@@ -150,6 +150,21 @@ class CalibrationConfig(BaseModel):
     #
     # Zeigt die Tafel keine Nullen, geschieht nichts.
     digit_zero_fit: bool = True
+    # BILD IN BILD: die Tafel als Ganzes suchen statt ueber Merkmalspunkte.
+    #
+    # GEMESSEN 2026-09-10 an acht Stellen eines Spiels von 3:08 h, Streuung
+    # der ROI-Lagen zwischen den vier baugleichen Tafeln:
+    #
+    #     Merkmalsabgleich   1,43 px, groesster Ausreisser 3,33
+    #     Bild in Bild       1,00 px, groesster Wert       1,16
+    #     von Hand gesetzt   0,89 px
+    #
+    # Und: Alle acht Stellen finden alle vier Tafeln. Der Merkmalsabgleich
+    # schaffte das an dreien nicht. Der Preis sind rund 16 statt 7 Sekunden.
+    #
+    # So sicher muss ein Fund sein (maskierter ZNCC). GEMESSEN: echte Tafeln
+    # 0,52 bis 0,87, und die naechstbeste Stelle im Bild lag klar darunter.
+    boardmatch_min_guete: float = Field(default=0.45, ge=0.0, le=1.0)
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).

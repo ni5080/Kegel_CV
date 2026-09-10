@@ -40,6 +40,7 @@ import cv2
 import numpy as np
 
 from .board_finder import BoardFinder, Treffer, entzerre, quad_groesse
+from .board_match import finde_tafeln, stabile_maske
 from .model import Calibration
 
 log = logging.getLogger(__name__)
@@ -236,7 +237,7 @@ class LaufendeSuche:
                  min_inlier: int = 14, anker_inlier: int = 8,
                  min_frames: int = 2, max_tafeln: int = 8,
                  stufen: list[float] | None = None,
-                 nachlauf: int = 6) -> None:
+                 nachlauf: int = 6, min_guete: float = 0.45) -> None:
         self.typen = list(typen)
         self.stufen = ANKER_STUFEN if stufen is None else list(stufen)
         self.ziel_anzahl = max(1, ziel_anzahl)
@@ -245,12 +246,27 @@ class LaufendeSuche:
         self.nachlauf = max(0, nachlauf)
         self.bilder_gesehen = 0
         self._fertig_seit: int | None = None
-        self._grob = BoardFinder(min_inlier=min_inlier)
-        self._fein = BoardFinder(min_inlier=anker_inlier)
-        # Je Bauart: Vorlagen, gebuendelte Funde, schon verwendete Buendel.
-        self._stand: dict[str, dict] = {
-            typ.name: {"typ": typ, "vorlagen": [], "gruppen": [],
-                       "benutzt": set()} for typ in self.typen}
+        self.min_guete = min_guete
+        # BILD IN BILD statt Merkmalsabgleich (Entscheidung des Nutzers am
+        # 2026-09-10). Die Vorlage wird als Ganzes gesucht, ueber ein Raster
+        # aus Massstab und Drehung -- und die veraenderlichen Teile werden
+        # dabei ausgeblendet. Genau das konnte ORB nicht: Brennende Lampen und
+        # wechselnde Ziffern sind das, woran der Merkmalsabgleich scheiterte.
+        #
+        # Alles Uebrige bleibt, wie es gemessen wurde: Buendelung nach Lage
+        # ueber mehrere Bilder, Median ueber die Funde, Nachlauf.
+        self._stand: dict[str, dict] = {}
+        for typ in self.typen:
+            muster = cv2.cvtColor(typ.muster, cv2.COLOR_BGR2GRAY)
+            self._stand[typ.name] = {
+                "typ": typ, "muster": muster, "gruppen": [],
+                "maske": stabile_maske(typ.muster, typ.bahn.rois),
+                # Massstab und Drehung des ersten Fundes. Danach wird nur noch
+                # eng darum gesucht: Dieselbe Uebertragung zeigt die Tafeln in
+                # jedem Bild gleich gross. GEMESSEN 2026-09-10 ueber 22
+                # Stichproben aus 4,4 Minuten Stream -- Massstab konstant 0,85,
+                # obere Kante jedes Mal bei y=49.
+                "skala": None, "winkel": None, "bereich": None}
 
     def fuettere(self, bild: np.ndarray) -> None:
         """Nimmt ein weiteres Standbild entgegen."""
@@ -258,35 +274,43 @@ class LaufendeSuche:
             return
         self.bilder_gesehen += 1
         for stand in self._stand.values():
-            if not stand["vorlagen"]:
-                # Noch kein Anker: mit dem Muster aus der Bibliothek suchen.
-                bester = finde_anker(self._grob, bild, stand["typ"].muster,
-                                     self.stufen, self.max_tafeln)
-                if bester is None:
-                    continue
-                stand["vorlagen"] = [_ausschnitt(bild, bester.quad)]
-                # Der Anker zaehlt selbst als Fund -- sonst muesste er sich
-                # in einem spaeteren Bild noch einmal beweisen.
-                _einsortieren(stand["gruppen"], (bester, bild))
-                # KEIN `continue`: Mit der frischen Vorlage wird DASSELBE
-                # Bild sofort noch einmal durchsucht. Im Livestream kostet
-                # jedes verschenkte Bild eine knappe Sekunde.
+            skalen, winkel = self._raster(stand)
+            funde = finde_tafeln(bild, stand["muster"], stand["maske"],
+                                 max_tafeln=self.ziel_anzahl,
+                                 skalen=skalen, winkel=winkel,
+                                 min_guete=self.min_guete,
+                                 bereich=stand["bereich"])
+            if funde and stand["skala"] is None:
+                bester = max(funde, key=lambda f: f.guete)
+                stand["skala"], stand["winkel"] = bester.skala, bester.winkel
+                # NUR DIE HOEHE EINSCHRAENKEN, nicht die Breite. Die Tafeln
+                # stehen in einer Reihe; wer die Breite aus dem ersten Bild
+                # ableitet, schliesst die Tafeln aus, die dort noch fehlten --
+                # gemessen: 3 statt 4 Tafeln.
+                alle = np.array([e for f in funde for e in f.quad], float)
+                hoch = float(np.ptp(np.array(funde[0].quad)[:, 1]))
+                stand["bereich"] = (0, alle[:, 1].min() - hoch,
+                                    10 ** 6, alle[:, 1].max() + hoch)
+                log.debug("Massstab %.3f, Drehung %+.1f, Gegend %s gemerkt",
+                          bester.skala, bester.winkel, stand["bereich"])
+            for fund in funde:
+                treffer = Treffer(quad=fund.quad,
+                                  inlier=int(round(fund.guete * 100)),
+                                  paare=100, vorlage_index=0)
+                _einsortieren(stand["gruppen"], (treffer, bild))
 
-            for t in self._fein.finde_alle(bild, stand["vorlagen"],
-                                           max_tafeln=self.max_tafeln):
-                _einsortieren(stand["gruppen"], (t, bild))
-            self._neue_vorlagen(stand)
+    def _raster(self, stand: dict):
+        """Beim ersten Bild breit suchen, danach eng um das Gefundene.
 
-    def _neue_vorlagen(self, stand: dict) -> None:
-        """Jede neu bestaetigte Tafel wird selbst zur Vorlage (Ankerkette)."""
-        for i, g in enumerate(stand["gruppen"]):
-            if i in stand["benutzt"] or len(g) < self.min_frames:
-                continue
-            stand["benutzt"].add(i)
-            t, bild = max(g, key=lambda x: x[0].inlier)
-            ausschnitt = _ausschnitt(bild, t.quad)
-            if ausschnitt is not None and ausschnitt.size:
-                stand["vorlagen"].append(ausschnitt)
+        Die weite Suche kostet rund sieben Sekunden je Bild -- bei zehn
+        Bildern waere die Kalibrierung eine Minute lang beschaeftigt. Ist der
+        Massstab einmal bekannt, genuegt ein enges Raster darum.
+        """
+        if stand["skala"] is None:
+            return None, None
+        s, w = stand["skala"], stand["winkel"]
+        return (np.arange(s - 0.025, s + 0.026, 0.0125),
+                (w - 0.5, w, w + 0.5))
 
     def _treffer(self, stand: dict) -> list[Treffer]:
         treffer = [_gemittelt(g) for g in stand["gruppen"]

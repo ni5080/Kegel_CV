@@ -1080,7 +1080,8 @@ class MainWindow(QMainWindow):
                               min_inlier=kal.boardtype_min_inlier,
                               anker_inlier=kal.boardtype_anchor_inlier,
                               min_frames=kal.boardtype_min_frames,
-                              nachlauf=kal.boardtype_nachlauf_bilder)
+                              nachlauf=kal.boardtype_nachlauf_bilder,
+                              min_guete=kal.boardmatch_min_guete)
         letztes = self.player.current_frame.image
         if not self.player.is_live:
             for bild in self._bilder_fuer_suche():
