@@ -235,13 +235,16 @@ class LaufendeSuche:
     def __init__(self, typen: list[Tafeltyp], *, ziel_anzahl: int = 4,
                  min_inlier: int = 14, anker_inlier: int = 8,
                  min_frames: int = 2, max_tafeln: int = 8,
-                 stufen: list[float] | None = None) -> None:
+                 stufen: list[float] | None = None,
+                 nachlauf: int = 6) -> None:
         self.typen = list(typen)
         self.stufen = ANKER_STUFEN if stufen is None else list(stufen)
         self.ziel_anzahl = max(1, ziel_anzahl)
         self.min_frames = min_frames
         self.max_tafeln = max_tafeln
+        self.nachlauf = max(0, nachlauf)
         self.bilder_gesehen = 0
+        self._fertig_seit: int | None = None
         self._grob = BoardFinder(min_inlier=min_inlier)
         self._fein = BoardFinder(min_inlier=anker_inlier)
         # Je Bauart: Vorlagen, gebuendelte Funde, schon verwendete Buendel.
@@ -299,7 +302,31 @@ class LaufendeSuche:
 
     @property
     def fertig(self) -> bool:
+        """Sind so viele Tafeln gefunden wie erwartet?"""
         return self.gefunden >= self.ziel_anzahl
+
+    @property
+    def genug(self) -> bool:
+        """Ist auch der Nachlauf abgearbeitet -- darf die Suche aufhoeren?
+
+        WARUM WEITERSAMMELN, obwohl schon alle Tafeln da sind: Die Ecken
+        werden ueber die Funde gemittelt, und gegen Schaetzrauschen hilft
+        Mitteln nur, wenn es genug zu mitteln gibt. GEMESSEN 2026-09-10 ueber
+        acht Stellen eines Spiels, Streuung der ROI-Lagen zwischen den vier
+        baugleichen Tafeln:
+
+            11 bis 13 Funde je Tafel    0,9 px
+             2 bis  7 Funde je Tafel    1,8 px
+
+        Die Suche ist meist nach zwei bis vier Bildern vollstaendig -- genau
+        im schlechten Bereich. Der Nachlauf kostet im Livestream ein paar
+        Sekunden und halbiert den Fehler.
+        """
+        if not self.fertig:
+            return False
+        if self._fertig_seit is None:
+            self._fertig_seit = self.bilder_gesehen
+        return self.bilder_gesehen - self._fertig_seit >= self.nachlauf
 
     def ergebnis(self) -> Erkennung | None:
         """Die beste Bauart mit ihren Tafeln -- oder None."""

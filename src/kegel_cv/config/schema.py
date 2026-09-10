@@ -105,7 +105,20 @@ class CalibrationConfig(BaseModel):
     # Merkmale, an denen der Abgleich haengt -- auf einem Bild mit vielen
     # leuchtenden Lampen wurde KEINE Tafel gefunden, obwohl alle vier klar zu
     # sehen waren. Die LAGE aendert sich dagegen nicht.
-    boardtype_sample_frames: int = Field(default=6, ge=1)
+    boardtype_sample_frames: int = Field(default=14, ge=1)
+    # SO VIELE BILDER NACH DEM VOLLSTAENDIGEN FUND noch weitersammeln. Die
+    # Ecken werden ueber die Funde gemittelt, und gegen Schaetzrauschen hilft
+    # Mitteln nur, wenn es genug zu mitteln gibt. GEMESSEN 2026-09-10 ueber
+    # acht Stellen eines Spiels, Streuung der ROI-Lagen zwischen den vier
+    # baugleichen Tafeln:
+    #
+    #     11 bis 13 Funde je Tafel    0,9 px
+    #      2 bis  7 Funde je Tafel    1,8 px
+    #
+    # Die Suche ist meist nach zwei bis vier Bildern vollstaendig -- genau im
+    # schlechten Bereich. Sechs weitere Bilder kosten im Livestream rund fuenf
+    # Sekunden und halbieren den Fehler.
+    boardtype_nachlauf_bilder: int = Field(default=6, ge=0)
     # Abstand zwischen den Stichproben in einer Datei. 150 Frames sind sechs
     # Sekunden -- weit genug, dass Lampen und Ziffern anders stehen.
     boardtype_sample_step: int = Field(default=150, ge=1)

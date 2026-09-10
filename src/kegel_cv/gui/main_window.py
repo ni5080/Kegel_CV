@@ -1079,19 +1079,20 @@ class MainWindow(QMainWindow):
         suche = LaufendeSuche(typen, ziel_anzahl=ziel,
                               min_inlier=kal.boardtype_min_inlier,
                               anker_inlier=kal.boardtype_anchor_inlier,
-                              min_frames=kal.boardtype_min_frames)
+                              min_frames=kal.boardtype_min_frames,
+                              nachlauf=kal.boardtype_nachlauf_bilder)
         letztes = self.player.current_frame.image
         if not self.player.is_live:
             for bild in self._bilder_fuer_suche():
                 letztes = bild
                 suche.fuettere(bild)
                 self._melde_suchstand(suche, ziel)
-                if suche.fertig:
+                if suche.genug:
                     break
             return suche, letztes
 
         beginn = time.monotonic()
-        while not suche.fertig:
+        while not suche.genug:
             verbraucht = time.monotonic() - beginn
             if verbraucht > kal.boardtype_live_timeout_s:
                 break
@@ -1109,11 +1110,17 @@ class MainWindow(QMainWindow):
 
     def _melde_suchstand(self, suche, ziel: int, sekunden: float = 0.0) -> None:
         """Haelt den Nutzer auf dem Laufenden -- eine Suche darf nicht stumm
-        zwanzig Sekunden dauern."""
+        zwanzig Sekunden dauern.
+
+        Nach dem vollstaendigen Fund sagt sie ausdruecklich, dass sie noch
+        WEITERSAMMELT. Sonst sieht es aus, als haenge sie: Alle Tafeln stehen
+        da, und trotzdem passiert nichts.
+        """
         zeit = f", {sekunden:.0f} s" if sekunden else ""
+        stand = ("alle gefunden, sammle fuer die Genauigkeit weiter"
+                 if suche.fertig else f"{suche.gefunden} von {ziel}")
         self.statusBar().showMessage(
-            f"Suche Tafeln: {suche.gefunden} von {ziel} "
-            f"({suche.bilder_gesehen} Bilder{zeit})")
+            f"Suche Tafeln: {stand} ({suche.bilder_gesehen} Bilder{zeit})")
         QApplication.processEvents()
 
     def _bestaetige_treffer(self, treffer, bild, ziel: int,

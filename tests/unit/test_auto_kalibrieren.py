@@ -519,3 +519,65 @@ class TestVorschauImWahrenFormat:
         from kegel_cv.calibration.roi_preview import tafelmontage
         roh = bild()
         assert tafelmontage(roh, []) is roh
+
+
+class TestWeitersammeln:
+    """"bau das mit dem Weitersammeln ein" -- nach dem vollstaendigen Fund
+    noch ein paar Bilder, damit es genug zu mitteln gibt."""
+
+    def test_die_datei_sammelt_ueber_den_fund_hinaus(self, fenster,
+                                                     monkeypatch):
+        player = UnechterPlayer()
+        fenster.player = player
+        gesehen = []
+
+        class Attrappe:
+            def __init__(self, *a, **k):
+                self.bilder_gesehen = 0
+                self.nachlauf = k.get("nachlauf", 0)
+                self.gefunden = 0
+
+            def fuettere(self, bild):
+                self.bilder_gesehen += 1
+                gesehen.append(bild)
+                self.gefunden = 4 if self.bilder_gesehen >= 2 else 0
+
+            @property
+            def fertig(self):
+                return self.gefunden >= 4
+
+            @property
+            def genug(self):
+                return self.fertig and self.bilder_gesehen >= 2 + self.nachlauf
+
+            def ergebnis(self):
+                return None
+
+        monkeypatch.setattr("kegel_cv.calibration.board_library.LaufendeSuche",
+                            Attrappe)
+        fenster.cfg.calibration.boardtype_nachlauf_bilder = 3
+        fenster.cfg.calibration.boardtype_sample_frames = 10
+        fenster._suche_tafeln([ein_typ()], ziel=4)
+        assert len(gesehen) == 5, "zwei bis zum Fund, drei Nachlauf"
+
+    def test_die_zeitgrenze_deckelt_den_nachlauf(self, fenster, monkeypatch):
+        """Sonst haengt die Suche im Livestream am Nachlauf fest, wenn die
+        Bilder nicht schnell genug kommen."""
+        import time as uhr
+        player = UnechterPlayer(live=True)
+        fenster.player = player
+        fenster.cfg.calibration.boardtype_sample_wait_s = 0.0
+        fenster.cfg.calibration.boardtype_live_timeout_s = 0.3
+        fenster.cfg.calibration.boardtype_nachlauf_bilder = 999
+        t0 = uhr.monotonic()
+        fenster._suche_tafeln([ein_typ()], ziel=4)
+        assert uhr.monotonic() - t0 < 5.0
+
+    def test_der_nutzer_erfaehrt_warum_es_weitergeht(self, fenster):
+        """Alle Tafeln stehen da und trotzdem passiert nichts -- ohne Hinweis
+        sieht das nach einem Haenger aus."""
+        class Stand:
+            gefunden, bilder_gesehen, fertig = 4, 7, True
+
+        fenster._melde_suchstand(Stand(), 4)
+        assert "weiter" in fenster.statusBar().currentMessage()

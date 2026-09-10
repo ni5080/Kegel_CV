@@ -2308,3 +2308,41 @@ Bild gewesen, und der kam vom Nutzer.
 * das **FUNK-Logo** — aufgedruckt, unveränderlich, aber klein und kontrastarm
 * die **Gehäusekanten** — links, rechts und unten auf 0–2 px messbar, oben
   nicht (die beige Leiste ist nur rund fünf Pixel breit)
+
+---
+
+## Nachlauf: nach dem Fund weitersammeln (2026-09-10)
+
+Die Ecken werden über die Funde gemittelt — und gegen Schätzrauschen hilft
+Mitteln nur, wenn es genug zu mitteln gibt:
+
+| Funde je Tafel | Streuung der ROI-Lagen |
+|---|---|
+| 11–13 | **0,9 px** |
+| 2–7 | 1,8 px |
+
+Die Suche war bisher meist nach **zwei bis vier** Bildern vollständig — genau
+im schlechten Bereich. Sie hört jetzt nicht mehr beim Fund auf, sondern sammelt
+`boardtype_nachlauf_bilder` (6) weiter.
+
+Gemessen über acht Stellen des Verbandsligaspiels:
+
+| Stelle | ohne Nachlauf | | mit Nachlauf | |
+|---|---|---|---|---|
+| | Bilder | Streuung | Bilder | Streuung |
+| 0 | 3 | 0,94 | 9 | **0,72** |
+| 42375 | 3 | 1,71 | 9 | **1,26** |
+| 84750 | 2 | 1,06 | 8 | 1,07 |
+| 127125 | 6 | 1,87 | 12 | **1,22** |
+| 169500 | 6 | 1,05 | 12 | **0,88** |
+| 254250 | 10 | 1,69 | 14 | **1,63** |
+| 300000 | 12 | 2,42 | 14 | 3,33 |
+| 317812 | 7 | 6,28 | 13 | **1,13** |
+| **Mittel** | | **2,13** | | **1,40** |
+
+Besser an sechs von acht Stellen, gleichauf an einer, schlechter an einer. Der
+größte Gewinn: 6,28 → 1,13 px.
+
+Kosten im Livestream rund fünf Sekunden. Die Zeitgrenze (`boardtype_live_timeout_s`)
+deckelt auch den Nachlauf — sonst hinge die Suche fest, wenn die Bilder nicht
+schnell genug kommen.

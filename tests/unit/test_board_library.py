@@ -482,3 +482,83 @@ class TestMitteln:
         for b in bilder:
             suche.fuettere(b)
         assert suche.ergebnis() is not None
+
+
+class TestNachlauf:
+    """Nach dem vollstaendigen Fund noch weitersammeln.
+
+    WOFUER: Die Ecken werden ueber die Funde gemittelt, und gegen
+    Schaetzrauschen hilft Mitteln nur, wenn es genug zu mitteln gibt.
+    GEMESSEN 2026-09-10 ueber acht Stellen eines Spiels, Streuung der
+    ROI-Lagen zwischen den vier baugleichen Tafeln:
+
+        11 bis 13 Funde je Tafel    0,9 px
+         2 bis  7 Funde je Tafel    1,8 px
+
+    Die Suche ist meist nach zwei bis vier Bildern vollstaendig -- genau im
+    schlechten Bereich.
+    """
+
+    def _suche(self, tmp_path, nachlauf):
+        from kegel_cv.calibration.board_library import LaufendeSuche
+        bilder = [szene(tafel()) for _ in range(12)]
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        return LaufendeSuche(lade_bibliothek(tmp_path), ziel_anzahl=3,
+                             min_inlier=10, anker_inlier=6,
+                             nachlauf=nachlauf), bilder
+
+    def test_fertig_und_genug_sind_zweierlei(self, tmp_path):
+        suche, bilder = self._suche(tmp_path, nachlauf=4)
+        for b in bilder:
+            suche.fuettere(b)
+            if suche.fertig:
+                break
+        assert suche.fertig
+        assert not suche.genug, "der Nachlauf steht noch aus"
+
+    def test_nach_dem_nachlauf_ist_schluss(self, tmp_path):
+        suche, bilder = self._suche(tmp_path, nachlauf=3)
+        verbraucht = 0
+        for b in bilder:
+            suche.fuettere(b)
+            verbraucht += 1
+            if suche.genug:
+                break
+        assert suche.genug
+        assert verbraucht >= 4, "Fund plus drei weitere Bilder"
+
+    def test_ohne_nachlauf_wie_bisher(self, tmp_path):
+        suche, bilder = self._suche(tmp_path, nachlauf=0)
+        for b in bilder:
+            suche.fuettere(b)
+            if suche.fertig:
+                break
+        assert suche.genug
+
+    def test_es_sammelt_mehr_funde_je_tafel(self, tmp_path):
+        """Der eigentliche Zweck -- mehr Funde, ueber die gemittelt wird."""
+        from kegel_cv.calibration.board_library import LaufendeSuche
+        bilder = [szene(tafel()) for _ in range(12)]
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        typen = lade_bibliothek(tmp_path)
+
+        def funde(nachlauf):
+            s = LaufendeSuche(typen, ziel_anzahl=3, min_inlier=10,
+                              anker_inlier=6, nachlauf=nachlauf)
+            for b in bilder:
+                s.fuettere(b)
+                if s.genug:
+                    break
+            stand = next(iter(s._stand.values()))
+            return max(len(g) for g in stand["gruppen"])
+
+        assert funde(5) > funde(0)
+
+    def test_unvollstaendig_bleibt_unvollstaendig(self, tmp_path):
+        """Ein zu hohes Ziel darf den Nachlauf nicht auslassen -- und die
+        Suche nicht vorzeitig fuer fertig erklaeren."""
+        suche, bilder = self._suche(tmp_path, nachlauf=2)
+        suche.ziel_anzahl = 9
+        for b in bilder:
+            suche.fuettere(b)
+        assert not suche.fertig and not suche.genug

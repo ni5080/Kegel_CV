@@ -161,7 +161,12 @@ calibration:
   #     gar nichts          5 Frames
   # Brennende Kegellampen und wechselnde Ziffern veraendern genau die
   # Merkmale, an denen der Abgleich haengt. Die LAGE aendert sich nicht.
-  boardtype_sample_frames: 6
+  boardtype_sample_frames: 14
+  # So viele Bilder nach dem vollstaendigen Fund noch weitersammeln -- die
+  # Ecken werden ueber die Funde gemittelt. GEMESSEN 2026-09-10: bei 11 bis 13
+  # Funden je Tafel streuen die ROI-Lagen um 0,9 px, bei 2 bis 7 Funden um
+  # 1,8 px. Die Suche ist meist nach zwei bis vier Bildern vollstaendig.
+  boardtype_nachlauf_bilder: 6
   boardtype_sample_step: 150      # 6 Sekunden Abstand in einer Datei
   boardtype_sample_wait_s: 0.8    # bei einem Stream laesst sich nicht springen
   # Schranke fuer die Tafeln NACH der ersten -- niedriger, weil die
