@@ -622,3 +622,48 @@ class TestDialogPasstAufDenSchirm:
         bereich = TrefferDialog._bildbereich(klein, 1200, 900)
         marke = bereich.widget()
         assert marke.pixmap().width() <= 120
+
+
+class TestRoisInDerVorschau:
+    """"ich brauche die ROIs in der Livepreview um sie dort noch hin und her
+    zu schieben" -- Nutzer, 2026-09-10.
+
+    HIER LAG DER FEHLER: Nach der automatischen Kalibrierung standen die ROIs
+    zwar in der Sitzung, wurden aber nie ins Bild gezeichnet. Nachziehen war
+    damit unmoeglich -- man sah ja nichts.
+    """
+
+    def _kalibriere(self, fenster, monkeypatch):
+        from kegel_cv.calibration.board_finder import Treffer
+        from kegel_cv.calibration.board_library import Erkennung
+        fenster.player = UnechterPlayer()
+        treffer = [Treffer(quad=[[x, 10.0], [x + 80, 10.0],
+                                 [x + 80, 90.0], [x, 90.0]],
+                           inlier=40, paare=60, vorlage_index=0)
+                   for x in (10.0, 120.0)]
+        monkeypatch.setattr(mw.QInputDialog, "getText",
+                            lambda *a, **k: ("3 4", True))
+        fenster._uebernimm_erkennung(
+            Erkennung(typ=ein_typ(), treffer=treffer), bild())
+
+    def test_die_tafeln_werden_eingezeichnet(self, fenster, monkeypatch):
+        self._kalibriere(fenster, monkeypatch)
+        assert len(fenster.video_view._quads) == 2
+
+    def test_die_rois_werden_eingezeichnet(self, fenster, monkeypatch):
+        self._kalibriere(fenster, monkeypatch)
+        assert fenster.video_view._rois, "ohne sie laesst sich nichts ziehen"
+        assert any(namen for namen in fenster.video_view._rois.values())
+
+    def test_ziehen_ist_erlaubt(self, fenster, monkeypatch):
+        """Sichtbar allein genuegt nicht -- sie muessen anfassbar sein."""
+        self._kalibriere(fenster, monkeypatch)
+        assert fenster.video_view._drag_erlaubt
+
+    def test_ein_neues_bild_loescht_sie_nicht(self, fenster, monkeypatch):
+        """Im Livestream kommt alle 40 ms ein Frame. Wuerden die Overlays
+        dabei verschwinden, waere im Betrieb nie eine ROI zu sehen."""
+        self._kalibriere(fenster, monkeypatch)
+        vorher = len(fenster.video_view._rois)
+        fenster.video_view.set_frame(bild(120))
+        assert len(fenster.video_view._rois) == vorher

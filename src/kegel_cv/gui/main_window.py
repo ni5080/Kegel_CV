@@ -1235,6 +1235,12 @@ class MainWindow(QMainWindow):
         self._refresh_lane_number_spin()
         self._rebuild_lane_panels()
         self._update_calibration_hint()
+        # DIE ROIS MUESSEN SICHTBAR SEIN, sonst laesst sich nichts nachziehen.
+        # Sie standen nach der automatischen Kalibrierung zwar in der Sitzung,
+        # wurden aber nie ins Bild gezeichnet: "ich brauche die ROIs in der
+        # Livepreview um sie dort noch hin und her zu schieben" (Nutzer,
+        # 2026-09-10).
+        self._redraw_overlays()
         zusatz = (f" {nullen} Ziffernfelder an den Nullen ausgerichtet."
                   if nullen else "")
         self.statusBar().showMessage(
