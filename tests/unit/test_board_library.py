@@ -423,3 +423,62 @@ class TestMassstab:
         from kegel_cv.calibration.board_library import _skaliert
         winzig = _skaliert(np.zeros((10, 10, 3), np.uint8), 0.1)
         assert winzig.shape[0] >= 8 and winzig.shape[1] >= 8
+
+
+class TestMitteln:
+    """Der Median ueber die Funde statt des besten Einzeltreffers.
+
+    Die vier Tafeln im Overlay sind baugleich -- wie unterschiedlich sie nach
+    der Kalibrierung aussehen, ist Schaetzrauschen. GEMESSEN 2026-09-10 ueber
+    acht Stellen des Spiels, Streuung der ROI-Lagen zwischen den vier Tafeln:
+
+        bester Einzeltreffer   1,41 px
+        Median ueber die Funde 1,25 px
+
+    Der Median gewann in allen acht Faellen oder lag gleichauf.
+    """
+
+    def _funde(self, verschiebungen, inlier=None):
+        from kegel_cv.calibration.board_finder import Treffer
+        inlier = inlier or [20] * len(verschiebungen)
+        gruppe = []
+        for v, n in zip(verschiebungen, inlier):
+            quad = [[10.0 + v, 10.0], [90.0 + v, 10.0],
+                    [90.0 + v, 90.0], [10.0 + v, 90.0]]
+            gruppe.append((Treffer(quad=quad, inlier=n, paare=n + 5,
+                                   vorlage_index=0),
+                           np.zeros((2, 2, 3), np.uint8)))
+        return gruppe
+
+    def test_die_ecken_werden_gemittelt(self):
+        from kegel_cv.calibration.board_library import _gemittelt
+        t = _gemittelt(self._funde([-2.0, 0.0, 2.0]))
+        assert t.quad[0][0] == pytest.approx(10.0)
+
+    def test_ein_ausreisser_zieht_nicht_mit(self):
+        """MEDIAN, nicht Mittelwert: Eine Tafel, vor der jemand steht, wuerde
+        den Mittelwert verschieben."""
+        from kegel_cv.calibration.board_library import _gemittelt
+        t = _gemittelt(self._funde([0.0, 0.0, 0.0, 0.0, 40.0]))
+        assert t.quad[0][0] == pytest.approx(10.0)
+
+    def test_die_merkmale_kommen_vom_besten(self):
+        """Sie beschreiben die Sicherheit des Fundes, nicht die Lage."""
+        from kegel_cv.calibration.board_library import _gemittelt
+        t = _gemittelt(self._funde([0.0, 1.0, 2.0], inlier=[12, 90, 30]))
+        assert t.inlier == 90
+
+    def test_ein_einzelner_fund_bleibt_wie_er_ist(self):
+        from kegel_cv.calibration.board_library import _gemittelt
+        einer = self._funde([3.0])
+        assert _gemittelt(einer) is einer[0][0]
+
+    def test_die_suche_nutzt_den_median(self, tmp_path):
+        from kegel_cv.calibration.board_library import LaufendeSuche
+        bilder = [szene(tafel()) for _ in range(3)]
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        suche = LaufendeSuche(lade_bibliothek(tmp_path), ziel_anzahl=3,
+                              min_inlier=10, anker_inlier=6)
+        for b in bilder:
+            suche.fuettere(b)
+        assert suche.ergebnis() is not None

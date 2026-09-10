@@ -2168,3 +2168,78 @@ schwacher Trend, kein Ausreißer. Sieben von acht Läufen fanden alle vier.
 Prozentpunkte (54 → 60 von 66 Stellen). Ein mittlerer Versatz von 2,4 px ist
 für die Lampen unerheblich und für die Ziffern nicht — genau dafür gibt es
 „Ziffern verschieben".
+
+---
+
+## Vier Versuche, die Ecken genauer zu treffen (2026-09-10)
+
+**Einwand des Nutzers:** *„es sitzt immer noch krumm und schief … da können
+Ziffern halt einfach nicht passen"* und *„die Tafeln sind doch klar vom
+Hintergrund abgesetzt? … das kann doch jeder gute CV-Ansatz eigentlich lösen?"*
+
+### Der richtige Maßstab
+
+Der erste Maßstab — Abstand zwischen ROI-Mitte und der Mitte des dunklen
+Anzeigefensters — hat einen **systematischen Anteil**: Die ROIs sind von Hand
+gesetzt und sitzen nicht zwangsläufig mittig. Der taugt für einen Vergleich
+nicht.
+
+**Die vier Tafeln sind baugleich.** Also ist die richtige Größe die *Streuung
+zwischen ihnen*: Sitzt die Kalibrierung, sehen alle vier gleich aus. Der
+Mittelwert darf beliebig sein.
+
+### Was gemessen wurde
+
+Frame 84750, Streuung der ROI-Lagen über die vier Tafeln, in Pixeln der
+Originaltafel (rund 160 px Kantenlänge):
+
+| Verfahren | Streuung |
+|---|---|
+| von Hand gesetzt | **0,89** |
+| Merkmalsabgleich (Ausgangslage) | 1,35 |
+| + Kanten nachziehen (Hochpass) | 1,90 |
+| + ECC-Feinjustierung über alle Pixel | 2,34 |
+
+**Beide Verbesserungsversuche machen es schlechter.** Beide sind verworfen.
+
+*Warum:* Nachziehen verschiebt die **Bezugsfläche** — die ROIs liegen in
+normierten Koordinaten des Vierecks, das der Vorlage entspricht. ECC richtet
+auf das *Musterbild* aus und zieht dabei an genau den Stellen, die sich
+unterscheiden: brennende Lampen, wechselnde Ziffern.
+
+### Was doch hilft: über die Funde mitteln
+
+Die Suche sammelt je Tafel mehrere Funde aus verschiedenen Bildern und warf
+bisher alle bis auf den mit den meisten tragenden Merkmalen weg. Acht Stellen
+des Spiels, je bis zu zwölf Bilder:
+
+| Stelle | Funde je Tafel | bester | Median |
+|---|---|---|---|
+| 0 | 13/12/12/11 | 0,85 | **0,74** |
+| 42375 | 11/13/12/12 | 1,02 | **0,94** |
+| 84750 | 12/12/13/12 | 1,05 | **0,95** |
+| 127125 | 11/11/9/8 | 1,29 | **1,20** |
+| 169500 | 11/8/10/8 | 1,04 | **0,95** |
+| 254250 | 5/7/6/4 | 1,80 | 1,80 |
+| 300000 | 6/12/11/2 | 2,96 | **2,20** |
+| 317812 | 12/13/12/6 | 1,24 | **1,20** |
+| **Mittel** | | **1,41** | **1,25** |
+
+Der Median gewinnt in allen acht Fällen oder liegt gleichauf. Übernommen.
+
+Sichtbar ist außerdem: **Wo viele Funde vorliegen, ist die Streuung klein.**
+Bei 11–13 Funden je Tafel liegt sie um 0,9 px, bei 2–7 Funden über 1,8 px.
+Mehr Standbilder sammeln lohnt sich also unmittelbar.
+
+### Warum die Kontur nicht reicht
+
+Die Idee, die Tafel als helles Viereck auf dunklem Grund zu finden, ist
+richtig — aber im Bildmaterial nur zu drei Vierteln wahr:
+
+* **links, rechts, unten** grenzt die Tafel an dunkles Overlay. Dort sitzt der
+  Rahmen laut Hochpassmessung auf **0 bis 2 px** genau.
+* **oben** grenzt sie an die beige Hallenwand, und die beige Leiste des
+  Gehäuses ist nur rund fünf Pixel breit. Dort greift keine Trennung.
+
+Eine globale Farbmaske scheitert vollständig: In der Halle ist alles beige —
+Bahnen, Wand, Tafeln (siehe `debug/silhouette_maske.png`, 0 Kandidaten).

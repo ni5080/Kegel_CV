@@ -286,8 +286,8 @@ class LaufendeSuche:
                 stand["vorlagen"].append(ausschnitt)
 
     def _treffer(self, stand: dict) -> list[Treffer]:
-        treffer = [max(g, key=lambda x: x[0].inlier)[0]
-                   for g in stand["gruppen"] if len(g) >= self.min_frames]
+        treffer = [_gemittelt(g) for g in stand["gruppen"]
+                   if len(g) >= self.min_frames]
         treffer.sort(key=lambda t: _mitte(t.quad)[0])
         return treffer
 
@@ -371,10 +371,41 @@ def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
         if not vorlagen:
             break
 
-    treffer = [max(g, key=lambda x: x[0].inlier)[0] for g in gruppen
-               if len(g) >= min_frames]
+    treffer = [_gemittelt(g) for g in gruppen if len(g) >= min_frames]
     treffer.sort(key=lambda t: _mitte(t.quad)[0])   # von links nach rechts
     return treffer
+
+
+def _gemittelt(gruppe: list[tuple[Treffer, np.ndarray]]) -> Treffer:
+    """Aus mehreren Funden derselben Tafel einen mit gemittelten Ecken.
+
+    WARUM MITTELN -- gemessen 2026-09-10. Die vier Tafeln im Overlay sind
+    baugleich; wie unterschiedlich sie nach der Kalibrierung aussehen, ist
+    also reines Schaetzrauschen. Ueber acht Stellen des Spiels, gemessen als
+    Streuung der ROI-Lagen zwischen den vier Tafeln:
+
+        bester Einzeltreffer   1,41 px
+        Median ueber die Funde 1,25 px
+
+    Der Median gewann in ALLEN acht Faellen oder lag gleichauf. Die Daten
+    liegen ohnehin vor -- die Suche sammelt je Tafel mehrere Funde aus
+    verschiedenen Bildern und warf bisher alle bis auf einen weg.
+
+    MEDIAN, NICHT MITTELWERT: Ein einzelner Fehltreffer -- eine Tafel, vor der
+    jemand steht -- zoege den Mittelwert mit, den Median nicht.
+
+    Die tragenden Merkmale werden vom BESTEN Fund uebernommen: Sie beschreiben
+    die Sicherheit des Fundes, nicht die Lage, und sollen weiter mit dem
+    vergleichbar sein, was ohne Mittelung herauskaeme.
+    """
+    bester = max(gruppe, key=lambda x: x[0].inlier)[0]
+    if len(gruppe) < 2:
+        return bester
+    ecken = np.median(np.array([t.quad for t, _ in gruppe], dtype=float),
+                      axis=0)
+    return Treffer(quad=[[float(x), float(y)] for x, y in ecken],
+                   inlier=bester.inlier, paare=bester.paare,
+                   vorlage_index=bester.vorlage_index)
 
 
 def _ausschnitt(bild: np.ndarray, quad) -> np.ndarray:
