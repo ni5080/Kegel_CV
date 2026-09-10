@@ -581,3 +581,44 @@ class TestWeitersammeln:
 
         fenster._melde_suchstand(Stand(), 4)
         assert "weiter" in fenster.statusBar().currentMessage()
+
+
+class TestDialogPasstAufDenSchirm:
+    """"ansich hat das schon sehr gut funktioniert... nur kann man wegen der
+    Fenstergroesse nicht bestaetigen" -- Nutzer, 2026-09-10.
+
+    HIER LAG DER FEHLER: Die Uebersicht wurde auf ihre eigene Kantenlaenge
+    skaliert, bei einem 1920er Bild also auf 1920 Pixel. Der Dialog wurde
+    groesser als der Bildschirm (1536x816), und die Knoepfe rutschten hinaus.
+    """
+
+    def _bilder(self):
+        gross = np.full((1080, 1920, 3), 90, dtype=np.uint8)
+        tafeln = np.full((530, 1400, 3), 120, dtype=np.uint8)
+        return gross, tafeln
+
+    def test_er_bleibt_im_sichtbaren_bereich(self, qt_app):
+        from PySide6.QtWidgets import QApplication
+        from kegel_cv.gui.boardtype_dialog import TrefferDialog
+        gross, tafeln = self._bilder()
+        d = TrefferDialog(gross, tafeln, "vier Tafeln")
+        platz = QApplication.primaryScreen().availableGeometry()
+        assert d.width() <= platz.width()
+        assert d.height() <= platz.height()
+
+    def test_die_knoepfe_sind_da(self, qt_app):
+        from PySide6.QtWidgets import QDialogButtonBox
+        from kegel_cv.gui.boardtype_dialog import TrefferDialog
+        gross, tafeln = self._bilder()
+        d = TrefferDialog(gross, tafeln, "vier Tafeln")
+        kasten = d.findChild(QDialogButtonBox)
+        assert kasten is not None
+        assert len(kasten.buttons()) == 2
+
+    def test_ein_kleines_bild_wird_nicht_aufgeblasen(self, qt_app):
+        """Pixel groesser zu machen bringt keine Erkenntnis."""
+        from kegel_cv.gui.boardtype_dialog import TrefferDialog
+        klein = np.full((80, 120, 3), 90, dtype=np.uint8)
+        bereich = TrefferDialog._bildbereich(klein, 1200, 900)
+        marke = bereich.widget()
+        assert marke.pixmap().width() <= 120

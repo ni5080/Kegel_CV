@@ -194,29 +194,37 @@ class TrefferDialog(QDialog):
                  kopfzeile: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Sitzen die Tafeln?")
+
+        # AUF DEN BILDSCHIRM PASSEN. Vorher wurde die Uebersicht auf ihre
+        # eigene Kantenlaenge skaliert -- bei einem 1920er Bild also auf 1920
+        # Pixel. Der Dialog wurde groesser als der Bildschirm, und die Knoepfe
+        # rutschten hinaus: "kann man wegen der Fenstergroesse nicht
+        # bestaetigen" (Nutzer, 2026-09-10).
+        platz = self._verfuegbar()
+        breite = max(480, int(platz.width() * 0.82))
+        hoehe = max(360, int(platz.height() * 0.86))
+
         spalte = QVBoxLayout(self)
-        spalte.addWidget(QLabel(kopfzeile))
+        kopf = QLabel(kopfzeile)
+        kopf.setWordWrap(True)
+        spalte.addWidget(kopf)
 
         spalte.addWidget(QLabel(
             "<b>Lampen und Ziffern</b> -- gelb Kegellampen, gruen die "
             "Gruenlampe, magenta die Wurfnummer, orange die Summen:"))
-        felder = QLabel()
-        felder.setPixmap(_als_pixmap(tafeln, kante=max(tafeln.shape[:2])))
-        rollbereich = QScrollArea()
-        rollbereich.setWidget(felder)
-        rollbereich.setWidgetResizable(True)
-        rollbereich.setMinimumHeight(min(620, tafeln.shape[0] + 20))
-        spalte.addWidget(rollbereich, 1)
+        spalte.addWidget(self._bildbereich(tafeln, breite - 60,
+                                           int(hoehe * 0.46)), 3)
 
         spalte.addWidget(QLabel("<b>Wo sie im Bild sitzen:</b>"))
-        vorschau = QLabel()
-        vorschau.setPixmap(_als_pixmap(uebersicht,
-                                       kante=max(uebersicht.shape[:2])))
-        spalte.addWidget(vorschau)
+        spalte.addWidget(self._bildbereich(uebersicht, breite - 60,
+                                           int(hoehe * 0.26)), 2)
 
         spalte.addWidget(QLabel(
             "<small>Die Nummern zaehlen von links nach rechts -- in dieser "
             "Reihenfolge werden gleich die Bahnnummern abgefragt.</small>"))
+
+        self.resize(breite, hoehe)
+        self.setMaximumSize(platz.width(), platz.height())
 
         knoepfe = QDialogButtonBox()
         knoepfe.addButton("Uebernehmen", QDialogButtonBox.AcceptRole)
@@ -224,3 +232,33 @@ class TrefferDialog(QDialog):
         knoepfe.accepted.connect(self.accept)
         knoepfe.rejected.connect(self.reject)
         spalte.addWidget(knoepfe)
+
+    @staticmethod
+    def _verfuegbar():
+        """Der Bereich, den ein Fenster wirklich einnehmen darf.
+
+        `availableGeometry` laesst die Taskleiste aus -- `geometry` nicht, und
+        ein Dialog in voller Bildschirmhoehe schiebt seine Knoepfe darunter.
+        """
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QApplication
+        schirm = QApplication.primaryScreen()
+        return schirm.availableGeometry() if schirm else QRect(0, 0, 1280, 800)
+
+    @staticmethod
+    def _bildbereich(bild: np.ndarray, breite: int, hoehe: int) -> QScrollArea:
+        """Ein Bild, das sich einpasst statt den Dialog aufzublasen.
+
+        Kleiner gerechnet wird nur, wenn noetig -- ein Bild kuenstlich
+        aufzublasen bringt keine Erkenntnis, es macht nur die Pixel groesser.
+        """
+        h, b = bild.shape[:2]
+        faktor = min(1.0, breite / b, hoehe / h) if b and h else 1.0
+        marke = QLabel()
+        marke.setPixmap(_als_pixmap(bild, kante=int(max(b, h) * faktor)))
+        marke.setAlignment(Qt.AlignCenter)
+        bereich = QScrollArea()
+        bereich.setWidget(marke)
+        bereich.setWidgetResizable(True)
+        bereich.setMinimumHeight(min(hoehe, int(h * faktor) + 4))
+        return bereich
