@@ -7,6 +7,7 @@ Die Ergebnistabellen sind als Platzhalter angelegt und werden in Phase 10 gefuel
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -38,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..calibration import Calibration, list_calibrations
+from .boardtype_dialog import TafeltypDialog
 from ..calibration.geometry import GeometryError
 from ..calibration.session import (
     CalibrationSession,
@@ -326,6 +329,20 @@ class MainWindow(QMainWindow):
         self.btn_guide.setStyleSheet("font-weight:bold; padding:6px;")
         self.btn_guide.clicked.connect(self._on_start_guide)
         cal_layout.addWidget(self.btn_guide)
+
+        # OHNE EINEN EINZIGEN KLICK IN DIE TAFEL. Kennt das Werkzeug die
+        # Bauart, folgt die ganze Kalibrierung aus dem Musterbild -- Ecken,
+        # Lampen und Ziffern zusammen.
+        self.btn_auto_kalibrieren = QPushButton("Automatisch kalibrieren")
+        self.btn_auto_kalibrieren.setToolTip(
+            "Zeigt die bekannten Kegelboard-Bauarten zur Auswahl. Die "
+            "gewaehlte wird im Bild gesucht, samt aller weiteren Tafeln "
+            "desselben Typs. Danach nur noch die Bahnnummern angeben."
+        )
+        self.btn_auto_kalibrieren.setStyleSheet(
+            "font-weight:bold; padding:6px;")
+        self.btn_auto_kalibrieren.clicked.connect(self._on_auto_kalibrieren)
+        cal_layout.addWidget(self.btn_auto_kalibrieren)
 
         # EINE TAFEL GENUEGT. Ist eine Bahn vermessen, findet der Rechner die
         # uebrigen desselben Bautyps -- die ROIs liegen in normierten
@@ -942,71 +959,139 @@ class MainWindow(QMainWindow):
         self._slider_erlaubt = True
         self.position_slider.setRange(0, max(0, (info.frame_count or 1) - 1))
         self._update_controls()
-        self._pruefe_tafeltyp()
+        if not self.session.calibration.lanes:
+            self.statusBar().showMessage(
+                "Noch nicht kalibriert -- 'Automatisch kalibrieren' waehlt die "
+                "Bauart aus und misst den Rest selbst.", 10000)
 
-    def _pruefe_tafeltyp(self) -> None:
-        """Kennt das Werkzeug diese Bauart schon?
+    # ------------------------------------------------- Automatisch kalibrieren
 
-        WOFUER -- Wunsch des Nutzers am 2026-09-09:
+    def _tafeltypen(self) -> list:
+        from ..calibration.board_library import lade_bibliothek
+        return lade_bibliothek(
+            self.cfg.resolve(self.cfg.calibration.boardtype_directory))
 
-            "cool waere, wenn er standardmaessig wenn ein Stream startet
-             schaut, ob er eins der bekannten Kegelboards aus seinem
-             Repertoire kennt."
+    def _on_auto_kalibrieren(self) -> None:
+        """Bauart waehlen lassen und daraus die ganze Kalibrierung bauen.
 
-        GEFRAGT WIRD NUR, WENN NOCH NICHTS KALIBRIERT IST. Wer gerade eine
-        Kalibrierung geladen oder gesetzt hat, will sie nicht beim naechsten
-        Videowechsel ueberschrieben bekommen -- ein Vorschlag zur falschen
-        Zeit ist eine Falle, keine Hilfe.
+        WOFUER -- Wunsch des Nutzers am 2026-09-10:
+
+            "Automatisches Kalibrieren (klick) dann kommt ein Fenster 'Waehle
+             dein Kegelboardtyp aus' ... oder man klickt auf eins und dann wird
+             das gesucht"
+
+        Der Rechner kann alles ausser einem: Er weiss nicht, welche Bahnnummer
+        an der Wand steht. Genau danach -- und nur danach -- wird gefragt.
         """
-        from ..calibration.board_library import (erkenne, lade_bibliothek,
-                                                 uebernimm)
+        from ..calibration.board_library import erkenne_ueber_frames
 
-        if self.session.calibration.lanes:
-            return
-        frame = self.player.current_frame
-        if frame is None:
-            return
-
-        ordner = self.cfg.resolve_path(self.cfg.calibration.boardtype_directory)
-        typen = lade_bibliothek(ordner)
-        if not typen:
+        if self.player.current_frame is None:
+            QMessageBox.information(
+                self, "Kein Bild",
+                "Erst ein Video oder einen Stream laden.")
             return
 
-        self.statusBar().showMessage(
-            f"Suche unter {len(typen)} bekannten Tafeltypen ...", 3000)
+        typen = self._tafeltypen()
+        dialog = TafeltypDialog(typen, self)
+        if dialog.exec() != QDialog.Accepted or dialog.ergebnis is None:
+            return
+        if dialog.ergebnis == "neu":
+            self._on_board_aufnehmen()
+            return
+        gesucht = typen if dialog.ergebnis == "alle" else [dialog.ergebnis]
+
+        kal = self.cfg.calibration
+        self.statusBar().showMessage("Sammle Standbilder ...")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            treffer = erkenne(frame.image, typen,
-                              min_inlier=self.cfg.calibration.boardtype_min_inlier)
+            bilder = self._bilder_fuer_suche()
+            self.statusBar().showMessage(
+                f"Suche in {len(bilder)} Standbildern ...")
+            QApplication.processEvents()
+            treffer = erkenne_ueber_frames(
+                bilder, gesucht,
+                min_inlier=kal.boardtype_min_inlier,
+                anker_inlier=kal.boardtype_anchor_inlier,
+                min_frames=kal.boardtype_min_frames)
         finally:
             QApplication.restoreOverrideCursor()
 
         if treffer is None:
-            self._melde_unbekannte_bauart()
+            QMessageBox.warning(
+                self, "Nichts gefunden",
+                "In diesen Bildern liess sich keine Tafel dieser Bauart "
+                "zuordnen.\n\n"
+                "Moegliche Gruende: eine andere Bauart, ein sehr anderer "
+                "Blickwinkel, oder die Stelle im Video taugt nicht (jemand "
+                "davor, Wiederholung eingeblendet).\n\n"
+                "An eine andere Stelle springen und noch einmal versuchen -- "
+                "oder die Tafel von Hand kalibrieren und als neue Bauart "
+                "aufnehmen.")
             return
+        self._uebernimm_erkennung(treffer)
+
+    def _bilder_fuer_suche(self) -> list[np.ndarray]:
+        """Sammelt mehrere Standbilder fuer die Suche.
+
+        WARUM MEHRERE -- gemessen 2026-09-10 ueber 16 Stichproben eines
+        Spiels: Ein einzelnes Bild lieferte nur einmal alle vier Tafeln,
+        fuenfmal gar keine. Brennende Kegellampen und wechselnde Ziffern
+        veraendern genau die Merkmale, an denen der Abgleich haengt. Die LAGE
+        der Tafeln aendert sich dagegen nicht -- deshalb ueber mehrere Bilder.
+
+        Bei einer Datei wird gesprungen und hinterher an die alte Stelle
+        zurueck. Bei einem Stream gibt es nichts zu springen: Da wird
+        gewartet, bis der Leser neue Bilder geliefert hat. Eine ZWEITE
+        Verbindung wird bewusst nicht geoeffnet -- die hat schon einmal die
+        laufende Uebertragung zerlegt.
+        """
+        kal = self.cfg.calibration
+        bilder: list[np.ndarray] = []
+        if self.player.is_live:
+            for _ in range(kal.boardtype_sample_frames):
+                frame = self.player.current_frame
+                if frame is not None:
+                    bilder.append(frame.image.copy())
+                ende = time.monotonic() + kal.boardtype_sample_wait_s
+                while time.monotonic() < ende:
+                    QApplication.processEvents()
+                    time.sleep(0.02)
+                self.player.step_forward()
+            return bilder
+
+        start = self.player.position
+        info = self.player.info
+        gesamt = (info.frame_count or 0) if info else 0
+        for k in range(kal.boardtype_sample_frames):
+            ziel = start + k * kal.boardtype_sample_step
+            if gesamt and ziel >= gesamt:
+                ziel = max(0, start - (ziel - gesamt) - 1)
+            if k == 0 or self.player.seek(ziel):
+                frame = self.player.current_frame
+                if frame is not None:
+                    bilder.append(frame.image.copy())
+        self.player.seek(start)
+        return bilder
+
+    def _uebernimm_erkennung(self, treffer) -> None:
+        """Fragt die Bahnnummern ab und setzt die Kalibrierung."""
+        from ..calibration.board_library import uebernimm
 
         anzahl = len(treffer.treffer)
-        antwort = QMessageBox.question(
-            self, "Bekannte Tafel",
-            f"Das sieht nach der Bauart <b>{treffer.typ.name}</b> aus.\n\n"
-            f"{anzahl} Tafeln gefunden, {treffer.merkmale} tragende "
-            f"Merkmale.\n"
-            f"Kalibrierung daraus uebernehmen?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if antwort != QMessageBox.Yes:
-            return
-
+        einzeln = ", ".join(str(t.inlier) for t in treffer.treffer)
         vorschlag = " ".join(str(i) for i in range(1, anzahl + 1))
         text, ok = QInputDialog.getText(
             self, "Bahnnummern",
-            f"{anzahl} Tafeln, von links nach rechts.\n"
+            f"Bauart {treffer.typ.name}: {anzahl} Tafeln gefunden "
+            f"({einzeln} tragende Merkmale), von links nach rechts.\n\n"
             f"Welche Bahnnummern tragen sie?", text=vorschlag)
         if not ok:
             return
         teile = text.replace(",", " ").split()
         if len(teile) != anzahl or not all(t.isdigit() for t in teile):
             QMessageBox.warning(self, "Eingabe passt nicht",
-                                f"{anzahl} Zahlen erwartet.")
+                                f"{anzahl} Zahlen erwartet, durch Leerzeichen "
+                                f"getrennt.")
             return
 
         self.session.calibration = uebernimm(treffer, [int(t) for t in teile])
@@ -1015,17 +1100,54 @@ class MainWindow(QMainWindow):
         self.digit_dx.setValue(0)
         self.digit_dy.setValue(0)
         self._refresh_active_lane_combo()
+        self._refresh_lane_number_spin()
         self._rebuild_lane_panels()
         self._update_calibration_hint()
         self.statusBar().showMessage(
             f"Bauart {treffer.typ.name} uebernommen, {anzahl} Bahnen. "
             f"Rahmen pruefen -- notfalls 'Ziffern verschieben'.", 12000)
 
-    def _melde_unbekannte_bauart(self) -> None:
-        """Unbekannte Bauart ist der Normalfall, kein Fehler."""
-        self.statusBar().showMessage(
-            "Keine bekannte Tafelbauart erkannt -- von Hand kalibrieren. "
-            "Mit tools/merke_tafeltyp.py laesst sie sich danach merken.", 8000)
+    def _on_board_aufnehmen(self) -> None:
+        """Nimmt die aktive Bahn als neue Bauart in die Bibliothek auf.
+
+        EINE BAUART IST KEINE HALLE. Dieselbe Anlage steht in vielen Vereinen;
+        der Name soll deshalb die Anlage benennen, nicht den Ort.
+        """
+        from ..calibration.board_library import speichere_typ
+
+        frame = self.player.current_frame
+        if frame is None or not self.session.calibration.lanes:
+            QMessageBox.information(
+                self, "Erst eine Tafel vermessen",
+                "Fuer eine neue Bauart wird ein Muster gebraucht.\n\n"
+                "Mit <b>Kalibrierung starten</b> eine einzige Tafel "
+                "vermessen -- Ecken, Lampen und Ziffern -- und danach hier "
+                "wieder aufnehmen. Alle weiteren Tafeln dieser Bauart findet "
+                "das Werkzeug dann ueberall selbst.")
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "Neue Bauart aufnehmen",
+            "Name der BAUART (nicht der Halle), z. B. FUNK_klassisch:")
+        name = name.strip().replace(" ", "_") if ok else ""
+        if not name:
+            return
+
+        ordner = self.cfg.resolve(self.cfg.calibration.boardtype_directory)
+        try:
+            ziel = speichere_typ(ordner, name, frame.image,
+                                 self.session.calibration,
+                                 self.session.active_lane)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Nicht gespeichert", str(exc))
+            return
+        QMessageBox.information(
+            self, "Bauart gemerkt",
+            f"<b>{name}</b> steht jetzt in der Bibliothek "
+            f"({ziel.name}).<br><br>"
+            f"Beim naechsten <b>Automatisch kalibrieren</b> ist sie zur "
+            f"Auswahl dabei -- auch in einer anderen Halle.")
+        self.statusBar().showMessage(f"Bauart {name} aufgenommen", 8000)
 
     def _on_player_error(self, message: str) -> None:
         QMessageBox.critical(self, "Videofehler", message)

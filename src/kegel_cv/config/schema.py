@@ -93,6 +93,33 @@ class CalibrationConfig(BaseModel):
     # ueber zwei verschiedene Quellen: gelungene Treffer hatten 15 bis 197,
     # ein Fehltreffer 7 -- und der lag 1429 Pixel daneben.
     boardtype_min_inlier: int = Field(default=14, ge=4)
+    # SUCHE UEBER MEHRERE STANDBILDER. GEMESSEN 2026-09-10, 16 Stichproben
+    # ueber ein Spiel von 3:08 h, vier gleiche Tafeln im Bild:
+    #
+    #     4 Tafeln gefunden   1 Frame
+    #     3 Tafeln            6 Frames
+    #     1 Tafel             4 Frames
+    #     gar nichts          5 Frames
+    #
+    # Brennende Kegellampen und wechselnde Ziffern veraendern genau die
+    # Merkmale, an denen der Abgleich haengt -- auf einem Bild mit vielen
+    # leuchtenden Lampen wurde KEINE Tafel gefunden, obwohl alle vier klar zu
+    # sehen waren. Die LAGE aendert sich dagegen nicht.
+    boardtype_sample_frames: int = Field(default=6, ge=1)
+    # Abstand zwischen den Stichproben in einer Datei. 150 Frames sind sechs
+    # Sekunden -- weit genug, dass Lampen und Ziffern anders stehen.
+    boardtype_sample_step: int = Field(default=150, ge=1)
+    # Bei einem Stream laesst sich nicht springen: Da wird gewartet.
+    boardtype_sample_wait_s: float = Field(default=0.8, ge=0.0)
+    # Schranke fuer die Tafeln NACH der ersten. Sie darf niedriger liegen,
+    # weil die Wiederholung ueber mehrere Bilder die Sicherheit ersetzt.
+    # GEMESSEN: Die vierte Tafel kam mit 11 tragenden Merkmalen -- unter der
+    # Schranke 14, aber an der richtigen Stelle und in mehreren Bildern.
+    boardtype_anchor_inlier: int = Field(default=8, ge=4)
+    # In so vielen Bildern muss eine Tafel an derselben Stelle auftauchen.
+    # Eins wuerde jeden Zufallstreffer durchlassen, drei verliert die
+    # schwaechste Tafel.
+    boardtype_min_frames: int = Field(default=2, ge=1)
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).

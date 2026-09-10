@@ -157,3 +157,99 @@ class TestErkennungsGuete:
         e = Erkennung(typ=Tafeltyp("x", np.zeros((2, 2, 3), np.uint8),
                                    eine_kalibrierung()), treffer=t)
         assert e.merkmale == 50
+
+
+class TestUeberMehrereFrames:
+    """Ein einzelnes Standbild genuegt nicht.
+
+    GEMESSEN 2026-09-10, 16 Stichproben ueber ein Spiel von 3:08 h mit vier
+    gleichen Tafeln im Bild: viermal wurden 3 Tafeln gefunden, nur einmal alle
+    4, fuenfmal gar keine. Brennende Kegellampen und wechselnde Ziffern
+    veraendern genau die Merkmale, an denen der Abgleich haengt -- die LAGE der
+    Tafeln aendert sich dagegen nie.
+    """
+
+    def _bilder(self, n=4):
+        """Dasselbe Arrangement, jedes Bild etwas anders belichtet."""
+        t = tafel()
+        return [np.clip(szene(t).astype(np.int16) + k * 4, 0, 255)
+                .astype(np.uint8) for k in range(n)]
+
+    def test_die_tafeln_werden_gefunden(self, tmp_path):
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        bilder = self._bilder()
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        treffer = erkenne_ueber_frames(bilder, lade_bibliothek(tmp_path),
+                                       min_inlier=10, anker_inlier=6)
+        assert treffer is not None
+        assert len(treffer.treffer) == 3
+
+    def test_von_links_nach_rechts(self, tmp_path):
+        """Die Bahnnummern werden in dieser Reihenfolge abgefragt -- eine
+        andere Sortierung vertauscht stillschweigend die Bahnen."""
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        bilder = self._bilder()
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        treffer = erkenne_ueber_frames(bilder, lade_bibliothek(tmp_path),
+                                       min_inlier=10, anker_inlier=6)
+        mitten = [np.array(t.quad, float)[:, 0].mean() for t in treffer.treffer]
+        assert mitten == sorted(mitten)
+
+    def test_was_nur_einmal_auftaucht_zaehlt_nicht(self, tmp_path):
+        """Die Wiederholung ersetzt die hohe Schranke: Ein Zufallstreffer
+        wiederholt sich nicht an derselben Stelle."""
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        bilder = self._bilder()
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        typen = lade_bibliothek(tmp_path)
+        streng = erkenne_ueber_frames(bilder, typen, min_inlier=10,
+                                      anker_inlier=6, min_frames=len(bilder) + 1)
+        assert streng is None
+
+    def test_ohne_bilder_kein_treffer(self, tmp_path):
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        speichere_typ(tmp_path, "T", szene(tafel()), eine_kalibrierung())
+        assert erkenne_ueber_frames([], lade_bibliothek(tmp_path)) is None
+
+    def test_leere_bilder_werden_uebergangen(self, tmp_path):
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        bilder = self._bilder()
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        gemischt = [np.zeros((0, 0, 3), np.uint8), None] + bilder
+        treffer = erkenne_ueber_frames(gemischt, lade_bibliothek(tmp_path),
+                                       min_inlier=10, anker_inlier=6)
+        assert treffer is not None
+
+    def test_eine_fremde_szene_bleibt_fremd(self, tmp_path):
+        from kegel_cv.calibration.board_library import erkenne_ueber_frames
+        speichere_typ(tmp_path, "T", szene(tafel(keim=5)), eine_kalibrierung())
+        leer = [np.full((BILD_H, BILD_B, 3), 55, dtype=np.uint8)] * 3
+        assert erkenne_ueber_frames(leer, lade_bibliothek(tmp_path),
+                                    min_inlier=10) is None
+
+
+class TestBuendeln:
+    """Zwei Funde an derselben Stelle sind dieselbe Tafel."""
+
+    def _fund(self, x, inlier=20):
+        from kegel_cv.calibration.board_finder import Treffer
+        return (Treffer(quad=[[x, 0.0], [x + 100, 0.0],
+                              [x + 100, 100.0], [x, 100.0]],
+                        inlier=inlier, paare=inlier + 5, vorlage_index=0),
+                np.zeros((2, 2, 3), np.uint8))
+
+    def test_dieselbe_stelle_ein_buendel(self):
+        from kegel_cv.calibration.board_library import _einsortieren
+        g = []
+        _einsortieren(g, self._fund(100))
+        _einsortieren(g, self._fund(104))
+        assert len(g) == 1 and len(g[0]) == 2
+
+    def test_nachbartafeln_bleiben_getrennt(self):
+        """GEMESSEN: Die Mitten liegen bei 554, 863, 1096, 1392 Pixel bei 159
+        Pixel Tafelbreite -- rund eine ganze Breite auseinander."""
+        from kegel_cv.calibration.board_library import _einsortieren
+        g = []
+        _einsortieren(g, self._fund(100))
+        _einsortieren(g, self._fund(300))
+        assert len(g) == 2

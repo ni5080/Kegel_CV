@@ -143,6 +143,153 @@ def erkenne(bild: np.ndarray, typen: list[Tafeltyp], *,
     return bestes
 
 
+def _mitte(quad) -> tuple[float, float]:
+    q = np.asarray(quad, dtype=float)
+    return float(q[:, 0].mean()), float(q[:, 1].mean())
+
+
+def erkenne_ueber_frames(bilder: list[np.ndarray], typen: list[Tafeltyp], *,
+                         min_inlier: int = 14, anker_inlier: int = 8,
+                         min_frames: int = 2, max_tafeln: int = 8,
+                         runden: int = 3) -> Erkennung | None:
+    """Sucht ueber MEHRERE Standbilder statt ueber eines.
+
+    WARUM EIN BILD NICHT GENUEGT -- gemessen 2026-09-10 am Verbandsligaspiel,
+    16 Stichproben ueber 3:08 h, Typ FUNK_klassisch gegen vier gleiche Tafeln:
+
+        4 Tafeln gefunden   1 Frame
+        3 Tafeln            6 Frames
+        1 Tafel             4 Frames
+        gar nichts          5 Frames
+
+    Der Grund steht auf der Tafel selbst: Leuchtende Kegellampen und wechselnde
+    Ziffern veraendern genau die Merkmale, an denen der Abgleich haengt. Auf
+    einem Bild mit vielen brennenden Lampen wurde KEINE Tafel gefunden, obwohl
+    alle vier klar zu sehen waren.
+
+    Was sich dagegen NICHT aendert, ist die Lage: Ein Overlay steht fest, und
+    eine Tafel an der Wand steht auch fest. Deshalb wird ueber mehrere Bilder
+    gesucht und nach Lage gebuendelt. Was in mindestens `min_frames` Bildern an
+    derselben Stelle auftaucht, ist eine Tafel; ein Zufallstreffer wiederholt
+    sich dort nicht.
+
+    ZWEI SCHRANKEN, mit Absicht verschieden hoch:
+
+    * `min_inlier` fuer den ANKER -- die erste Tafel, die mit der Vorlage aus
+      der Bibliothek gefunden wird. Sie muss sitzen, denn aus ihr wird die
+      Vorlage fuer alles Weitere geschnitten.
+    * `anker_inlier` fuer die uebrigen. Sie duerfen niedriger liegen, weil die
+      Wiederholung ueber mehrere Bilder die Sicherheit ersetzt, die sonst die
+      hohe Schranke geben muesste. GEMESSEN: Die vierte Tafel kam mit 11
+      tragenden Merkmalen -- unter der Schranke 14, aber an der richtigen
+      Stelle und in drei Bildern.
+    """
+    bilder = [b for b in bilder if b is not None and b.size]
+    if not bilder or not typen:
+        return None
+
+    bestes: Erkennung | None = None
+    for typ in typen:
+        treffer = _kette(bilder, typ.muster, min_inlier=min_inlier,
+                         anker_inlier=anker_inlier, min_frames=min_frames,
+                         max_tafeln=max_tafeln, runden=runden)
+        if not treffer:
+            continue
+        kandidat = Erkennung(typ=typ, treffer=treffer)
+        log.info("Tafeltyp %s ueber %d Bilder: %d Tafeln, %d tragende "
+                 "Merkmale", typ.name, len(bilder), len(treffer),
+                 kandidat.merkmale)
+        if bestes is None or (len(kandidat.treffer), kandidat.merkmale) > \
+                (len(bestes.treffer), bestes.merkmale):
+            bestes = kandidat
+    return bestes
+
+
+def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
+           anker_inlier: int, min_frames: int, max_tafeln: int,
+           runden: int) -> list[Treffer]:
+    """Jede gefundene Tafel wird selbst zur Vorlage fuer die naechste Runde.
+
+    WARUM DIE KETTE -- gemessen 2026-09-10 an sechs Stellen des Spiels:
+
+        eine Vorlage      3, 3, 3, 3, 0, 4 Tafeln, schwaechster Treffer 13
+        Ankerkette        4, 4, 4, 4, 0, 3 Tafeln, schwaechster Treffer 10,
+                          tragende Merkmale je Tafel 46 bis 191
+
+    Der Grund liegt am Blickwinkel: Das Overlay ist ein Ausschnitt einer
+    echten Kameraaufnahme, die vier Tafeln stehen darin unterschiedlich
+    schraeg. Eine Vorlage von der mittleren Tafel passt schlecht zur
+    aeussersten rechten -- die wurde fast immer uebersehen. Ihr NACHBAR passt
+    dagegen gut. So waechst die Suche von Tafel zu Tafel weiter, statt von
+    einer einzigen Stelle aus alles erreichen zu muessen.
+    """
+    grob = BoardFinder(min_inlier=min_inlier)
+    anker: tuple[Treffer, np.ndarray] | None = None
+    for bild in bilder:
+        for t in grob.finde_alle(bild, [muster], max_tafeln=max_tafeln):
+            if anker is None or t.inlier > anker[0].inlier:
+                anker = (t, bild)
+    if anker is None:
+        return []
+
+    fein = BoardFinder(min_inlier=anker_inlier)
+    vorlagen = [_ausschnitt(anker[1], anker[0].quad)]
+    gruppen: list[list[tuple[Treffer, np.ndarray]]] = []
+    benutzt: set[int] = set()
+    for _ in range(max(1, runden)):
+        vorlagen = [v for v in vorlagen if v is not None and v.size]
+        if not vorlagen:
+            break
+        for bild in bilder:
+            for t in fein.finde_alle(bild, vorlagen, max_tafeln=max_tafeln):
+                _einsortieren(gruppen, (t, bild))
+
+        # Nur die BESTAETIGTEN Tafeln geben eine neue Vorlage her -- aus einem
+        # einzelnen Zufallstreffer eine Vorlage zu schneiden hiesse, den
+        # Irrtum zu vervielfaeltigen.
+        vorlagen = []
+        for i, g in enumerate(gruppen):
+            if i in benutzt or len(g) < min_frames:
+                continue
+            benutzt.add(i)
+            t, bild = max(g, key=lambda x: x[0].inlier)
+            vorlagen.append(_ausschnitt(bild, t.quad))
+        if not vorlagen:
+            break
+
+    treffer = [max(g, key=lambda x: x[0].inlier)[0] for g in gruppen
+               if len(g) >= min_frames]
+    treffer.sort(key=lambda t: _mitte(t.quad)[0])   # von links nach rechts
+    return treffer
+
+
+def _ausschnitt(bild: np.ndarray, quad) -> np.ndarray:
+    """Schneidet eine Tafel geradegerechnet aus einem Bild."""
+    return entzerre(bild, quad, quad_groesse(quad))
+
+
+def _einsortieren(gruppen: list[list[tuple[Treffer, np.ndarray]]],
+                  neu: tuple[Treffer, np.ndarray],
+                  toleranz: float = 0.5) -> None:
+    """Legt einen Treffer zu denen an derselben Stelle -- oder eroeffnet neu.
+
+    `toleranz` ist ein Anteil der Tafelgroesse: Zwei Funde gelten als dieselbe
+    Tafel, wenn ihre Mitten naeher beieinander liegen als eine halbe
+    Tafelbreite. Das ist grosszuegig genug fuer den Schaetzfehler eines
+    schwachen Treffers und eng genug, um Nachbartafeln zu trennen -- die
+    stehen rund eine ganze Tafelbreite auseinander (gemessen: Mitten bei
+    554, 863, 1096, 1392 Pixel bei 159 Pixel Breite).
+    """
+    mx, my = _mitte(neu[0].quad)
+    breite, hoehe = quad_groesse(neu[0].quad)
+    for g in gruppen:
+        gx, gy = _mitte(g[0][0].quad)
+        if abs(mx - gx) < breite * toleranz and abs(my - gy) < hoehe * toleranz:
+            g.append(neu)
+            return
+    gruppen.append([neu])
+
+
 def _verfeinere(bild: np.ndarray, treffer: list[Treffer],
                 finder: BoardFinder, max_tafeln: int) -> list[Treffer]:
     """Zweiter Durchgang mit einer Vorlage aus dem ZIELBILD selbst.

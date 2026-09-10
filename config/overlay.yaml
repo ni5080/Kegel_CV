@@ -108,6 +108,30 @@ calibration:
   # Gross genug fuer die Ziffernerkennung, klein genug fuer Geschwindigkeit.
   warped_width: 440
   warped_height: 530
+  # --- Bibliothek bekannter Kegelboard-Bauarten -------------------------
+  # Ein Typ besteht aus einem Musterbild und den ROIs darauf. Wird das Muster
+  # in einem neuen Bild wiedergefunden, folgen alle Felder aus den vier Ecken.
+  boardtype_directory: "data/boardtypes"
+  # So viele tragende Merkmale muss der ERSTE Treffer haben. GEMESSEN
+  # 2026-09-09 ueber zwei Quellen: gelungene Treffer 15 bis 197, ein
+  # Fehltreffer 7 -- und der lag 1429 Pixel daneben.
+  boardtype_min_inlier: 14
+  # SUCHE UEBER MEHRERE STANDBILDER. GEMESSEN 2026-09-10, 16 Stichproben ueber
+  # ein Spiel von 3:08 h mit vier gleichen Tafeln im Bild:
+  #     4 Tafeln gefunden   1 Frame
+  #     3 Tafeln            6 Frames
+  #     1 Tafel             4 Frames
+  #     gar nichts          5 Frames
+  # Brennende Kegellampen und wechselnde Ziffern veraendern genau die
+  # Merkmale, an denen der Abgleich haengt. Die LAGE aendert sich nicht.
+  boardtype_sample_frames: 6
+  boardtype_sample_step: 150      # 6 Sekunden Abstand in einer Datei
+  boardtype_sample_wait_s: 0.8    # bei einem Stream laesst sich nicht springen
+  # Schranke fuer die Tafeln NACH der ersten -- niedriger, weil die
+  # Wiederholung ueber mehrere Bilder die Sicherheit ersetzt. GEMESSEN: Die
+  # vierte Tafel kam mit 11 tragenden Merkmalen an der richtigen Stelle.
+  boardtype_anchor_inlier: 8
+  boardtype_min_frames: 2
   # Anzahl der Bahnen im Overlay
   lane_count: 4
   # Zuordnung Overlay-Position -> reale Bahnnummer.
