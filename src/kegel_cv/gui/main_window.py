@@ -40,7 +40,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..calibration import Calibration, list_calibrations
-from .boardtype_dialog import TafeltypDialog
+from .boardtype_dialog import (TafeltypDialog, TrefferDialog,
+                               zeichne_treffer)
 from ..calibration.geometry import GeometryError
 from ..calibration.session import (
     CalibrationSession,
@@ -983,8 +984,6 @@ class MainWindow(QMainWindow):
         Der Rechner kann alles ausser einem: Er weiss nicht, welche Bahnnummer
         an der Wand steht. Genau danach -- und nur danach -- wird gefragt.
         """
-        from ..calibration.board_library import erkenne_ueber_frames
-
         if self.player.current_frame is None:
             QMessageBox.information(
                 self, "Kein Bild",
@@ -992,43 +991,117 @@ class MainWindow(QMainWindow):
             return
 
         typen = self._tafeltypen()
-        dialog = TafeltypDialog(typen, self)
+        dialog = TafeltypDialog(typen, self.cfg.calibration.lane_count, self)
         if dialog.exec() != QDialog.Accepted or dialog.ergebnis is None:
             return
         if dialog.ergebnis == "neu":
             self._on_board_aufnehmen()
             return
         gesucht = typen if dialog.ergebnis == "alle" else [dialog.ergebnis]
+        ziel = dialog.anzahl.value()
 
-        kal = self.cfg.calibration
-        self.statusBar().showMessage("Sammle Standbilder ...")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            bilder = self._bilder_fuer_suche()
-            self.statusBar().showMessage(
-                f"Suche in {len(bilder)} Standbildern ...")
-            QApplication.processEvents()
-            treffer = erkenne_ueber_frames(
-                bilder, gesucht,
-                min_inlier=kal.boardtype_min_inlier,
-                anker_inlier=kal.boardtype_anchor_inlier,
-                min_frames=kal.boardtype_min_frames)
+            suche, letztes = self._suche_tafeln(gesucht, ziel)
         finally:
             QApplication.restoreOverrideCursor()
 
+        treffer = suche.ergebnis()
         if treffer is None:
             QMessageBox.warning(
                 self, "Nichts gefunden",
-                "In diesen Bildern liess sich keine Tafel dieser Bauart "
-                "zuordnen.\n\n"
+                f"In {suche.bilder_gesehen} Bildern liess sich keine Tafel "
+                f"dieser Bauart zuordnen.\n\n"
                 "Moegliche Gruende: eine andere Bauart, ein sehr anderer "
-                "Blickwinkel, oder die Stelle im Video taugt nicht (jemand "
-                "davor, Wiederholung eingeblendet).\n\n"
+                "Blickwinkel, oder die Stelle taugt nicht (jemand davor, "
+                "Wiederholung eingeblendet).\n\n"
                 "An eine andere Stelle springen und noch einmal versuchen -- "
                 "oder die Tafel von Hand kalibrieren und als neue Bauart "
                 "aufnehmen.")
             return
+
+        if not self._bestaetige_treffer(treffer, letztes, ziel,
+                                        suche.bilder_gesehen):
+            return
         self._uebernimm_erkennung(treffer)
+
+    def _suche_tafeln(self, typen: list, ziel: int):
+        """Fuettert die laufende Suche, bis sie fertig ist oder die Zeit um ist.
+
+        EIN STREAM HAT KEINE VERGANGENHEIT -- der Einwand des Nutzers am
+        2026-09-10:
+
+            "da kann er ja nicht einfach hin und herspringen ... eigentlich
+             waere es besser, wenn er in den ersten 5-10 Sekunden das
+             glattzieht ... und wenn es nach 20 Sekunden immer noch nicht alle
+             Boards gefunden hat"
+
+        Also nimmt die Suche entgegen, was kommt. GEMESSEN an acht Stellen der
+        Aufzeichnung, ein Bild je 0,8 Sekunden Streamzeit: sechsmal alle vier
+        Tafeln nach 2,4 bis 14,4 Sekunden (im Mittel 4,8), zweimal nur zwei
+        beziehungsweise drei bis zur Zeitgrenze.
+
+        Bei einer DATEI wird stattdessen gesprungen -- da gibt es eine
+        Vergangenheit, und Springen ist schneller als Warten.
+        """
+        from ..calibration.board_library import LaufendeSuche
+
+        kal = self.cfg.calibration
+        suche = LaufendeSuche(typen, ziel_anzahl=ziel,
+                              min_inlier=kal.boardtype_min_inlier,
+                              anker_inlier=kal.boardtype_anchor_inlier,
+                              min_frames=kal.boardtype_min_frames)
+        letztes = self.player.current_frame.image
+        if not self.player.is_live:
+            for bild in self._bilder_fuer_suche():
+                letztes = bild
+                suche.fuettere(bild)
+                self._melde_suchstand(suche, ziel)
+                if suche.fertig:
+                    break
+            return suche, letztes
+
+        beginn = time.monotonic()
+        while not suche.fertig:
+            verbraucht = time.monotonic() - beginn
+            if verbraucht > kal.boardtype_live_timeout_s:
+                break
+            frame = self.player.current_frame
+            if frame is not None:
+                letztes = frame.image
+                suche.fuettere(frame.image)
+                self._melde_suchstand(suche, ziel, verbraucht)
+            ende = time.monotonic() + kal.boardtype_sample_wait_s
+            while time.monotonic() < ende:
+                QApplication.processEvents()
+                time.sleep(0.02)
+            self.player.step_forward()
+        return suche, letztes
+
+    def _melde_suchstand(self, suche, ziel: int, sekunden: float = 0.0) -> None:
+        """Haelt den Nutzer auf dem Laufenden -- eine Suche darf nicht stumm
+        zwanzig Sekunden dauern."""
+        zeit = f", {sekunden:.0f} s" if sekunden else ""
+        self.statusBar().showMessage(
+            f"Suche Tafeln: {suche.gefunden} von {ziel} "
+            f"({suche.bilder_gesehen} Bilder{zeit})")
+        QApplication.processEvents()
+
+    def _bestaetige_treffer(self, treffer, bild, ziel: int,
+                            bilder: int) -> bool:
+        """Zeigt die gefundenen Rahmen und fragt, ob sie sitzen."""
+        anzahl = len(treffer.treffer)
+        if anzahl < ziel:
+            kopf = (f"<b>Nur {anzahl} von {ziel} Tafeln gefunden</b> "
+                    f"(Bauart {treffer.typ.name}, {bilder} Bilder).<br>"
+                    f"Uebernehmen und den Rest von Hand ergaenzen -- oder "
+                    f"verwerfen und an anderer Stelle noch einmal suchen.")
+        else:
+            kopf = (f"<b>{anzahl} Tafeln gefunden</b> "
+                    f"(Bauart {treffer.typ.name}, {bilder} Bilder, "
+                    f"{treffer.merkmale} tragende Merkmale).")
+        gemalt = zeichne_treffer(bild, treffer.treffer)
+        return TrefferDialog(gemalt, kopf, self).exec() == QDialog.Accepted
 
     def _bilder_fuer_suche(self) -> list[np.ndarray]:
         """Sammelt mehrere Standbilder fuer die Suche.

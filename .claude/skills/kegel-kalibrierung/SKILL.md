@@ -4,8 +4,9 @@ description: >
   Kalibrierung und Geometrie in Kegel_CV. Laden bei Arbeit an Eckpunkten,
   Perspektivtransformation, Homographie, warpPerspective, normierten Tafelkoordinaten,
   ROI-Definition und -Verschiebung, Kalibrierungs-Persistenz (JSON), Zuordnung
-  Kalibrierung zu Video, oder wenn Koordinaten zwischen Frame und Tafel umgerechnet
-  werden.
+  Kalibrierung zu Video, automatischer Boarderkennung (Tafelbibliothek,
+  Merkmalsabgleich, Ankerkette), oder wenn Koordinaten zwischen Frame und
+  Tafel umgerechnet werden.
 ---
 
 # Kalibrierung & Geometrie
@@ -112,7 +113,75 @@ Ablage: `data/calibrations/<name>.json`
   Video mit anderer Auflösung geladen wird.
 - Beim Laden **validieren** (Pydantic), nicht blind vertrauen.
 
-## 7. Typische Fehler
+## 7. Automatische Kalibrierung aus der Tafelbibliothek
+
+`calibration/board_library.py` + `calibration/board_finder.py`, Oberfläche in
+`gui/boardtype_dialog.py`.
+
+Ein **Tafeltyp** ist eine Bauart, keine Halle: Musterbild der
+geradegerechneten Tafel plus die ROIs in normierten Tafelkoordinaten. Wird das
+Muster in einem neuen Bild wiedergefunden, folgen Lampen und Ziffern aus den
+vier Ecken — deshalb genügt *ein* Fund für die ganze Kalibrierung.
+
+### Was gemessen ist (2026-09-09/10)
+
+| | |
+|---|---|
+| Merkmalsabgleich | ORB + `findHomography` mit RANSAC — **nicht** `matchTemplate`, das kann keine Perspektive |
+| Lowe-Ratio | **0,88**, nicht 0,75: Vier gleiche Tafeln machen den zweitbesten Treffer immer fast so gut wie den besten |
+| Musterbild | in **beobachteter Größe** ablegen. Eine auf 440×530 entzerrte Vorlage gegen eine 192 px große Tafel fand 1 von 4 |
+| tragende Merkmale | gelungene Treffer 15–197, ein Fehltreffer 7 — und der lag 1429 px daneben |
+
+### Ein Standbild genügt nicht
+
+16 Stichproben über ein Spiel von 3:08 h, vier gleiche Tafeln im Bild:
+
+```
+4 Tafeln gefunden    1 Frame
+3 Tafeln             6 Frames
+1 Tafel              4 Frames
+gar nichts           5 Frames
+```
+
+**Brennende Kegellampen und wechselnde Ziffern verändern genau die Merkmale,
+an denen der Abgleich hängt.** Auf einem Bild mit vielen leuchtenden Lampen
+wurde keine einzige Tafel gefunden, obwohl alle vier klar zu sehen waren.
+
+Was sich nie ändert, ist die **Lage**. Daraus folgen beide Kunstgriffe:
+
+1. **Über mehrere Bilder suchen und nach Lage bündeln.** Was in ≥
+   `boardtype_min_frames` Bildern an derselben Stelle auftaucht, ist eine
+   Tafel; ein Zufallstreffer wiederholt sich dort nicht. Die Wiederholung
+   ersetzt die hohe Einzelbildschranke — deshalb darf `boardtype_anchor_inlier`
+   (8) unter `boardtype_min_inlier` (14) liegen.
+2. **Ankerkette.** Jede *bestätigte* Tafel wird selbst zur Vorlage der nächsten
+   Runde. Das Overlay ist ein Kameraausschnitt; die Tafeln stehen darin
+   unterschiedlich schräg, eine Vorlage von der mittleren passt schlecht zur
+   äußersten rechten — ihr Nachbar dagegen gut.
+
+```
+eine Vorlage    3, 0, 4, 3, 3, 0, 3, 3 Tafeln, schwächster Treffer 13
+Ankerkette      4, 0, 4, 4, 4, 0, 3, 4 Tafeln, schwächster Treffer 62
+```
+
+Aus einem einzelnen, unbestätigten Treffer eine Vorlage zu schneiden hieße,
+den Irrtum zu vervielfältigen — deshalb nur bestätigte.
+
+### Der letzte Pixel
+
+Eine automatisch gefundene Tafel sitzt auf 1–3 px genau. Für die Lampen
+genügt das, für die Ziffern nicht: **Ein Pixel entschied über neun
+Prozentpunkte** Lesegenauigkeit (54 → 60 von 66 Stellen richtig), weil `1` als
+`3` gelesen wurde. Nachjustierung über `calibration/digit_shift.py`, in der
+Oberfläche „Ziffern verschieben".
+
+### Was der Rechner nicht wissen kann
+
+Welche **Bahnnummer** an der Wand steht. Danach — und nur danach — wird
+gefragt. Reihenfolge der Treffer ist immer **von links nach rechts**; eine
+andere Sortierung vertauscht stillschweigend die Bahnen.
+
+## 8. Typische Fehler
 
 | Fehler | Folge |
 |---|---|
@@ -121,3 +190,5 @@ Ablage: `data/calibrations/<name>.json`
 | `warpPerspective` pro Frame und Bahn | Performance-Budget gesprengt |
 | Kalibrierung ohne `schema_version` | keine Migration möglich |
 | Annehmen, Bahn *n* im Overlay = reale Bahn *n* | offene Frage Q1 — Zuordnung ist konfigurierbar |
+| Aus einem unbestätigten Treffer eine Vorlage schneiden | der Irrtum vervielfältigt sich über die ganze Ankerkette |
+| Automatische Tafel ungeprüft für die Ziffern übernehmen | 1–3 px Versatz kosten neun Prozentpunkte Lesegenauigkeit |

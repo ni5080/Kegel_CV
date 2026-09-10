@@ -120,6 +120,13 @@ class CalibrationConfig(BaseModel):
     # Eins wuerde jeden Zufallstreffer durchlassen, drei verliert die
     # schwaechste Tafel.
     boardtype_min_frames: int = Field(default=2, ge=1)
+    # Zeitgrenze fuer die Suche im LIVESTREAM. Dort laesst sich nicht
+    # springen -- es gibt nur das naechste Bild. GEMESSEN 2026-09-10 an acht
+    # Stellen der Aufzeichnung, ein Bild je 0,8 s Streamzeit: sechsmal alle
+    # vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal nur zwei bzw.
+    # drei. 20 Sekunden decken die gelungenen Faelle ab, ohne dass jemand
+    # ratlos vor der Oberflaeche sitzt.
+    boardtype_live_timeout_s: float = Field(default=20.0, gt=0)
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).

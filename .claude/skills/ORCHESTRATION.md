@@ -1645,3 +1645,97 @@ Im Ticker fragt `fetchBoardImage` beide Spalten an und faellt bei einem Fehler
 auf `board_jpeg` allein zurueck. Ohne diesen Rueckfall waere an einer Tabelle
 ohne die neuere Spalte auch das vorhandene Bild verschwunden -- PostgREST
 lehnt die GANZE Abfrage ab, wenn eine Spalte fehlt.
+
+---
+
+## Stand 2026-09-10: YouTube als Quelle, Kalibrierung ohne Handarbeit
+
+### YouTube-Adressen gehen direkt an das Werkzeug
+
+Eine YouTube-Adresse ist eine **Webseite, kein Video**. Gemessen:
+
+```
+Link direkt an OpenCV        geoeffnet=False, kein Frame   2,2 s
+ueber yt-dlp aufgeloest      1920x1080 @30 fps, Frame da   1,4 s
+```
+
+Die Uebersetzung sitzt in `video/factory.open_source` — an der EINEN Stelle,
+die entscheidet, was eine Angabe ist. Die aufgeloeste Medienadresse **verfaellt**
+nach wenigen Stunden, ein Spieltag dauert laenger; deshalb wird nicht die
+Adresse weitergereicht, sondern der Auftrag, sie zu holen
+(`StreamVideoSource(url_aufloesung=...)`, neu erfragt bei jedem
+Verbindungsaufbau). Sichtbar bleibt ueberall der eingegebene Link — die
+aufgeloeste ist ueber 900 Zeichen lang.
+
+Durchsatz ueber die fertige Kette: **65 fps gelesen** (Echtzeit braucht 30),
+Sprung auf Frame 81000 und vier geprueste ROI-Bilder in 8 Sekunden.
+
+`source_label` liefert `youtube_<Kennung>` statt `www.youtube.com_watch` —
+sonst teilten sich **alle** YouTube-Laeufe einen Debug-Ordner und eine
+`video_id`.
+
+### Automatisch kalibrieren — die Bibliothek lief vorher nie (BUG-023)
+
+Die am Vortag gebaute Tafeltyp-Pruefung wurde **kein einziges Mal ausgefuehrt**:
+Aufruf an `_on_video_opened`, wo `current_frame` immer `None` ist, und dahinter
+ein `AttributeError` (`resolve_path` statt `resolve`), den der stille `return`
+konservierte. Siehe BugSkill BUG-023.
+
+An ihre Stelle tritt ein Knopf mit **Bildauswahl** (`gui/boardtype_dialog.py`):
+Kacheln der bekannten Bauarten, dazu „Neues Board aufnehmen". Eine Bauart
+erkennt man am Aussehen, nicht am Namen.
+
+### Ein Standbild genuegt nicht — zwei Kunstgriffe
+
+16 Stichproben ueber ein Spiel von 3:08 h, vier gleiche Tafeln im Bild:
+**einmal alle vier, sechsmal drei, fuenfmal gar keine.** Brennende Kegellampen
+und wechselnde Ziffern veraendern genau die Merkmale, an denen der Abgleich
+haengt. Die **Lage** aendert sich dagegen nie.
+
+1. **Ueber mehrere Bilder suchen und nach Lage buendeln.** Was in ≥ 2 Bildern
+   an derselben Stelle auftaucht, ist eine Tafel. Die Wiederholung ersetzt die
+   hohe Einzelbildschranke — deshalb darf `boardtype_anchor_inlier` (8) unter
+   `boardtype_min_inlier` (14) liegen.
+2. **Ankerkette.** Jede *bestaetigte* Tafel wird selbst zur Vorlage der
+   naechsten Runde. Das Overlay ist ein Kameraausschnitt; eine Vorlage von der
+   mittleren Tafel passt schlecht zur aeussersten rechten, ihr Nachbar dagegen
+   gut. Deshalb wurde die rechte fast immer uebersehen.
+
+```
+eine Vorlage    3, 0, 4, 3, 3, 0, 3, 3 Tafeln, schwaechster Treffer 13
+Ankerkette      4, 0, 4, 4, 4, 0, 3, 4 Tafeln, schwaechster Treffer 62
+```
+
+Voller Durchlauf: 4 Tafeln, 418 tragende Merkmale, 25 Felder je Bahn in
+5,7 Sekunden — ohne einen Klick in die Tafel.
+
+### Livestream: die Suche waechst mit, statt zu springen
+
+Ein Stream hat keine Vergangenheit. `LaufendeSuche` nimmt entgegen, was kommt,
+und bricht **bei Erfolg** ab, nicht nach Zeit. Gemessen an acht Stellen, ein
+Bild je 0,8 s Streamzeit:
+
+| Stelle | bis alle vier |
+|---|---|
+| 0 / 21187 / 84750 | 3,2 / 4,8 / 2,4 s |
+| 127125 / 254250 / 300000 | 8,0 / 14,4 / 4,8 s |
+| 169500 / 317812 | Zeitgrenze, 2 bzw. 3 Tafeln |
+
+Sechs von acht erreichen das Ziel, im Mittel nach 4,8 Sekunden. Danach zeigt
+`TrefferDialog` die eingezeichneten Rahmen und fragt, ob sie sitzen — Zahlen
+ueber tragende Merkmale beantworten diese Frage nicht, ein Bild schon.
+
+**Wie viele Tafeln erwartet werden, sagt der Nutzer** (Feld im Auswahlfenster,
+Vorgabe `calibration.lane_count`). Das ist zugleich das Abbruchkriterium.
+
+### Was daran noch nicht gut ist
+
+* An zwei von acht Stellen findet er gar nichts — dort taugt keins der
+  angebotenen Bilder als Anker. Bewusst **nicht** mit einer niedrigeren
+  Schranke schoengerechnet: Ein falscher Anker vervielfaeltigt seinen Irrtum
+  ueber die ganze Kette.
+* Die Suche laeuft im GUI-Faden (0,3 s je Bild, mit `processEvents`
+  dazwischen). Bei mehr Bauarten in der Bibliothek gehoert sie in einen
+  eigenen Faden.
+* Der Ziffernversatz (`digit_shift`) bleibt Handarbeit — ein
+  ergebnisunabhaengiges Kriterium dafuer fehlt weiterhin.

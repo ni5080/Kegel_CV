@@ -253,3 +253,68 @@ class TestBuendeln:
         _einsortieren(g, self._fund(100))
         _einsortieren(g, self._fund(300))
         assert len(g) == 2
+
+
+class TestLaufendeSuche:
+    """Die Suche fuer den Livestream: Bilder kommen nacheinander an.
+
+    GEMESSEN 2026-09-10 an acht Stellen einer Aufzeichnung, ein Bild je 0,8 s
+    Streamzeit: sechsmal alle vier Tafeln nach 2,4 bis 14,4 Sekunden (im
+    Mittel 4,8), zweimal nur zwei bzw. drei bis zur Zeitgrenze von 20 s.
+    """
+
+    def _suche(self, tmp_path, ziel=3):
+        from kegel_cv.calibration.board_library import LaufendeSuche
+        bilder = [szene(tafel()) for _ in range(3)]
+        speichere_typ(tmp_path, "T", bilder[0], eine_kalibrierung())
+        return (LaufendeSuche(lade_bibliothek(tmp_path), ziel_anzahl=ziel,
+                              min_inlier=10, anker_inlier=6), bilder)
+
+    def test_am_anfang_ist_nichts_gefunden(self, tmp_path):
+        suche, _ = self._suche(tmp_path)
+        assert suche.gefunden == 0 and not suche.fertig
+        assert suche.ergebnis() is None
+
+    def test_sie_waechst_mit_jedem_bild(self, tmp_path):
+        suche, bilder = self._suche(tmp_path)
+        for b in bilder:
+            suche.fuettere(b)
+        assert suche.gefunden == 3
+
+    def test_fertig_sobald_das_ziel_erreicht_ist(self, tmp_path):
+        """Das Abbruchkriterium ist der ERFOLG, nicht die Zeit -- sonst
+        wartet man zwanzig Sekunden, obwohl nach dreien alles da war."""
+        suche, bilder = self._suche(tmp_path, ziel=2)
+        for b in bilder:
+            suche.fuettere(b)
+            if suche.fertig:
+                break
+        assert suche.fertig
+
+    def test_ein_zu_hohes_ziel_bleibt_offen(self, tmp_path):
+        suche, bilder = self._suche(tmp_path, ziel=7)
+        for b in bilder:
+            suche.fuettere(b)
+        assert not suche.fertig
+        assert suche.ergebnis() is not None, \
+            "was gefunden wurde, wird trotzdem gemeldet"
+
+    def test_leere_bilder_zaehlen_nicht(self, tmp_path):
+        suche, _ = self._suche(tmp_path)
+        suche.fuettere(None)
+        suche.fuettere(np.zeros((0, 0, 3), np.uint8))
+        assert suche.bilder_gesehen == 0
+
+    def test_von_links_nach_rechts(self, tmp_path):
+        suche, bilder = self._suche(tmp_path)
+        for b in bilder:
+            suche.fuettere(b)
+        mitten = [np.array(t.quad, float)[:, 0].mean()
+                  for t in suche.ergebnis().treffer]
+        assert mitten == sorted(mitten)
+
+    def test_ohne_typen_findet_sie_nichts(self):
+        from kegel_cv.calibration.board_library import LaufendeSuche
+        suche = LaufendeSuche([], ziel_anzahl=4)
+        suche.fuettere(szene(tafel()))
+        assert suche.ergebnis() is None and suche.gefunden == 0

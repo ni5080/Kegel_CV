@@ -197,7 +197,7 @@ class TestAuswahlfenster:
 
 
 class TestAblauf:
-    def _oeffne_mit(self, fenster, monkeypatch, wahl):
+    def _oeffne_mit(self, fenster, monkeypatch, wahl, bestaetigt=True):
         fenster.player = UnechterPlayer()
 
         def auf(self):
@@ -205,6 +205,11 @@ class TestAblauf:
             return QDialog.Accepted
 
         monkeypatch.setattr(mw.TafeltypDialog, "exec", auf)
+        # Der Bestaetigungsdialog ist MODAL -- ohne diesen Griff bliebe der
+        # Test stehen, bis ihn jemand von Hand wegklickt.
+        monkeypatch.setattr(
+            mw.TrefferDialog, "exec",
+            lambda self: QDialog.Accepted if bestaetigt else QDialog.Rejected)
 
     def test_abbruch_laesst_alles_wie_es_war(self, fenster, monkeypatch):
         self._oeffne_mit(fenster, monkeypatch, None)
@@ -241,10 +246,9 @@ class TestAblauf:
                                  [x + 80, 90.0], [x, 90.0]],
                            inlier=40, paare=60, vorlage_index=0)
                    for x in (10.0, 120.0)]
-        monkeypatch.setattr(mw, "TafeltypDialog", mw.TafeltypDialog)
         monkeypatch.setattr(
-            "kegel_cv.calibration.board_library.erkenne_ueber_frames",
-            lambda *a, **k: Erkennung(typ=ein_typ(), treffer=treffer))
+            "kegel_cv.calibration.board_library.LaufendeSuche.ergebnis",
+            lambda self: Erkennung(typ=ein_typ(), treffer=treffer))
         monkeypatch.setattr(mw.QInputDialog, "getText",
                             lambda *a, **k: ("3 4", True))
         fenster._on_auto_kalibrieren()
@@ -284,3 +288,112 @@ class TestNeueBauartAufnehmen:
                             lambda *a, **k: ("", False))
         fenster._on_board_aufnehmen()
         assert lade_bibliothek(tmp_path) == []
+
+
+class TestLivesuche:
+    """Ein Stream hat keine Vergangenheit -- Einwand des Nutzers am 2026-09-10:
+
+        "Das ganze soll ja spaeter im Livestream laufen, da kann er ja nicht
+         einfach hin und herspringen ... eigentlich waere es besser, wenn er
+         in den ersten 5-10 Sekunden das glattzieht ... und wenn es nach 20
+         Sekunden immer noch nicht alle Boards gefunden hat"
+
+    GEMESSEN an acht Stellen der Aufzeichnung, ein Bild je 0,8 s Streamzeit:
+    sechsmal alle vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal
+    nur zwei bzw. drei bis zur Zeitgrenze.
+    """
+
+    def _live(self, fenster, timeout=0.3):
+        player = UnechterPlayer(live=True)
+        fenster.player = player
+        fenster.cfg.calibration.boardtype_sample_wait_s = 0.0
+        fenster.cfg.calibration.boardtype_live_timeout_s = timeout
+        return player
+
+    def test_die_zeitgrenze_greift(self, fenster):
+        """Ohne sie liefe die Suche endlos, wenn nichts zu finden ist."""
+        import time as uhr
+        self._live(fenster, timeout=0.3)
+        t0 = uhr.monotonic()
+        suche, _ = fenster._suche_tafeln([ein_typ()], ziel=4)
+        assert uhr.monotonic() - t0 < 5.0
+        assert not suche.fertig
+
+    def test_im_stream_wird_nicht_gesprungen(self, fenster):
+        player = self._live(fenster)
+        fenster._suche_tafeln([ein_typ()], ziel=4)
+        assert player.spruenge == []
+
+    def test_ohne_typen_bleibt_es_ruhig(self, fenster):
+        self._live(fenster)
+        suche, _ = fenster._suche_tafeln([], ziel=4)
+        assert suche.ergebnis() is None
+
+    def test_die_datei_spult_statt_zu_warten(self, fenster):
+        """Wo es eine Vergangenheit gibt, ist Springen schneller als Warten."""
+        player = UnechterPlayer(live=False)
+        fenster.player = player
+        fenster._suche_tafeln([ein_typ()], ziel=4)
+        assert player.spruenge, "in einer Datei wird gesprungen"
+
+
+class TestNachfrageVorUebernahme:
+    """"meinetwegen mich auch noch fragt 'sitzt dieses Board?'" """
+
+    def _treffer(self):
+        from kegel_cv.calibration.board_finder import Treffer
+        from kegel_cv.calibration.board_library import Erkennung
+        t = [Treffer(quad=[[10.0, 10.0], [90.0, 10.0], [90.0, 90.0],
+                           [10.0, 90.0]], inlier=40, paare=60,
+                     vorlage_index=0)]
+        return Erkennung(typ=ein_typ(), treffer=t)
+
+    def test_verwerfen_laesst_die_kalibrierung_unberuehrt(self, fenster,
+                                                          monkeypatch):
+        monkeypatch.setattr(mw.TrefferDialog, "exec",
+                            lambda self: QDialog.Rejected)
+        assert not fenster._bestaetige_treffer(self._treffer(), bild(), 4, 6)
+
+    def test_zu_wenige_tafeln_werden_benannt(self, fenster, monkeypatch):
+        """Wer 4 erwartet und 1 bekommt, muss das VOR dem Uebernehmen sehen."""
+        koepfe = []
+
+        def merken(self, bild, kopfzeile, parent=None):
+            koepfe.append(kopfzeile)
+
+        monkeypatch.setattr(mw.TrefferDialog, "__init__", merken)
+        monkeypatch.setattr(mw.TrefferDialog, "exec",
+                            lambda self: QDialog.Accepted)
+        fenster._bestaetige_treffer(self._treffer(), bild(), 4, 6)
+        assert "1 von 4" in koepfe[0]
+
+    def test_die_rahmen_werden_ins_bild_gemalt(self):
+        """Zahlen ueber tragende Merkmale beantworten die Frage nicht."""
+        from kegel_cv.gui.boardtype_dialog import zeichne_treffer
+        roh = bild(0)
+        gemalt = zeichne_treffer(roh, self._treffer().treffer)
+        assert gemalt.max() > 0, "es muss etwas gezeichnet worden sein"
+        assert roh.max() == 0, "das Originalbild bleibt unberuehrt"
+
+
+class TestAnzahlIstEinstellbar:
+    """"man kann ja auch sagen, nach wie vielen man sucht" """
+
+    def test_das_feld_gibt_es(self, qt_app):
+        assert TafeltypDialog([], vorgabe_anzahl=5).anzahl.value() == 5
+
+    def test_die_vorgabe_kommt_aus_der_konfiguration(self, fenster,
+                                                    monkeypatch):
+        gesehen = {}
+        echt = mw.TafeltypDialog.__init__
+
+        def merken(self, typen, vorgabe_anzahl=4, parent=None):
+            gesehen["vorgabe"] = vorgabe_anzahl
+            echt(self, typen, vorgabe_anzahl, parent)
+
+        monkeypatch.setattr(mw.TafeltypDialog, "__init__", merken)
+        monkeypatch.setattr(mw.TafeltypDialog, "exec",
+                            lambda self: QDialog.Rejected)
+        fenster.player = UnechterPlayer()
+        fenster._on_auto_kalibrieren()
+        assert gesehen["vorgabe"] == fenster.cfg.calibration.lane_count

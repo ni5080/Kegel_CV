@@ -20,8 +20,9 @@ import logging
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QGridLayout, QLabel,
-                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QGridLayout,
+                               QHBoxLayout, QLabel, QPushButton, QScrollArea,
+                               QSpinBox, QVBoxLayout, QWidget)
 
 from ..calibration.board_library import Tafeltyp
 
@@ -52,7 +53,8 @@ class TafeltypDialog(QDialog):
         "neu"            keine passt -- eine neue aufnehmen
     """
 
-    def __init__(self, typen: list[Tafeltyp], parent=None) -> None:
+    def __init__(self, typen: list[Tafeltyp], vorgabe_anzahl: int = 4,
+                 parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Kegelboard-Bauart waehlen")
         self.ergebnis: Tafeltyp | str | None = None
@@ -63,6 +65,23 @@ class TafeltypDialog(QDialog):
             "<b>Welche Bauart hat die Anlage im Bild?</b><br>"
             "Die gewaehlte Bauart wird im Bild gesucht; alle Tafeln desselben "
             "Typs werden dabei gefunden."))
+
+        # WIE VIELE TAFELN ERWARTET WERDEN. Der Rechner kann das nicht wissen
+        # -- aber wer davorsteht, sieht es. Und die Zahl ist das Abbruchkriterium
+        # der Suche: Sind sie alle da, ist sie fertig; sonst laeuft sie bis zur
+        # Zeitgrenze weiter, statt sich mit dem ersten Fund zufriedenzugeben.
+        zeile = QHBoxLayout()
+        zeile.addWidget(QLabel("Wie viele Tafeln sind im Bild?"))
+        self.anzahl = QSpinBox()
+        self.anzahl.setRange(1, 8)
+        self.anzahl.setValue(max(1, min(8, vorgabe_anzahl)))
+        self.anzahl.setToolTip(
+            "Sobald so viele Tafeln gefunden sind, hoert die Suche auf. "
+            "Werden es nicht alle, meldet sie nach Ablauf der Zeit, was sie "
+            "hat.")
+        zeile.addWidget(self.anzahl)
+        zeile.addStretch(1)
+        aussen.addLayout(zeile)
 
         if typen:
             aussen.addWidget(self._kacheln(typen))
@@ -133,3 +152,51 @@ class TafeltypDialog(QDialog):
     def _waehle(self, was: Tafeltyp | str) -> None:
         self.ergebnis = was
         self.accept()
+
+
+def zeichne_treffer(bild: np.ndarray, treffer, ziel_breite: int = 900):
+    """Malt die gefundenen Tafeln ins Bild -- zum Ansehen, nicht zum Rechnen.
+
+    WOFUER: Der Nutzer will vor dem Uebernehmen sehen, ob die Rahmen sitzen
+    ("meinetwegen mich auch noch fragt 'sitzt dieses Board?'"). Zahlen ueber
+    tragende Merkmale beantworten das nicht -- ein Bild schon.
+    """
+    import cv2
+
+    malbild = bild.copy()
+    for i, t in enumerate(treffer, start=1):
+        ecken = np.asarray(t.quad, dtype=np.int32).reshape(-1, 1, 2)
+        cv2.polylines(malbild, [ecken], True, (0, 255, 0), 2, cv2.LINE_AA)
+        x, y = ecken[0][0]
+        cv2.putText(malbild, f"{i}", (int(x), max(18, int(y) - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+    hoehe, breite = malbild.shape[:2]
+    if breite > ziel_breite:
+        faktor = ziel_breite / breite
+        malbild = cv2.resize(malbild, (ziel_breite, int(hoehe * faktor)))
+    return malbild
+
+
+class TrefferDialog(QDialog):
+    """Zeigt die gefundenen Tafeln und fragt, ob sie sitzen."""
+
+    def __init__(self, bild: np.ndarray, kopfzeile: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Sitzen die Tafeln?")
+        spalte = QVBoxLayout(self)
+        spalte.addWidget(QLabel(kopfzeile))
+
+        vorschau = QLabel()
+        vorschau.setPixmap(_als_pixmap(bild, kante=max(bild.shape[:2])))
+        spalte.addWidget(vorschau)
+
+        spalte.addWidget(QLabel(
+            "<small>Die Nummern zaehlen von links nach rechts -- in dieser "
+            "Reihenfolge werden gleich die Bahnnummern abgefragt.</small>"))
+
+        knoepfe = QDialogButtonBox()
+        knoepfe.addButton("Uebernehmen", QDialogButtonBox.AcceptRole)
+        knoepfe.addButton("Verwerfen", QDialogButtonBox.RejectRole)
+        knoepfe.accepted.connect(self.accept)
+        knoepfe.rejected.connect(self.reject)
+        spalte.addWidget(knoepfe)

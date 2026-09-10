@@ -26,6 +26,7 @@
 | [020](BUG-020-bildguete-statt-zeitlicher-einigkeit/SKILL.md) | `DETECT` | Confidence eines Ziffernfeldes lieferte die Bildguete statt der zeitlichen Einigkeit — eine Regel war dadurch strukturell wirkungslos | 2026-09-04 | **hoch** | `test_field_aggregation.py::TestMehrheitBug020` |
 | [021](BUG-021-lampen-stumm-ohne-warnung/SKILL.md) | `DETECT` | Alle vier Bahnen meldeten 67 Wuerfe lang null Lampen (zu grosse ROIs aus einer alten Kalibrierung) — ohne jede Warnung, Ergebnisse gingen so an die Datenbank | 2026-09-07 | **hoch** | `test_lamp_watchdog.py::TestAmEchtenFall` |
 | [022](BUG-022-zwei-schreiber-auf-einer-anzeige/SKILL.md) | `GUI` | Player und Analyse malten waehrend eines Laufs in dieselbe Videoanzeige — das Bild sprang zwischen zwei 26 s auseinanderliegenden Stellen hin und her | 2026-09-07 | mittel | `test_analyse_sperrt_wiedergabe.py` |
+| [023](BUG-023-funktion-nie-ausgefuehrt/SKILL.md) | `GUI` | Die Tafelbibliothek-Pruefung lief nie: Aufruf an `_on_video_opened`, wo noch kein Frame da ist — der stille `return` verdeckte ausserdem einen `AttributeError` dahinter | 2026-09-10 | **hoch** | `test_auto_kalibrieren.py::TestBibliothekWirdGefunden` |
 | [019](BUG-019-verworfener-spielwechsel-verschiebt-die-kette/SKILL.md) | `COUNT` | Verworfener Spielwechsel-Zyklus stellte die alte Wurfnummer wieder her — 5 von 64 Sätzen begannen bei 31 statt 1 | 2026-09-03 | **hoch** | `test_throw_analyzer.py::TestVerworfenerSpielwechselVerschiebtDieKette` |
 
 ---
@@ -207,7 +208,7 @@ Zwei Lehren:
 
 ---
 
-## Nächste freie Nummer: **023**
+## Nächste freie Nummer: **024**
 
 
 ## Was BUG-021 dem Muster hinzufügt (2026-09-07)
@@ -245,3 +246,24 @@ beschreibt einen Zustand, den der Nutzer im nächsten Moment zurücknehmen darf.
 Wer eine Ressource exklusiv braucht, muss sie sich nehmen — und zwar an der
 Stelle, die tatsächlich schreibt. Gesperrte Knöpfe sind nur die
 Höflichkeitsform; Tastenkürzel gehen an ihnen vorbei.
+
+## Was BUG-023 dem Muster hinzufügt (2026-09-10)
+
+BUG-020 hielt fest: *„Ein Filter, der nie greift, meldet sich nicht."*
+BUG-021: *„Ein Detektor, der nie anschlägt, meldet sich nicht."*
+BUG-023 ist die Stufe davor — **eine Funktion, die nie läuft, meldet sich
+ebenfalls nicht.** Sie war gebaut, committet, gepusht, und daneben standen 795
+grüne Tests.
+
+Neu ist die Rolle der **stillen Wächterklausel**. `if frame is None: return`
+sieht aus wie Sorgfalt und ist in Wahrheit eine Wette: darauf, dass dieser
+Zustand irgendwann eintritt. Trat er nie ein, war der ganze Rumpf toter Code —
+und ein zweiter, viel banalerer Fehler (`resolve_path` statt `resolve`) wurde
+davon *konserviert*, statt beim ersten Start aufzufliegen.
+
+Und die Frage, die bei jedem Qt-Signal zu stellen ist: **Wann genau feuert es?**
+`opened` klingt nach „bereit" und kommt doch, bevor der erste Frame existiert.
+Ein Signalname ist keine Zusage über den Zustand.
+
+Prüfmuster daraus: Wer einen Rechenkern testet, hat noch nicht getestet, dass
+ihn jemand aufruft. Die Verdrahtung braucht ihren eigenen Test.

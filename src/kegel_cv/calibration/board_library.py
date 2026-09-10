@@ -205,6 +205,113 @@ def erkenne_ueber_frames(bilder: list[np.ndarray], typen: list[Tafeltyp], *,
     return bestes
 
 
+class LaufendeSuche:
+    """Eine Suche, die Bild fuer Bild waechst -- fuer den Livestream.
+
+    WOFUER -- Einwand des Nutzers am 2026-09-10:
+
+        "Das ganze soll ja spaeter im Livestream laufen, da kann er ja nicht
+         einfach hin und herspringen ... eigentlich waere es besser, wenn er
+         in den ersten 5-10 Sekunden das glattzieht ... und wenn es nach 20
+         Sekunden immer noch nicht alle Boards gefunden hat"
+
+    Ein Stream hat keine Vergangenheit: Es laesst sich nicht zu Frame 84750
+    springen, um ein besseres Bild zu holen. Es gibt nur das naechste Bild.
+    Also arbeitet die Suche andersherum -- sie nimmt entgegen, was kommt, und
+    wird mit jedem Bild besser.
+
+    ABBRUCH NACH ERFOLG, NICHT NACH ZEIT: Sind so viele Tafeln gefunden wie
+    erwartet, ist die Suche fertig. GEMESSEN an der Aufzeichnung: Das tritt
+    meist nach zwei bis vier Bildern ein -- keine zwanzig Sekunden Wartezeit,
+    wenn es gut laeuft.
+    """
+
+    def __init__(self, typen: list[Tafeltyp], *, ziel_anzahl: int = 4,
+                 min_inlier: int = 14, anker_inlier: int = 8,
+                 min_frames: int = 2, max_tafeln: int = 8) -> None:
+        self.typen = list(typen)
+        self.ziel_anzahl = max(1, ziel_anzahl)
+        self.min_frames = min_frames
+        self.max_tafeln = max_tafeln
+        self.bilder_gesehen = 0
+        self._grob = BoardFinder(min_inlier=min_inlier)
+        self._fein = BoardFinder(min_inlier=anker_inlier)
+        # Je Bauart: Vorlagen, gebuendelte Funde, schon verwendete Buendel.
+        self._stand: dict[str, dict] = {
+            typ.name: {"typ": typ, "vorlagen": [], "gruppen": [],
+                       "benutzt": set()} for typ in self.typen}
+
+    def fuettere(self, bild: np.ndarray) -> None:
+        """Nimmt ein weiteres Standbild entgegen."""
+        if bild is None or bild.size == 0:
+            return
+        self.bilder_gesehen += 1
+        for stand in self._stand.values():
+            if not stand["vorlagen"]:
+                # Noch kein Anker: mit dem Muster aus der Bibliothek suchen.
+                gefunden = self._grob.finde_alle(bild, [stand["typ"].muster],
+                                                 max_tafeln=self.max_tafeln)
+                if not gefunden:
+                    continue
+                bester = max(gefunden, key=lambda t: t.inlier)
+                stand["vorlagen"] = [_ausschnitt(bild, bester.quad)]
+                # Der Anker zaehlt selbst als Fund -- sonst muesste er sich
+                # in einem spaeteren Bild noch einmal beweisen.
+                _einsortieren(stand["gruppen"], (bester, bild))
+                # KEIN `continue`: Mit der frischen Vorlage wird DASSELBE
+                # Bild sofort noch einmal durchsucht. Im Livestream kostet
+                # jedes verschenkte Bild eine knappe Sekunde.
+
+            for t in self._fein.finde_alle(bild, stand["vorlagen"],
+                                           max_tafeln=self.max_tafeln):
+                _einsortieren(stand["gruppen"], (t, bild))
+            self._neue_vorlagen(stand)
+
+    def _neue_vorlagen(self, stand: dict) -> None:
+        """Jede neu bestaetigte Tafel wird selbst zur Vorlage (Ankerkette)."""
+        for i, g in enumerate(stand["gruppen"]):
+            if i in stand["benutzt"] or len(g) < self.min_frames:
+                continue
+            stand["benutzt"].add(i)
+            t, bild = max(g, key=lambda x: x[0].inlier)
+            ausschnitt = _ausschnitt(bild, t.quad)
+            if ausschnitt is not None and ausschnitt.size:
+                stand["vorlagen"].append(ausschnitt)
+
+    def _treffer(self, stand: dict) -> list[Treffer]:
+        treffer = [max(g, key=lambda x: x[0].inlier)[0]
+                   for g in stand["gruppen"] if len(g) >= self.min_frames]
+        treffer.sort(key=lambda t: _mitte(t.quad)[0])
+        return treffer
+
+    @property
+    def gefunden(self) -> int:
+        """Zahl der Tafeln der derzeit besten Bauart."""
+        return max((len(self._treffer(s)) for s in self._stand.values()),
+                   default=0)
+
+    @property
+    def fertig(self) -> bool:
+        return self.gefunden >= self.ziel_anzahl
+
+    def ergebnis(self) -> Erkennung | None:
+        """Die beste Bauart mit ihren Tafeln -- oder None."""
+        bestes: Erkennung | None = None
+        for stand in self._stand.values():
+            treffer = self._treffer(stand)
+            if not treffer:
+                continue
+            kandidat = Erkennung(typ=stand["typ"], treffer=treffer)
+            if bestes is None or (len(kandidat.treffer), kandidat.merkmale) > \
+                    (len(bestes.treffer), bestes.merkmale):
+                bestes = kandidat
+        if bestes is not None:
+            log.info("Laufende Suche: %s, %d Tafeln aus %d Bildern, %d "
+                     "tragende Merkmale", bestes.typ.name, len(bestes.treffer),
+                     self.bilder_gesehen, bestes.merkmale)
+        return bestes
+
+
 def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
            anker_inlier: int, min_frames: int, max_tafeln: int,
            runden: int) -> list[Treffer]:

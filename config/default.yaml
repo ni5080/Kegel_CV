@@ -169,6 +169,11 @@ calibration:
   # vierte Tafel kam mit 11 tragenden Merkmalen an der richtigen Stelle.
   boardtype_anchor_inlier: 8
   boardtype_min_frames: 2
+  # Zeitgrenze der Suche im LIVESTREAM -- dort gibt es nur das naechste Bild.
+  # GEMESSEN 2026-09-10 an acht Stellen, ein Bild je 0,8 s Streamzeit:
+  # sechsmal alle vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal
+  # nur zwei bzw. drei.
+  boardtype_live_timeout_s: 20.0
   # Anzahl der Bahnen im Overlay
   lane_count: 4
   # Zuordnung Overlay-Position -> reale Bahnnummer.
