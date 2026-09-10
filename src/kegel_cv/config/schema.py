@@ -65,6 +65,14 @@ class VideoConfig(BaseModel):
     # verlorengeht (kuerzester gemessener Wurfzyklus: 7 Frames Gruenphase,
     # aber der Zyklus als ganzes dauert 216-338 Frames).
     stream_end_tolerance_frames: int = Field(default=100, ge=0)
+    # Hoechste Aufloesung, die von einer YouTube-Adresse geholt wird.
+    #
+    # Mehr Pixel heissen mehr Decodierarbeit je Frame, und breiter wird die
+    # Tafel davon nicht: Im Overlay-Video ist eine Tafel rund 190 Pixel gross,
+    # und genau darauf wurde kalibriert (2026-09-09, 1521 gueltige Wuerfe bei
+    # 11 Widerspruechen). Wer die Quelle in 1440p holt, rechnet doppelt so viel
+    # und liest dieselben Ziffern.
+    youtube_max_height: int = Field(default=1080, ge=144)
 
 
 class ProcessingConfig(BaseModel):

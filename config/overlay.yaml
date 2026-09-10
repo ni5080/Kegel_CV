@@ -72,6 +72,11 @@ video:
   # gemeldete Laenge stammt aus der Playlist und ist kein Versprechen.
   # 100 Frames sind 4 Sekunden.
   stream_end_tolerance_frames: 100
+  # Hoechste Aufloesung, die von einer YouTube-Adresse geholt wird. Mehr Pixel
+  # heissen mehr Decodierarbeit je Frame -- breiter wird die Tafel davon nicht:
+  # Im Overlay-Video misst eine Tafel rund 190 Pixel, und darauf sass die
+  # Kalibrierung mit 1521 gueltigen Wuerfen (gemessen 2026-09-09).
+  youtube_max_height: 1080
   # Zweite Verteidigung, falls der Sprung misslingt: die Bilder wiedererkennen.
   stream_restart_check: true
   # So viele Fingerabdruecke vom Anfang der Quelle werden behalten. 90 Frames

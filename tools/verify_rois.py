@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kegel_cv.calibration import Calibration, PerspectiveTransform, Quad  # noqa: E402
 from kegel_cv.calibration.session import default_roi_layout  # noqa: E402
+from kegel_cv.config import load_config  # noqa: E402
+from kegel_cv.video.factory import open_source  # noqa: E402
+from kegel_cv.video.source import VideoSourceError  # noqa: E402
 
 # Farben nach ROI-Art -- getrennte Farben machen Fehlplatzierungen sofort sichtbar
 COLORS = {
@@ -100,8 +103,11 @@ def draw_rois(warped: np.ndarray, rois, scale: int = 2) -> np.ndarray:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ROI-Platzierung visuell pruefen")
-    parser.add_argument("--video", type=Path,
-                        default=Path("kegelVideos/2026-08-22 09-15-50.mp4"))
+    # KEIN `type=Path`: Windows macht aus "https://..." ein "https:/..." --
+    # der doppelte Schraegstrich faellt beim Zusammenfassen weg, und die
+    # Adresse ist hin. Streams und YouTube-Links kaemen so nie an.
+    parser.add_argument("--video",
+                        default="kegelVideos/2026-08-22 09-15-50.mp4")
     parser.add_argument("--frame", type=int, default=90)
     parser.add_argument("--calibration", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=Path("debug/roi_check"))
@@ -109,16 +115,28 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=530)
     args = parser.parse_args()
 
-    cap = cv2.VideoCapture(str(args.video))
-    if not cap.isOpened():
-        print(f"Video konnte nicht geoeffnet werden: {args.video}", file=sys.stderr)
+    # UEBER DIE QUELLENFABRIK, nicht ueber cv2 direkt. Sonst beantwortet
+    # dieses Werkzeug die Frage "was ist das fuer eine Quelle" anders als die
+    # Oberflaeche -- und eine YouTube-Adresse ist fuer cv2 nur eine Webseite.
+    try:
+        quelle = open_source(args.video, load_config())
+        quelle.open()
+    except VideoSourceError as exc:
+        print(f"Video konnte nicht geoeffnet werden: {exc}", file=sys.stderr)
         return 1
-    cap.set(cv2.CAP_PROP_POS_FRAMES, args.frame)
-    ok, image = cap.read()
-    cap.release()
-    if not ok:
+    try:
+        if args.frame and not quelle.seek(args.frame):
+            # Ein Stream kennt keinen Ruecksprung -- dann eben vorspulen.
+            for _ in range(args.frame):
+                if quelle.read() is None:
+                    break
+        frame = quelle.read()
+    finally:
+        quelle.close()
+    if frame is None:
         print(f"Frame {args.frame} konnte nicht gelesen werden", file=sys.stderr)
         return 1
+    image = frame.image
 
     args.out.mkdir(parents=True, exist_ok=True)
 

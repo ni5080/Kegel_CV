@@ -32,6 +32,7 @@ import contextlib
 import logging
 import os
 import time
+from collections.abc import Callable
 
 import cv2
 
@@ -53,10 +54,20 @@ class StreamVideoSource(VideoSource):
                  restart_probe_frames: int = 90,
                  restart_matches: int = 3,
                  resume_tolerance_frames: int = 100,
-                 end_tolerance_frames: int = 100) -> None:
+                 end_tolerance_frames: int = 100,
+                 url_aufloesung: Callable[[], str] | None = None) -> None:
         if not url:
             raise ValueError("Stream-URL fehlt")
         self._url = url
+        # ZWEI ADRESSEN, ABSICHTLICH. `_url` ist, was der Nutzer eingegeben hat
+        # -- sie steht in jeder Meldung und in der `source_id`. `_spiel_url`
+        # ist, was FFmpeg oeffnet. Bei einer YouTube-Adresse sind das zwei
+        # verschiedene Dinge: Die abspielbare Adresse ist ueber 900 Zeichen
+        # lang, in keiner Meldung lesbar, und sie VERFAELLT nach wenigen
+        # Stunden. Deshalb wird sie bei jedem Verbindungsaufbau neu erfragt --
+        # ein Lauf ueber einen ganzen Spieltag ueberlebt so ihren Ablauf.
+        self._url_aufloesung = url_aufloesung
+        self._spiel_url = url
         self._reconnect_attempts = reconnect_attempts
         self._reconnect_delay_s = reconnect_delay_s
         self._read_failures_before_reconnect = read_failures_before_reconnect
@@ -364,7 +375,8 @@ class StreamVideoSource(VideoSource):
         dauerhaft gesetzte Variable wuerde jede andere Quelle im selben Prozess
         mitbetreffen, auch die Dateiwiedergabe.
         """
-        if not self._rtsp_transport or not self._url.lower().startswith("rtsp"):
+        if not self._rtsp_transport \
+                or not self._spiel_url.lower().startswith("rtsp"):
             yield
             return
 
@@ -379,15 +391,43 @@ class StreamVideoSource(VideoSource):
             else:
                 os.environ[schluessel] = vorher
 
+    def _adresse_erneuern(self, erster_versuch: bool) -> None:
+        """Erfragt die abspielbare Adresse neu, wenn sie erfragt werden muss.
+
+        Nur bei einer Quelle mit Aufloesung -- also heute: bei YouTube. Eine
+        dort genannte Medienadresse gilt wenige Stunden; ein Spieltag dauert
+        laenger. Beim Wiederverbinden ist der Ablauf der Adresse deshalb ein
+        genauso wahrscheinlicher Grund wie ein Netzaussetzer.
+
+        Scheitert die Aufloesung mitten im Lauf, bleibt es bei der alten
+        Adresse: Vielleicht ist sie noch gueltig und nur das Netz war kurz weg.
+        Aufgegeben wird erst beim ERSTEN Versuch, denn dort weiss der Nutzer
+        noch nichts von seinem Glueck.
+        """
+        if self._url_aufloesung is None:
+            return
+        try:
+            neu = self._url_aufloesung()
+        except Exception as exc:  # noqa: BLE001
+            if erster_versuch:
+                raise
+            log.warning("Adresse liess sich nicht erneuern (%s) -- es wird "
+                        "die bisherige weiterverwendet", exc)
+            return
+        if neu and neu != self._spiel_url:
+            log.info("Abspielbare Adresse fuer %s neu erfragt", self._url)
+            self._spiel_url = neu
+
     def _verbinden(self, erster_versuch: bool = False) -> bool:
         # Zeitlimits VOR dem Oeffnen setzen -- ohne sie wartet FFmpeg 30
         # Sekunden je Leseversuch. Gemessen, nachdem die Verbindung waehrend
         # des Kalibrierens weggelaufen war: Die Oberflaeche fror ein, weil der
         # Player im GUI-Thread liest.
+        self._adresse_erneuern(erster_versuch)
         cap = cv2.VideoCapture()
         cap.setExceptionMode(False)
         with self._transportweg():
-            cap.open(self._url, cv2.CAP_FFMPEG, [
+            cap.open(self._spiel_url, cv2.CAP_FFMPEG, [
                 int(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC), self._open_timeout_ms,
                 int(cv2.CAP_PROP_READ_TIMEOUT_MSEC), self._read_timeout_ms,
             ])

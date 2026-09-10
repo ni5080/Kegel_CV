@@ -16,6 +16,7 @@ from .file_source import FileVideoSource
 from .source import VideoSource
 from ..models.quellen import ohne_zugangsdaten
 from .stream_source import StreamVideoSource
+from .youtube import ist_youtube, loese_auf, video_kennung
 
 log = logging.getLogger(__name__)
 
@@ -41,10 +42,21 @@ def open_source(quelle: str | Path, cfg: AppConfig | None = None) -> VideoSource
     """
     if is_stream(quelle):
         log.info("Quelle als Stream erkannt: %s", quelle)
+        # Eine YouTube-Adresse ist eine WEBSEITE, kein Video. FFmpeg oeffnet
+        # sie nicht (gemessen 2026-09-10: geoeffnet=False, kein Frame). Die
+        # Uebersetzung wird nicht hier ausgefuehrt, sondern als Auftrag
+        # weitergereicht: Die genannte Medienadresse verfaellt, und die
+        # Stromquelle erfragt sie deshalb bei jedem Verbindungsaufbau neu.
+        aufloesung = None
+        if ist_youtube(quelle):
+            hoehe = cfg.video.youtube_max_height if cfg else 1080
+            aufloesung = lambda: loese_auf(str(quelle), hoehe)  # noqa: E731
+
         if cfg is None:
-            return StreamVideoSource(str(quelle))
+            return StreamVideoSource(str(quelle), url_aufloesung=aufloesung)
         return StreamVideoSource(
             str(quelle),
+            url_aufloesung=aufloesung,
             reconnect_attempts=cfg.video.stream_reconnect_attempts,
             reconnect_delay_s=cfg.video.stream_reconnect_delay_s,
             read_failures_before_reconnect=cfg.video.stream_read_failures,
@@ -72,6 +84,13 @@ def source_label(quelle: str | Path) -> str:
     """
     if not is_stream(quelle):
         return Path(quelle).name
+
+    # Bei YouTube taugt der Adressaufbau nicht als Name: JEDES Video liegt
+    # unter `www.youtube.com/watch`, zwei Laeufe landeten also im selben
+    # Debug-Ordner und truegen dieselbe `video_id`. Die Kennung unterscheidet.
+    kennung = video_kennung(quelle)
+    if kennung:
+        return f"youtube_{kennung}"
 
     # OHNE ZUGANGSDATEN. `netloc` enthaelt bei einer Kamera Benutzer und
     # Passwort im Klartext -- und dieser Name wird zum Debug-Ordner und zur

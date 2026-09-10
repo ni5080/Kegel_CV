@@ -50,7 +50,8 @@ from ..analysis.calibration_check import CheckVerdict, check_calibration
 from ..analysis.pipeline import FrameResult
 from ..config.schema import AppConfig
 from ..detection.state_machine import EventType
-from ..video import Frame, VideoInfo, is_stream, list_videos, open_source
+from ..video import (Frame, VideoInfo, is_stream, ist_youtube,
+                     list_videos, open_source)
 from ..video.file_source import FileVideoSource
 from ..video.source import VideoSourceError
 from .analysis_worker import SPRUNG_LAEUFT, AnalysisWorker
@@ -882,7 +883,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.statusBar().showMessage(f"Verbinde mit {url} ...")
+        # Eine YouTube-Adresse muss erst uebersetzt werden, und das dauert
+        # spuerbar (gemessen 2026-09-10: 1,7 s). Der Player liest im
+        # GUI-Faden, die Oberflaeche steht so lange -- ohne Hinweis sieht das
+        # nach einem Absturz aus.
+        if ist_youtube(url):
+            self.statusBar().showMessage(
+                "YouTube-Adresse wird uebersetzt -- das dauert einen Moment ...")
+            QApplication.processEvents()
+        else:
+            self.statusBar().showMessage(f"Verbinde mit {url} ...")
         if self.player.load(url, self.cfg.video.playback_fps):
             self.statusBar().showMessage(f"Stream verbunden: {url}", 6000)
             # Im Stream gibt es nichts zu spulen -- der Schieber wuerde nur
