@@ -47,6 +47,10 @@ log = logging.getLogger(__name__)
 # Neben jedem Tafeltyp liegt sein Musterbild unter demselben Namen.
 MUSTER_ENDUNG = ".png"
 
+# Ersatzmassstaebe fuer den Anker, nach gemessenem Ertrag geordnet.
+# 0,6 und 0,7 trafen an keiner der acht Messstellen und fehlen deshalb.
+ANKER_STUFEN = [0.9, 1.2, 0.8]
+
 
 @dataclass
 class Tafeltyp:
@@ -151,7 +155,8 @@ def _mitte(quad) -> tuple[float, float]:
 def erkenne_ueber_frames(bilder: list[np.ndarray], typen: list[Tafeltyp], *,
                          min_inlier: int = 14, anker_inlier: int = 8,
                          min_frames: int = 2, max_tafeln: int = 8,
-                         runden: int = 3) -> Erkennung | None:
+                         runden: int = 3,
+                         stufen: list[float] | None = None) -> Erkennung | None:
     """Sucht ueber MEHRERE Standbilder statt ueber eines.
 
     WARUM EIN BILD NICHT GENUEGT -- gemessen 2026-09-10 am Verbandsligaspiel,
@@ -192,7 +197,8 @@ def erkenne_ueber_frames(bilder: list[np.ndarray], typen: list[Tafeltyp], *,
     for typ in typen:
         treffer = _kette(bilder, typ.muster, min_inlier=min_inlier,
                          anker_inlier=anker_inlier, min_frames=min_frames,
-                         max_tafeln=max_tafeln, runden=runden)
+                         max_tafeln=max_tafeln, runden=runden,
+                         stufen=ANKER_STUFEN if stufen is None else stufen)
         if not treffer:
             continue
         kandidat = Erkennung(typ=typ, treffer=treffer)
@@ -228,8 +234,10 @@ class LaufendeSuche:
 
     def __init__(self, typen: list[Tafeltyp], *, ziel_anzahl: int = 4,
                  min_inlier: int = 14, anker_inlier: int = 8,
-                 min_frames: int = 2, max_tafeln: int = 8) -> None:
+                 min_frames: int = 2, max_tafeln: int = 8,
+                 stufen: list[float] | None = None) -> None:
         self.typen = list(typen)
+        self.stufen = ANKER_STUFEN if stufen is None else list(stufen)
         self.ziel_anzahl = max(1, ziel_anzahl)
         self.min_frames = min_frames
         self.max_tafeln = max_tafeln
@@ -249,11 +257,10 @@ class LaufendeSuche:
         for stand in self._stand.values():
             if not stand["vorlagen"]:
                 # Noch kein Anker: mit dem Muster aus der Bibliothek suchen.
-                gefunden = self._grob.finde_alle(bild, [stand["typ"].muster],
-                                                 max_tafeln=self.max_tafeln)
-                if not gefunden:
+                bester = finde_anker(self._grob, bild, stand["typ"].muster,
+                                     self.stufen, self.max_tafeln)
+                if bester is None:
                     continue
-                bester = max(gefunden, key=lambda t: t.inlier)
                 stand["vorlagen"] = [_ausschnitt(bild, bester.quad)]
                 # Der Anker zaehlt selbst als Fund -- sonst muesste er sich
                 # in einem spaeteren Bild noch einmal beweisen.
@@ -314,7 +321,7 @@ class LaufendeSuche:
 
 def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
            anker_inlier: int, min_frames: int, max_tafeln: int,
-           runden: int) -> list[Treffer]:
+           runden: int, stufen: list[float] | None = None) -> list[Treffer]:
     """Jede gefundene Tafel wird selbst zur Vorlage fuer die naechste Runde.
 
     WARUM DIE KETTE -- gemessen 2026-09-10 an sechs Stellen des Spiels:
@@ -333,9 +340,9 @@ def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
     grob = BoardFinder(min_inlier=min_inlier)
     anker: tuple[Treffer, np.ndarray] | None = None
     for bild in bilder:
-        for t in grob.finde_alle(bild, [muster], max_tafeln=max_tafeln):
-            if anker is None or t.inlier > anker[0].inlier:
-                anker = (t, bild)
+        t = finde_anker(grob, bild, muster, stufen, max_tafeln)
+        if t is not None and (anker is None or t.inlier > anker[0].inlier):
+            anker = (t, bild)
     if anker is None:
         return []
 
@@ -373,6 +380,59 @@ def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,
 def _ausschnitt(bild: np.ndarray, quad) -> np.ndarray:
     """Schneidet eine Tafel geradegerechnet aus einem Bild."""
     return entzerre(bild, quad, quad_groesse(quad))
+
+
+def _skaliert(muster: np.ndarray, faktor: float) -> np.ndarray:
+    hoehe, breite = muster.shape[:2]
+    ziel = (max(8, int(breite * faktor)), max(8, int(hoehe * faktor)))
+    return cv2.resize(muster, ziel,
+                      interpolation=cv2.INTER_AREA if faktor < 1
+                      else cv2.INTER_CUBIC)
+
+
+def finde_anker(finder: BoardFinder, bild: np.ndarray, muster: np.ndarray,
+                stufen: list[float] | None = None,
+                max_tafeln: int = 8) -> Treffer | None:
+    """Sucht die erste Tafel -- notfalls in mehreren Massstaeben.
+
+    WARUM MASSSTAEBE -- Frage des Nutzers am 2026-09-10, warum die Vorschau so
+    verzerrt aussieht, und ob eine entzerrte Vorlage nicht besser waere. Die
+    Vorlage IST entzerrt; was nicht passt, ist die GROESSE. Das Muster
+    FUNK_klassisch stammt von der Hallenkamera und ist 190x191 Pixel gross, die
+    Tafeln im Overlay messen rund 158 -- ein Sprung von 1,2. ORB ist nur
+    schwach massstabsunabhaengig.
+
+    GEMESSEN 2026-09-10 an acht Stellen, tragende Merkmale des besten Ankers:
+
+        Stelle    eigene Groesse   0,8    0,9    1,0    1,2
+             0                20    15     27     20     24
+         21187                 0     0     18      0      0
+         84750                36    19     24     36     33
+        127125                23    14     23     23     22
+        169500                24     0     17     24     30
+        254250                 0     0      0      0      0
+        300000                30    14     27     30     31
+        317812                27     0     25     27     24
+
+    An Stelle 21187 fand NUR 0,9 etwas -- vorher blieb die Suche dort leer.
+    0,6 und 0,7 trafen nirgends und fehlen deshalb.
+
+    ZWEITE STUFE, NICHT ERSTE: Die eigene Groesse trifft in sechs von acht
+    Faellen und kostet 0,15 s je Bild; alle Stufen kosten 0,65 s. Teure
+    Arbeit nur dort, wo die billige versagt hat (P4).
+    """
+    treffer = finder.finde_alle(bild, [muster], max_tafeln=max_tafeln)
+    if treffer:
+        return max(treffer, key=lambda t: t.inlier)
+    for faktor in (stufen or []):
+        treffer = finder.finde_alle(bild, [_skaliert(muster, faktor)],
+                                    max_tafeln=max_tafeln)
+        if treffer:
+            bester = max(treffer, key=lambda t: t.inlier)
+            log.info("Anker erst im Massstab %.2f gefunden (%d tragende "
+                     "Merkmale)", faktor, bester.inlier)
+            return bester
+    return None
 
 
 def _einsortieren(gruppen: list[list[tuple[Treffer, np.ndarray]]],

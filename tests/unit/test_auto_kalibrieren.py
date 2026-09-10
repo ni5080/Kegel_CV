@@ -481,3 +481,41 @@ class TestPositionsanzeige:
         """"Frame 12345 / 0" sah aus wie ein Fehler und war nur ein Stream."""
         fenster._setze_position(12345, 0, 493.8)
         assert "/ 0" not in fenster.position_label.text()
+
+
+class TestVorschauImWahrenFormat:
+    """Frage des Nutzers am 2026-09-10 zur Montage: "Warum sind die denn alle
+    so stark verzerrt?"
+
+    GEMESSEN ueber drei Kalibrierungen und zwei Kameras: Die Tafel ist
+    praktisch quadratisch (Verhaeltnis 0,97 bis 1,01). Entzerrt wird aber auf
+    440x530 -- Verhaeltnis 0,83, also eine Streckung um den Faktor 1,2 in die
+    Hoehe. Fuer die Analyse gleichgueltig (die ROIs sind normiert), fuers Auge
+    nicht.
+    """
+
+    def _bahn(self, breite=160.0, hoehe=160.0):
+        from kegel_cv.calibration.model import LaneCalibration
+        return LaneCalibration(
+            lane_id=1,
+            quad=[[0.0, 0.0], [breite, 0.0], [breite, hoehe], [0.0, hoehe]],
+            rois=[Roi(name="green_lamp", rect=(0.4, 0.8, 0.05, 0.05))])
+
+    def test_eine_quadratische_tafel_bleibt_quadratisch(self):
+        from kegel_cv.calibration.roi_preview import tafelmontage
+        gross = np.full((400, 400, 3), 90, dtype=np.uint8)
+        m = tafelmontage(gross, [self._bahn(160, 160)])
+        hoehe, breite = m.shape[0] - 22, m.shape[1]
+        assert abs(breite / hoehe - 1.0) < 0.05
+
+    def test_eine_hohe_tafel_bleibt_hoch(self):
+        from kegel_cv.calibration.roi_preview import tafelmontage
+        gross = np.full((400, 400, 3), 90, dtype=np.uint8)
+        m = tafelmontage(gross, [self._bahn(100, 200)])
+        hoehe, breite = m.shape[0] - 22, m.shape[1]
+        assert abs(breite / hoehe - 0.5) < 0.05
+
+    def test_ohne_bahnen_kommt_das_bild_zurueck(self):
+        from kegel_cv.calibration.roi_preview import tafelmontage
+        roh = bild()
+        assert tafelmontage(roh, []) is roh

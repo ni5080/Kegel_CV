@@ -67,19 +67,39 @@ def zeichne_rois(tafel: np.ndarray, rois, skalierung: int = 2,
     return bild
 
 
+def _quadmasse(ecken) -> tuple[float, float]:
+    """Breite und Hoehe eines Vierecks, ueber die Gegenkanten gemittelt."""
+    q = np.asarray(ecken, dtype=float)
+    breite = (np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[3])) / 2
+    hoehe = (np.linalg.norm(q[3] - q[0]) + np.linalg.norm(q[2] - q[1])) / 2
+    return float(breite), float(hoehe)
+
+
 def tafelmontage(bild: np.ndarray, bahnen, breite: int = 220,
-                 hoehe: int = 265, abstand: int = 10,
-                 skalierung: int = 2) -> np.ndarray:
+                 abstand: int = 10, skalierung: int = 2) -> np.ndarray:
     """Legt alle Bahnen entzerrt und mit ROIs nebeneinander.
 
     Nebeneinander und nicht einzeln, weil der Vergleich die Fehler zeigt:
     Sitzt EINE Tafel anders als die drei anderen, sieht man das im Nebeneinander
     sofort -- an einem Einzelbild nicht.
+
+    IM WAHREN SEITENVERHAELTNIS, nicht im Rechenformat. Die Analyse entzerrt
+    auf 440x530 (Verhaeltnis 0,83); die Tafel selbst ist aber praktisch
+    quadratisch. GEMESSEN 2026-09-10 ueber drei Kalibrierungen und zwei
+    Kameras: 0,97 bis 1,01 -- die Rechendarstellung streckt sie also um den
+    Faktor 1,2 in die Hoehe.
+
+    Fuer die Analyse ist das gleichgueltig, weil die ROIs in normierten
+    Tafelkoordinaten liegen und die Streckung sich herauskuerzt. Fuers AUGE
+    ist es das nicht: Wer beurteilen soll, ob ein Rahmen sitzt, will die Tafel
+    sehen und nicht ihr Rechenformat.
     """
     kacheln = []
     for bahn in bahnen:
-        transform = PerspectiveTransform(Quad.from_points(
-            [(float(p[0]), float(p[1])) for p in bahn.quad]), breite, hoehe)
+        ecken = [(float(p[0]), float(p[1])) for p in bahn.quad]
+        b, h = _quadmasse(ecken)
+        hoehe = max(1, int(round(breite * h / b))) if b else breite
+        transform = PerspectiveTransform(Quad.from_points(ecken), breite, hoehe)
         kacheln.append(zeichne_rois(transform.warp(bild), bahn.rois,
                                     skalierung))
     if not kacheln:

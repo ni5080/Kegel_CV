@@ -351,3 +351,75 @@ class TestHerkunftDerAufloesung:
         erkennung, _ = self._erkennung(tmp_path)
         kal = uebernimm(erkennung, [1, 2, 3])
         assert kal.source_hint.width is None
+
+
+class TestMassstab:
+    """Die Vorlage ist entzerrt -- was nicht passt, ist die GROESSE.
+
+    Frage des Nutzers am 2026-09-10 zur verzerrt wirkenden Vorschau: "Die
+    Schablone ist ja auch entzerrt, vielleicht wird dann auch das Ergebnis
+    besser". Entzerrt ist sie schon; das Muster FUNK_klassisch ist aber
+    190x191 Pixel gross (Hallenkamera) und die Tafeln im Overlay messen rund
+    158 -- ein Sprung von 1,2, und ORB ist nur schwach massstabsunabhaengig.
+
+    GEMESSEN 2026-09-10 an acht Stellen: An einer fand NUR der Massstab 0,9
+    einen Anker (18 tragende Merkmale), vorher blieb die Suche dort leer.
+    Ueber sechs Stichproben stieg das Ergebnis von 4 auf 6 vollstaendige
+    Funde von acht.
+    """
+
+    def test_die_eigene_groesse_wird_zuerst_versucht(self, tmp_path):
+        """Sie trifft in sechs von acht Faellen und kostet ein Viertel der
+        Zeit -- teure Arbeit nur dort, wo die billige versagt (P4)."""
+        from kegel_cv.calibration.board_finder import BoardFinder
+        from kegel_cv.calibration.board_library import finde_anker
+        bild = szene(tafel())
+        speichere_typ(tmp_path, "T", bild, eine_kalibrierung())
+        typ = lade_bibliothek(tmp_path)[0]
+
+        versuche = []
+        finder = BoardFinder(min_inlier=10)
+        echt = finder.finde_alle
+
+        def zaehlen(ziel, vorlagen, **kw):
+            versuche.append(vorlagen[0].shape[:2])
+            return echt(ziel, vorlagen, **kw)
+
+        finder.finde_alle = zaehlen
+        assert finde_anker(finder, bild, typ.muster, [0.9, 1.2]) is not None
+        assert len(versuche) == 1, "bei Erfolg keine weiteren Massstaebe"
+
+    def test_bei_misserfolg_werden_stufen_probiert(self, tmp_path):
+        from kegel_cv.calibration.board_finder import BoardFinder
+        from kegel_cv.calibration.board_library import finde_anker
+        speichere_typ(tmp_path, "T", szene(tafel()), eine_kalibrierung())
+        typ = lade_bibliothek(tmp_path)[0]
+        leer = np.full((BILD_H, BILD_B, 3), 55, dtype=np.uint8)
+
+        groessen = []
+        finder = BoardFinder(min_inlier=10)
+        echt = finder.finde_alle
+
+        def zaehlen(ziel, vorlagen, **kw):
+            groessen.append(vorlagen[0].shape[1])
+            return echt(ziel, vorlagen, **kw)
+
+        finder.finde_alle = zaehlen
+        assert finde_anker(finder, leer, typ.muster, [0.9, 1.2, 0.8]) is None
+        assert len(groessen) == 4, "eigene Groesse plus drei Stufen"
+        assert len(set(groessen)) == 4, "jede Stufe eine andere Groesse"
+
+    def test_ohne_stufen_bleibt_es_bei_einem_versuch(self, tmp_path):
+        from kegel_cv.calibration.board_finder import BoardFinder
+        from kegel_cv.calibration.board_library import finde_anker
+        speichere_typ(tmp_path, "T", szene(tafel()), eine_kalibrierung())
+        typ = lade_bibliothek(tmp_path)[0]
+        leer = np.full((BILD_H, BILD_B, 3), 55, dtype=np.uint8)
+        assert finde_anker(BoardFinder(min_inlier=10), leer, typ.muster,
+                           None) is None
+
+    def test_kleine_massstaebe_bleiben_brauchbar(self):
+        """Ein zu klein gerechnetes Muster darf nicht auf null Pixel fallen."""
+        from kegel_cv.calibration.board_library import _skaliert
+        winzig = _skaliert(np.zeros((10, 10, 3), np.uint8), 0.1)
+        assert winzig.shape[0] >= 8 and winzig.shape[1] >= 8
