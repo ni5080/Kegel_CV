@@ -178,16 +178,40 @@ def zeichne_treffer(bild: np.ndarray, treffer, ziel_breite: int = 900):
 
 
 class TrefferDialog(QDialog):
-    """Zeigt die gefundenen Tafeln und fragt, ob sie sitzen."""
+    """Zeigt die gefundenen Tafeln mit ihren ROIs und fragt, ob sie sitzen.
 
-    def __init__(self, bild: np.ndarray, kopfzeile: str, parent=None) -> None:
+    ZWEI BILDER, weil sie zwei verschiedene Fragen beantworten:
+
+    * die **Uebersicht** -- wurden die richtigen Tafeln gefunden, und wurde
+      keine uebersehen?
+    * die **entzerrten Tafeln mit ROIs** -- sitzen Lampen und Ziffern?
+
+    Die zweite Frage laesst sich an der Uebersicht nicht beantworten: Dort
+    misst eine Tafel rund 160 Pixel und eine Lampen-ROI sechs.
+    """
+
+    def __init__(self, uebersicht: np.ndarray, tafeln: np.ndarray,
+                 kopfzeile: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Sitzen die Tafeln?")
         spalte = QVBoxLayout(self)
         spalte.addWidget(QLabel(kopfzeile))
 
+        spalte.addWidget(QLabel(
+            "<b>Lampen und Ziffern</b> -- gelb Kegellampen, gruen die "
+            "Gruenlampe, magenta die Wurfnummer, orange die Summen:"))
+        felder = QLabel()
+        felder.setPixmap(_als_pixmap(tafeln, kante=max(tafeln.shape[:2])))
+        rollbereich = QScrollArea()
+        rollbereich.setWidget(felder)
+        rollbereich.setWidgetResizable(True)
+        rollbereich.setMinimumHeight(min(620, tafeln.shape[0] + 20))
+        spalte.addWidget(rollbereich, 1)
+
+        spalte.addWidget(QLabel("<b>Wo sie im Bild sitzen:</b>"))
         vorschau = QLabel()
-        vorschau.setPixmap(_als_pixmap(bild, kante=max(bild.shape[:2])))
+        vorschau.setPixmap(_als_pixmap(uebersicht,
+                                       kante=max(uebersicht.shape[:2])))
         spalte.addWidget(vorschau)
 
         spalte.addWidget(QLabel(

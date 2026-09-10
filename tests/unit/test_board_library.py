@@ -318,3 +318,36 @@ class TestLaufendeSuche:
         suche = LaufendeSuche([], ziel_anzahl=4)
         suche.fuettere(szene(tafel()))
         assert suche.ergebnis() is None and suche.gefunden == 0
+
+
+class TestHerkunftDerAufloesung:
+    """HIER LAG EIN FEHLER (gemessen im Livelauf 2026-09-10): Die
+    uebernommene Kalibrierung erbte die Aufloesung des MUSTERBILDES. Der Typ
+    FUNK_klassisch stammt von der Hallenkamera (2304x1296), der Stream lieferte
+    1920x1080 -- und die Oberflaeche warnte "ROIs passen vermutlich nicht",
+    obwohl sie perfekt sassen. Eine Warnung, die immer kommt, wird ignoriert;
+    dann fehlt sie, wenn sie stimmt."""
+
+    def _erkennung(self, tmp_path):
+        bild = szene(tafel())
+        kal = eine_kalibrierung()
+        kal.source_hint.width, kal.source_hint.height = 2304, 1296
+        speichere_typ(tmp_path, "T", bild, kal)
+        return erkenne(bild, lade_bibliothek(tmp_path), min_inlier=10), bild
+
+    def test_die_neue_aufloesung_wird_uebernommen(self, tmp_path):
+        erkennung, bild = self._erkennung(tmp_path)
+        kal = uebernimm(erkennung, [1, 2, 3], bild)
+        assert (kal.source_hint.width, kal.source_hint.height) \
+            == (bild.shape[1], bild.shape[0])
+
+    def test_keine_warnung_gegen_das_eigene_bild(self, tmp_path):
+        erkennung, bild = self._erkennung(tmp_path)
+        kal = uebernimm(erkennung, [1, 2, 3], bild)
+        assert kal.check_against_video(bild.shape[1], bild.shape[0]) == []
+
+    def test_ohne_bild_bleibt_die_herkunft_offen(self, tmp_path):
+        """Lieber gar keine Angabe als eine falsche."""
+        erkennung, _ = self._erkennung(tmp_path)
+        kal = uebernimm(erkennung, [1, 2, 3])
+        assert kal.source_hint.width is None

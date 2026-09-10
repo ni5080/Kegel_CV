@@ -722,6 +722,16 @@ class MainWindow(QMainWindow):
         aktiv = self.session.active_lane
         if aktiv is None:
             return
+        # NUR AUF EINE KALIBRIERTE BAHN. `active_lane` steht auf 1, sobald das
+        # Fenster offen ist -- kalibriert ist deshalb noch lange nichts.
+        # GEMESSEN am 2026-09-10 im Livelauf: Ein Dreh am Bahnnummernfeld vor
+        # der Kalibrierung warf `KeyError: Bahn 1 ist nicht kalibriert` mitten
+        # aus dem Qt-Signal heraus.
+        if not any(l.lane_id == aktiv for l in self.session.calibration.lanes):
+            self.statusBar().showMessage(
+                "Bahnnummern lassen sich erst vergeben, wenn die Tafeln "
+                "kalibriert sind.", 6000)
+            return
         warnung = self.session.set_real_lane_number(aktiv, wert)
         # Die Beschriftungen tragen die Bahnnummer -- sie muessen mit.
         self._refresh_active_lane_combo()
@@ -1023,7 +1033,7 @@ class MainWindow(QMainWindow):
         if not self._bestaetige_treffer(treffer, letztes, ziel,
                                         suche.bilder_gesehen):
             return
-        self._uebernimm_erkennung(treffer)
+        self._uebernimm_erkennung(treffer, letztes)
 
     def _suche_tafeln(self, typen: list, ziel: int):
         """Fuettert die laufende Suche, bis sie fertig ist oder die Zeit um ist.
@@ -1089,7 +1099,22 @@ class MainWindow(QMainWindow):
 
     def _bestaetige_treffer(self, treffer, bild, ziel: int,
                             bilder: int) -> bool:
-        """Zeigt die gefundenen Rahmen und fragt, ob sie sitzen."""
+        """Zeigt die entzerrten Tafeln MIT ROIs und fragt, ob sie sitzen.
+
+        WARUM MIT ROIs -- Einwand des Nutzers am 2026-09-10 nach dem ersten
+        Livelauf:
+
+            "ich brauche schon das die ROIs eingeblendet werden ... sonst
+             kann ich ja nicht entscheiden, ob es sitzt oder nicht"
+
+        Ein Rahmen um die Tafel beweist nur, dass sie gefunden wurde. Ob die
+        Gruenlampe auf der Gruenlampe liegt, zeigt sich erst in der entzerrten
+        Tafel: Im Vollbild misst eine Tafel rund 160 Pixel, eine Lampen-ROI
+        darin sechs.
+        """
+        from ..calibration.board_library import uebernimm
+        from ..calibration.roi_preview import tafelmontage
+
         anzahl = len(treffer.treffer)
         if anzahl < ziel:
             kopf = (f"<b>Nur {anzahl} von {ziel} Tafeln gefunden</b> "
@@ -1100,8 +1125,13 @@ class MainWindow(QMainWindow):
             kopf = (f"<b>{anzahl} Tafeln gefunden</b> "
                     f"(Bauart {treffer.typ.name}, {bilder} Bilder, "
                     f"{treffer.merkmale} tragende Merkmale).")
-        gemalt = zeichne_treffer(bild, treffer.treffer)
-        return TrefferDialog(gemalt, kopf, self).exec() == QDialog.Accepted
+        # Vorschau mit vorlaeufigen Bahnnummern 1..n -- die echten werden
+        # erst nach der Bestaetigung abgefragt, und fuer das Bild sind sie
+        # ohne Belang.
+        vorschau = uebernimm(treffer, list(range(1, anzahl + 1)), bild)
+        return TrefferDialog(zeichne_treffer(bild, treffer.treffer),
+                             tafelmontage(bild, vorschau.lanes),
+                             kopf, self).exec() == QDialog.Accepted
 
     def _bilder_fuer_suche(self) -> list[np.ndarray]:
         """Sammelt mehrere Standbilder fuer die Suche.
@@ -1146,7 +1176,7 @@ class MainWindow(QMainWindow):
         self.player.seek(start)
         return bilder
 
-    def _uebernimm_erkennung(self, treffer) -> None:
+    def _uebernimm_erkennung(self, treffer, bild=None) -> None:
         """Fragt die Bahnnummern ab und setzt die Kalibrierung."""
         from ..calibration.board_library import uebernimm
 
@@ -1167,7 +1197,8 @@ class MainWindow(QMainWindow):
                                 f"getrennt.")
             return
 
-        self.session.calibration = uebernimm(treffer, [int(t) for t in teile])
+        self.session.calibration = uebernimm(
+            treffer, [int(t) for t in teile], bild)
         self.session.active_lane = 1
         self._digit_shift_angewandt = (0, 0)
         self.digit_dx.setValue(0)

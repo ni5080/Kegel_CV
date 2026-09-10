@@ -426,7 +426,8 @@ def _verfeinere(bild: np.ndarray, treffer: list[Treffer],
     return treffer
 
 
-def uebernimm(erkennung: Erkennung, nummern: list[int]) -> Calibration:
+def uebernimm(erkennung: Erkennung, nummern: list[int],
+              bild: np.ndarray | None = None) -> Calibration:
     """Baut aus einer Erkennung eine vollstaendige Kalibrierung.
 
     Die ROIs des Typs werden unveraendert uebernommen -- sie liegen in
@@ -438,6 +439,14 @@ def uebernimm(erkennung: Erkennung, nummern: list[int]) -> Calibration:
             f"{len(nummern)} Bahnnummern fuer {len(erkennung.treffer)} Tafeln")
 
     kal = erkennung.typ.kalibrierung.model_copy(deep=True)
+    # DIE HERKUNFT GEHOERT ZUM NEUEN BILD, nicht zum Musterbild. Sonst erbt
+    # jede automatische Kalibrierung die Aufloesung der Kamera, an der die
+    # Bauart einmal vermessen wurde. GEMESSEN am 2026-09-10 im ersten
+    # Livelauf: Der Typ FUNK_klassisch stammt von der Hallenkamera
+    # (2304x1296), der Stream lieferte 1920x1080 -- und die Oberflaeche
+    # warnte "ROIs passen vermutlich nicht", obwohl sie perfekt sassen.
+    kal.source_hint.width = int(bild.shape[1]) if bild is not None else None
+    kal.source_hint.height = int(bild.shape[0]) if bild is not None else None
     muster = erkennung.typ.bahn
     bahnen = []
     for i, (t, nummer) in enumerate(zip(erkennung.treffer, nummern), start=1):

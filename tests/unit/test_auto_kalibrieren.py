@@ -358,7 +358,7 @@ class TestNachfrageVorUebernahme:
         """Wer 4 erwartet und 1 bekommt, muss das VOR dem Uebernehmen sehen."""
         koepfe = []
 
-        def merken(self, bild, kopfzeile, parent=None):
+        def merken(self, uebersicht, tafeln, kopfzeile, parent=None):
             koepfe.append(kopfzeile)
 
         monkeypatch.setattr(mw.TrefferDialog, "__init__", merken)
@@ -366,6 +366,27 @@ class TestNachfrageVorUebernahme:
                             lambda self: QDialog.Accepted)
         fenster._bestaetige_treffer(self._treffer(), bild(), 4, 6)
         assert "1 von 4" in koepfe[0]
+
+    def test_die_rois_werden_eingeblendet(self, fenster, monkeypatch):
+        """"ich brauche schon das die ROIs eingeblendet werden ... sonst kann
+        ich ja nicht entscheiden, ob es sitzt oder nicht" -- ein Rahmen um die
+        Tafel beweist nur, DASS sie gefunden wurde."""
+        gezeigt = {}
+
+        def merken(self, uebersicht, tafeln, kopfzeile, parent=None):
+            gezeigt["tafeln"] = tafeln
+
+        monkeypatch.setattr(mw.TrefferDialog, "__init__", merken)
+        monkeypatch.setattr(mw.TrefferDialog, "exec",
+                            lambda self: QDialog.Accepted)
+        fenster._bestaetige_treffer(self._treffer(), bild(80), 1, 6)
+        montage = gezeigt["tafeln"]
+        assert montage is not None and montage.size
+        # Die Gruenlampe wird rein gruen umrandet (0,255,0). Aus einem grauen
+        # Standbild kann so ein Pixel nicht entstehen.
+        rein_gruen = ((montage[:, :, 0] == 0) & (montage[:, :, 1] == 255)
+                      & (montage[:, :, 2] == 0))
+        assert rein_gruen.any(), "die ROI-Rahmen fehlen"
 
     def test_die_rahmen_werden_ins_bild_gemalt(self):
         """Zahlen ueber tragende Merkmale beantworten die Frage nicht."""
@@ -397,3 +418,21 @@ class TestAnzahlIstEinstellbar:
         fenster.player = UnechterPlayer()
         fenster._on_auto_kalibrieren()
         assert gesehen["vorgabe"] == fenster.cfg.calibration.lane_count
+
+
+class TestVorDerKalibrierung:
+    """GEMESSEN im Livelauf 2026-09-10: Ein Dreh am Bahnnummernfeld, bevor
+    etwas kalibriert war, warf `KeyError: Bahn 1 ist nicht kalibriert` mitten
+    aus dem Qt-Signal heraus. `active_lane` steht auf 1, sobald das Fenster
+    offen ist -- kalibriert ist deshalb noch lange nichts."""
+
+    def test_es_wirft_nicht(self, fenster):
+        fenster.session.calibration.lanes.clear()
+        fenster.session.active_lane = 1
+        fenster._on_lane_number_changed(7)      # darf nicht werfen
+
+    def test_es_wird_erklaert(self, fenster):
+        fenster.session.calibration.lanes.clear()
+        fenster.session.active_lane = 1
+        fenster._on_lane_number_changed(7)
+        assert "kalibriert" in fenster.statusBar().currentMessage()

@@ -24,28 +24,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kegel_cv.calibration import Calibration, PerspectiveTransform, Quad  # noqa: E402
 from kegel_cv.calibration.session import default_roi_layout  # noqa: E402
+from kegel_cv.calibration.roi_preview import (  # noqa: E402
+    FARBEN as COLORS, roi_farbe as roi_color, zeichne_rois as draw_rois)
 from kegel_cv.config import load_config  # noqa: E402
 from kegel_cv.video.factory import open_source  # noqa: E402
 from kegel_cv.video.source import VideoSourceError  # noqa: E402
-
-# Farben nach ROI-Art -- getrennte Farben machen Fehlplatzierungen sofort sichtbar
-COLORS = {
-    "pin_lamp": (0, 255, 255),      # gelb
-    "green_lamp": (0, 255, 0),      # gruen
-    "pin_count": (255, 128, 0),     # blau
-    "throw_number": (255, 0, 255),  # magenta
-    "total_a": (0, 128, 255),       # orange
-    "total_b": (0, 128, 255),
-    "left_display": (128, 128, 128),
-}
-
-
-def roi_color(name: str) -> tuple[int, int, int]:
-    for key, color in COLORS.items():
-        if name.startswith(key):
-            return color
-    return (200, 200, 200)
-
 
 def detect_boards(image: np.ndarray,
                   region: tuple[int, int, int, int] = (420, 20, 1080, 290),
@@ -79,26 +62,6 @@ def detect_boards(image: np.ndarray,
         boards.append((x + x0, y + y0, w, h))
 
     return sorted(boards, key=lambda b: b[0])
-
-
-def draw_rois(warped: np.ndarray, rois, scale: int = 2) -> np.ndarray:
-    """Zeichnet ROIs in das entzerrte Tafelbild."""
-    canvas = cv2.resize(warped, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-    height, width = canvas.shape[:2]
-
-    for roi in rois:
-        if not roi.enabled:
-            continue
-        x, y, w, h = roi.rect
-        p1 = (int(x * width), int(y * height))
-        p2 = (int((x + w) * width), int((y + h) * height))
-        color = roi_color(roi.name)
-        cv2.rectangle(canvas, p1, p2, color, 1)
-
-        label = roi.name.replace("pin_lamp_", "L")
-        cv2.putText(canvas, label, (p1[0], max(9, p1[1] - 3)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.30, color, 1, cv2.LINE_AA)
-    return canvas
 
 
 def main() -> int:
