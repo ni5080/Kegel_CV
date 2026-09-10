@@ -2243,3 +2243,68 @@ richtig — aber im Bildmaterial nur zu drei Vierteln wahr:
 
 Eine globale Farbmaske scheitert vollständig: In der Halle ist alles beige —
 Bahnen, Wand, Tafeln (siehe `debug/silhouette_maske.png`, 0 Kandidaten).
+
+---
+
+## Ziffern-Selbstausrichtung: gebaut, gemessen, verworfen (2026-09-10)
+
+**Wunsch des Nutzers:** *„die Ziffern sollten zusätzlich nochmal die Chance
+bekommen sich selbst nachzukalibrieren … die sitzen immer bisschen schlecht"*
+
+### Die Idee
+
+Jedes Ziffernfeld sitzt in einem schwarzen Anzeigefenster auf beigem Gehäuse.
+Dessen Kanten hängen **nicht** davon ab, was gerade angezeigt wird — damit
+wäre es das erste **ergebnisunabhängige** Kriterium für den Ziffernversatz.
+Das Fenster im Musterbild und in der gefundenen Tafel vermessen, die Differenz
+ist der Versatz.
+
+### Was die Messung zunächst sagte
+
+Restversatz gegenüber dem Musterbild, vier Tafeln × fünf Felder:
+
+| | Mittel | schlechteste Bahn |
+|---|---|---|
+| vorher | 2,02 px | 5,33 px |
+| nachher | **0,00 px** | 0,00 px |
+
+### Warum das falsch war
+
+Der Nutzer sah es sofort im Bild: *„die 2. Bahn ist die einzige die okay ist,
+der Rest ist ja ganz wild verschoben."* Und er hatte recht.
+
+Die Messung war **zirkulär**: Sie prüfte, ob das Feld nach der Verschiebung
+so zum Schwerpunkt liegt wie im Muster — und genau darauf war verschoben
+worden. Sie musste null ergeben, egal wie unsinnig der Ruck war.
+
+Die Gegenprobe deckte die Ursache auf. Schwerpunkt und Rahmenmitte des
+gefundenen „Fensters" für `left_display` und für die untere Zeile lieferten
+**denselben Wert**:
+
+```
+Bahn 1: 0,56 / 0,56 / 0,56    Bahn 2: 1,30 / 1,30 / 1,30
+Bahn 3: 0,98 / 0,98 / 0,98    Bahn 4: 3,05 / 3,05 / 3,05
+```
+
+Die dunklen Fenster hängen zu **einem** Gebilde zusammen. Was gemessen wurde,
+war nicht das Fenster eines Feldes, sondern ein Blob über mehrere Fenster —
+und dessen Schwerpunkt wandert mit den **leuchtenden Ziffern**, die sich in
+die dunkle Fläche fressen. Auf Bahn 4 ergab das einen Ruck von 5,3 px in die
+falsche Richtung.
+
+Ein Schließen der Maske (31 px) macht es nicht besser: Dann verschmilzt die
+halbe Tafel zu einer Fläche, und für drei von vier Bahnen wird gar nichts mehr
+gefunden.
+
+**Verworfen und zurückgebaut.** Die Lehre: Ein Maß, das nach der Korrektur
+misst, was die Korrektur hergestellt hat, beweist nichts. Es braucht einen
+Bezug, der von der Korrektur unberührt bleibt — hier wäre das der Blick aufs
+Bild gewesen, und der kam vom Nutzer.
+
+### Was als Anker noch in Frage kommt
+
+* die **Lampenlöcher** — physisch, immer an derselben Stelle, aber im
+  Aussehen stark wechselnd (an/aus)
+* das **FUNK-Logo** — aufgedruckt, unveränderlich, aber klein und kontrastarm
+* die **Gehäusekanten** — links, rechts und unten auf 0–2 px messbar, oben
+  nicht (die beige Leiste ist nur rund fünf Pixel breit)
