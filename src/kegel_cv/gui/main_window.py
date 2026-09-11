@@ -1101,6 +1101,22 @@ class MainWindow(QMainWindow):
                               min_frames=kal.boardtype_min_frames,
                               nachlauf=kal.boardtype_nachlauf_bilder,
                               min_guete=kal.boardmatch_min_guete)
+        # WAS HIER PASSIERT, GEHOERT INS PROTOKOLL. Am 2026-09-11 scheiterte
+        # die Suche im Livestream zweimal, und im Protokoll stand dazu nichts
+        # -- 38 stumme Sekunden zwischen zwei Zeilen. Eine Handlung, die eine
+        # halbe Minute dauert, muss eine Spur hinterlassen.
+        log.info("Tafelsuche gestartet: %d Bauart(en), %d Tafeln erwartet, "
+                 "Quelle %s, Zeitgrenze %.0f s", len(typen), ziel,
+                 "Livestream" if self.player.is_live else "Datei",
+                 kal.boardtype_live_timeout_s)
+        beginn_gesamt = time.monotonic()
+        # Das erste Bild kostet gemessen 4,3 s. Ohne diese Zeile steht die
+        # Oberflaeche so lange stumm da, und stumm sieht aus wie haengt.
+        self.statusBar().showMessage(
+            f"Suche {ziel} Tafeln im Bild -- das erste Bild dauert ein paar "
+            f"Sekunden ...")
+        QApplication.processEvents()
+
         letztes = self.player.current_frame.image
         if not self.player.is_live:
             for bild in self._bilder_fuer_suche():
@@ -1109,23 +1125,40 @@ class MainWindow(QMainWindow):
                 self._melde_suchstand(suche, ziel)
                 if suche.genug:
                     break
+            log.info("Tafelsuche beendet: %d von %d Tafeln aus %d Bildern "
+                     "in %.1f s", suche.gefunden, ziel, suche.bilder_gesehen,
+                     time.monotonic() - beginn_gesamt)
             return suche, letztes
 
         beginn = time.monotonic()
         while not suche.genug:
             verbraucht = time.monotonic() - beginn
             if verbraucht > kal.boardtype_live_timeout_s:
+                log.warning("Tafelsuche: Zeitgrenze von %.0f s erreicht "
+                            "(%d Bilder, %d von %d Tafeln)",
+                            kal.boardtype_live_timeout_s, suche.bilder_gesehen,
+                            suche.gefunden, ziel)
                 break
             frame = self.player.current_frame
             if frame is not None:
                 letztes = frame.image
+                gestartet = time.monotonic()
                 suche.fuettere(frame.image)
+                # Je Bild mitschreiben: Am 2026-09-11 kostete das erste Bild
+                # 20,5 s und das zweite 1,3 s -- ohne diese Zeile war das nicht
+                # zu sehen, und die Zeitgrenze traf den Falschen.
+                log.debug("Tafelsuche: Bild %d in %.1f s, %d Tafeln",
+                          suche.bilder_gesehen, time.monotonic() - gestartet,
+                          suche.gefunden)
                 self._melde_suchstand(suche, ziel, verbraucht)
             ende = time.monotonic() + kal.boardtype_sample_wait_s
             while time.monotonic() < ende:
                 QApplication.processEvents()
                 time.sleep(0.02)
             self.player.step_forward()
+        log.info("Tafelsuche beendet: %d von %d Tafeln aus %d Bildern in "
+                 "%.1f s", suche.gefunden, ziel, suche.bilder_gesehen,
+                 time.monotonic() - beginn_gesamt)
         return suche, letztes
 
     def _melde_suchstand(self, suche, ziel: int, sekunden: float = 0.0) -> None:

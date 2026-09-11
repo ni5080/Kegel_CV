@@ -399,7 +399,23 @@ class LaufendeSuche:
             log.info("Laufende Suche: %s, %d Tafeln aus %d Bildern, %d "
                      "tragende Merkmale", bestes.typ.name, len(bestes.treffer),
                      self.bilder_gesehen, bestes.merkmale)
-        return bestes
+            return bestes
+
+        # EIN MISSERFOLG MUSS AUCH IM PROTOKOLL STEHEN. Am 2026-09-11 lief die
+        # automatische Kalibrierung im Livestream zweimal ins Leere, und das
+        # Protokoll enthielt dazu NICHTS -- zwischen "Bibliothek geladen" und
+        # dem Programmende lagen 38 stumme Sekunden. Was hier steht, haette die
+        # Ursache sofort gezeigt: ein Bild gesehen, Tafeln darin gefunden, aber
+        # `min_frames` nicht erreicht.
+        log.warning(
+            "Laufende Suche ohne Ergebnis: %d Bilder gesehen, %s. Mindestens "
+            "%d Bilder muessen dieselbe Tafel zeigen.",
+            self.bilder_gesehen,
+            ", ".join(f"{s['typ'].name}: {len(s['gruppen'])} Stellen, "
+                      f"groesste in {max((len(g) for g in s['gruppen']), default=0)} "
+                      f"Bildern" for s in self._stand.values()),
+            self.min_frames)
+        return None
 
 
 def _kette(bilder: list[np.ndarray], muster: np.ndarray, *, min_inlier: int,

@@ -175,10 +175,22 @@ calibration:
   boardtype_anchor_inlier: 8
   boardtype_min_frames: 2
   # Zeitgrenze der Suche im LIVESTREAM -- dort gibt es nur das naechste Bild.
-  # GEMESSEN 2026-09-10 an acht Stellen, ein Bild je 0,8 s Streamzeit:
-  # sechsmal alle vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal
-  # nur zwei bzw. drei.
-  boardtype_live_timeout_s: 20.0
+  #
+  # NACHGEMESSEN 2026-09-11, nach dem Umbau auf Bild in Bild. Der alte Wert
+  # (20 s) stammte aus der Zeit des Merkmalsabgleichs und war nie nachgeprueft
+  # worden -- er hat die automatische Kalibrierung im Livestream STILL
+  # scheitern lassen:
+  #
+  #     Bild 1 (volles Raster)   20,5 s   -> Zeitgrenze vorbei
+  #     Bild 2 (enges Raster)     1,3 s   -> haette gereicht, kam nie dran
+  #
+  # Ein einzelnes Bild zaehlt nicht (`boardtype_min_frames: 2`), also endete
+  # die Suche ohne Ergebnis, obwohl sie im ersten Bild alle vier Tafeln sah.
+  #
+  # Seit dem zweistufigen Raster kostet das erste Bild 4,3 s, ein weiteres
+  # 1,3 s. 30 Sekunden tragen damit rund zehn Bilder -- genug Luft auch fuer
+  # eine Bibliothek mit mehreren Bauarten.
+  boardtype_live_timeout_s: 30.0
   # Ziffernrahmen nach der Erkennung an den NULLEN ausrichten. Zu Spielbeginn
   # steht auf der Tafel 000, 0, 0000 -- ein bekannter Sollwert, keine
   # Optimierung auf das eigene Ergebnis. GEMESSEN 2026-09-10 am Hallenstream:

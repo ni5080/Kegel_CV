@@ -67,6 +67,14 @@ RAND_LAMPEN = 0.022
 RAND_ZIFFERN = 0.008
 MASKENRAND = RAND_LAMPEN
 
+# Verkleinerung fuer den Grobdurchgang. Die Kosten von `matchTemplate` fallen
+# mit der Flaeche -- bei halber Kante also auf ein Viertel.
+GROB_FAKTOR = 0.5
+# Massstabsschritt im Grobdurchgang. Danach wird um den Fund herum mit dem
+# feinen Schritt (0,025) gesucht, der Grobschritt ist also zugleich die
+# Fangbreite des feinen Durchgangs.
+GROB_SCHRITT = 0.05
+
 
 @dataclass
 class Fund:
@@ -211,6 +219,66 @@ def verkippe(muster: np.ndarray, maske: np.ndarray, grau: np.ndarray,
     return beste, bester_wert
 
 
+def _grob(grau: np.ndarray, muster: np.ndarray, maske: np.ndarray,
+          vollbild: np.ndarray, versatz: tuple[int, int],
+          min_guete: float = 0.45):
+    """Massstab und Winkel auf einem verkleinerten Bild schaetzen.
+
+    Zurueck kommt ein ENGES Raster um das Gefundene, mit dem der feine
+    Durchgang dann in voller Aufloesung arbeitet.
+
+    DIE AUSWAHL BLEIBT DIESELBE wie im feinen Durchgang: Bewertet wird mit dem
+    maskierten ZNCC in VOLLER Aufloesung, nicht mit dem Wert aus
+    `matchTemplate`. Der ist ueber verschiedene Vorlagengroessen nicht
+    vergleichbar -- wer damit den Massstab waehlt, landet am Rand des Rasters
+    (gemessen: Streuung 14,8 statt 0,8 Pixel).
+
+    Bei Misserfolg None/None: Dann sucht der Aufrufer wie bisher das volle
+    Raster ab. Lieber langsam als falsch.
+
+    WANN DER GROBDURCHGANG AUFGIBT -- GEMESSEN 2026-09-11 an fuenf Stellen der
+    Aufzeichnung und drei Bildern ohne Tafel:
+
+        echte Tafel     0,715  0,720  0,726  0,728  0,716
+        schwarz        -1,000
+        Rauschen        0,038
+        graue Flaeche  -0,035
+
+    Dazwischen liegt kein Zweifelsfall. Als Schranke dient dieselbe, an der
+    auch der feine Durchgang einen Fund annimmt -- ein Grobdurchgang, der
+    unter ihr bleibt, haette dem feinen ohnehin nur die falsche Gegend
+    gezeigt.
+    """
+    klein = cv2.resize(grau, None, fx=GROB_FAKTOR, fy=GROB_FAKTOR,
+                       interpolation=cv2.INTER_AREA)
+    bester = (-2.0, None, None)
+    for s in np.arange(0.70, 1.101, GROB_SCHRITT):
+        for w in (-2.0, 0.0, 2.0):
+            # Auf dem kleinen Bild ist die Tafel um denselben Faktor kleiner.
+            v, vm = _verzerrt(muster, maske, float(s) * GROB_FAKTOR, float(w))
+            if v.shape[0] >= klein.shape[0] or v.shape[1] >= klein.shape[1]:
+                continue
+            karte = cv2.matchTemplate(klein, v, cv2.TM_CCORR_NORMED, mask=vm)
+            karte = np.nan_to_num(karte, nan=0.0, posinf=0.0, neginf=0.0)
+            _, _, _, stelle = cv2.minMaxLoc(karte)
+            quad = _ecken(muster, float(s), float(w),
+                          stelle[0] / GROB_FAKTOR + versatz[0],
+                          stelle[1] / GROB_FAKTOR + versatz[1],
+                          v.shape[1] / GROB_FAKTOR, v.shape[0] / GROB_FAKTOR)
+            wert = guete(muster, maske, vollbild, quad)
+            if wert > bester[0]:
+                bester = (wert, float(s), float(w))
+    if bester[1] is None or bester[0] < min_guete:
+        log.debug("Grobdurchgang ohne brauchbaren Treffer (beste Guete %.3f) "
+                  "-- es wird das volle Raster abgesucht", bester[0])
+        return None, None
+    log.debug("Grobdurchgang: Massstab %.3f, Drehung %+.1f, Guete %.3f",
+              bester[1], bester[2], bester[0])
+    return (np.arange(bester[1] - GROB_SCHRITT, bester[1] + GROB_SCHRITT + 1e-9,
+                      0.025),
+            (bester[2] - 1.0, bester[2], bester[2] + 1.0))
+
+
 def finde_tafeln(bild: np.ndarray, muster: np.ndarray, maske: np.ndarray, *,
                  max_tafeln: int = 4, skalen=None, winkel=None,
                  min_guete: float = 0.45, bereich=None,
@@ -237,6 +305,22 @@ def finde_tafeln(bild: np.ndarray, muster: np.ndarray, maske: np.ndarray, *,
         if x1 - x0 > 40 and y1 - y0 > 40:
             grau = grau[y0:y1, x0:x1]
             versatz = (x0, y0)
+    # ERST GROB, DANN FEIN -- sonst dauert das erste Bild zu lange.
+    #
+    # GEMESSEN 2026-09-11 an der Aufzeichnung: Ein Durchlauf (ein Massstab,
+    # ein Winkel) kostet 0,18 s auf einem 1920x1080-Bild. Das volle Raster aus
+    # 17 Massstaeben und 5 Winkeln sind 85 Durchlaeufe, also 18 Sekunden --
+    # und genau daran ist die automatische Kalibrierung im Livestream
+    # gescheitert: Die Zeitgrenze von 20 s war vorbei, bevor das zweite Bild
+    # an der Reihe war (und ein einzelnes Bild zaehlt nicht, `min_frames`).
+    #
+    # Der Grobdurchgang sucht dasselbe Raster auf einem VERKLEINERTEN Bild.
+    # Die Kosten fallen mit der Flaeche, bei halber Kante also auf ein Viertel.
+    # Gesucht wird dabei nur Massstab und Winkel, nicht die endgueltige Lage --
+    # die bestimmt danach der feine Durchgang in voller Aufloesung.
+    if skalen is None and winkel is None and GROB_FAKTOR < 1.0:
+        skalen, winkel = _grob(grau, muster, maske, vollbild, versatz,
+                               min_guete)
     skalen = np.arange(0.70, 1.101, 0.025) if skalen is None else skalen
     winkel = (-2.0, -1.0, 0.0, 1.0, 2.0) if winkel is None else winkel
 

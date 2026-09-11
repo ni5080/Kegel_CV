@@ -1982,3 +1982,68 @@ Drei Eigenschaften, die dazugehoeren:
 GEMESSEN: eine Lesung kostet 4,25 ms je Bahn. Deshalb lesen die Bahnen
 VERSETZT (je Bahn ein anderer Frame) -- alle vier im selben Frame waeren 17 ms
 auf einmal, bei 29 ms Grundlast und 40 ms Budget also ein verlorener Frame.
+
+### Die automatische Kalibrierung scheiterte still an ihrer eigenen Zeitgrenze (2026-09-11)
+
+*"es ist gescheitert, weil die automatisierte Kalibrierung nicht lief"* --
+und im Protokoll stand dazu NICHTS. Zwischen "Bibliothek geladen" und dem
+Programmende lagen 38 stumme Sekunden.
+
+REPRODUZIERT am Stream:
+
+```
+Bild 1 (volles Raster)   20,5 s   -> Zeitgrenze (20 s) vorbei
+Bild 2 (enges Raster)     1,3 s   -> haette gereicht, kam nie dran
+```
+
+Die Suche SAH im ersten Bild alle vier Tafeln (Guete 0,82 / 0,80 / 0,75 /
+0,74). Sie zaehlten nur nicht: `boardtype_min_frames: 2` verlangt zwei Bilder.
+
+**Zwei Fehler, beide behoben:**
+
+1. **Die Zeitgrenze wurde beim Umbau nie nachgemessen.** 20 s stammten aus der
+   Zeit des Merkmalsabgleichs (7 s je Bild); Bild in Bild braucht 18 s. Jetzt
+   30 s -- und der teure Teil ist weg (siehe 2).
+2. **Die Suche schwieg.** Jetzt steht Start, Dauer je Bild, Zeitgrenze und
+   Misserfolg im Protokoll.
+
+### Zweistufiges Raster: 19 s -> 4,3 s
+
+Der Grobdurchgang sucht dasselbe Raster auf einem HALBIERTEN Bild (Kosten
+fallen mit der Flaeche, also auf ein Viertel) und liefert nur Massstab und
+Winkel; der feine Durchgang arbeitet dann eng darum in voller Aufloesung.
+
+GEMESSEN an fuenf Stellen: immer 4 Tafeln, Guete praktisch gleich. Und im Mass,
+das zaehlt -- Abstand der Lampen-ROI zur gemessenen Lampenmitte:
+
+| Bahn | volles Raster | zweistufig |
+|---|---|---|
+| 2 | 0,43 px | 0,43 px |
+| 3 | 0,46 px | 0,46 px |
+| 4 | 0,13 px | 0,24 px |
+| 5 | 0,87 px | 0,70 px |
+| Mittel | 0,47 px | **0,46 px** |
+
+Der Grobdurchgang gibt auf, wenn seine beste Guete unter `boardmatch_min_guete`
+bleibt -- dann wird wie bisher das volle Raster abgesucht. GEMESSEN trennt das
+sauber: echte Tafel 0,715 bis 0,728, Bilder ohne Tafel -1,000 / 0,038 / -0,035.
+
+### OFFEN: Widerspruch in der Doku zum Datenbankzugriff
+
+`apps/liveticker/README.md` sagt, seit dem 2026-09-07 duerfe `anon` auf
+`throws` nur noch lesen (RLS plus `revoke insert, update, delete`), und nennt
+eine Messung (Lesen 206, Schreiben 401 `42501`). Der Abschnitt vom selben Tag
+weiter oben in DIESEM Dokument sagt **"Noch nicht ausgefuehrt -- RLS ist auf
+der Tabelle unveraendert"**. Beides kann nicht stimmen.
+
+GEPRUEFT 2026-09-11, soweit ohne Risiko moeglich: Lesen mit dem
+`sb_publishable_`-Schluessel liefert HTTP 200 mit Zeilen. Ob Schreiben
+gesperrt ist, laesst sich nur durch einen Schreibversuch feststellen -- und ein
+GELUNGENER Versuch hinterliesse eine Zeile in der Produktivtabelle. Deshalb
+NICHT geprueft. Vor dem Veroeffentlichen des Tickers gehoert das geklaert:
+
+```sql
+select relrowsecurity from pg_class where relname = 'throws';
+select grantee, privilege_type from information_schema.role_table_grants
+ where table_name = 'throws';
+```

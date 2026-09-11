@@ -134,12 +134,16 @@ class CalibrationConfig(BaseModel):
     # schwaechste Tafel.
     boardtype_min_frames: int = Field(default=2, ge=1)
     # Zeitgrenze fuer die Suche im LIVESTREAM. Dort laesst sich nicht
-    # springen -- es gibt nur das naechste Bild. GEMESSEN 2026-09-10 an acht
-    # Stellen der Aufzeichnung, ein Bild je 0,8 s Streamzeit: sechsmal alle
-    # vier Tafeln nach 2,4 bis 14,4 s (im Mittel 4,8), zweimal nur zwei bzw.
-    # drei. 20 Sekunden decken die gelungenen Faelle ab, ohne dass jemand
-    # ratlos vor der Oberflaeche sitzt.
-    boardtype_live_timeout_s: float = Field(default=20.0, gt=0)
+    # springen -- es gibt nur das naechste Bild.
+    #
+    # NACHGEMESSEN 2026-09-11: Der alte Wert (20 s) stammte aus der Zeit des
+    # Merkmalsabgleichs. Nach dem Umbau auf Bild in Bild kostete das erste
+    # Bild 20,5 s -- die Suche war vorbei, bevor das zweite Bild an der Reihe
+    # war, und ein einzelnes Bild zaehlt nicht (`boardtype_min_frames`). Sie
+    # scheiterte still, obwohl sie im ersten Bild alle vier Tafeln sah.
+    #
+    # Mit dem zweistufigen Raster: erstes Bild 4,3 s, jedes weitere 1,3 s.
+    boardtype_live_timeout_s: float = Field(default=30.0, gt=0)
     # Ziffernrahmen nach der Erkennung an den NULLEN ausrichten.
     #
     # Zu Spielbeginn steht auf der Tafel 000, 0, 0000 -- ein bekannter
