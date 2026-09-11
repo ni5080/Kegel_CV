@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -617,7 +618,8 @@ def _verfeinere(bild: np.ndarray, treffer: list[Treffer],
 
 
 def uebernimm(erkennung: Erkennung, nummern: list[int],
-              bild: np.ndarray | None = None, *, feinschliff: bool = False,
+              bild: np.ndarray | None = None, *, quelle: str = "",
+              feinschliff: bool = False,
               feinschliff_weite: int = 5, feinschliff_min_pixel: int = 200,
               feinschliff_max_versatz: float = 3.0) -> Calibration:
     """Baut aus einer Erkennung eine vollstaendige Kalibrierung.
@@ -644,6 +646,15 @@ def uebernimm(erkennung: Erkennung, nummern: list[int],
     # warnte "ROIs passen vermutlich nicht", obwohl sie perfekt sassen.
     kal.source_hint.width = int(bild.shape[1]) if bild is not None else None
     kal.source_hint.height = int(bild.shape[0]) if bild is not None else None
+    # ... und dasselbe gilt fuer Datum und Quelle. Sonst traegt jede
+    # automatische Kalibrierung das Entstehungsdatum der BAUART und die
+    # Adresse der Kamera, an der sie einmal vermessen wurde. GESEHEN am
+    # 2026-09-11 an einer frisch gespeicherten Datei: "created 2026-09-08",
+    # "video rtsp://<kamera>" -- beides falsch, beides unauffaellig, und beim
+    # Suchen nach der richtigen Kalibrierung genau die Angaben, nach denen man
+    # geht.
+    kal.created = datetime.now().isoformat(timespec="seconds")
+    kal.source_hint.video = quelle or None
     muster = erkennung.typ.bahn
     bahnen = []
     for i, (t, nummer) in enumerate(zip(erkennung.treffer, nummern), start=1):

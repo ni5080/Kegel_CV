@@ -54,6 +54,7 @@ from ..analysis.calibration_check import CheckVerdict, check_calibration
 from ..analysis.pipeline import FrameResult
 from ..config.schema import AppConfig
 from ..detection.state_machine import EventType
+from ..models.quellen import ohne_zugangsdaten
 from ..video import (Frame, VideoInfo, is_stream, ist_youtube,
                      list_videos, open_source)
 from ..video.file_source import FileVideoSource
@@ -1304,6 +1305,7 @@ class MainWindow(QMainWindow):
         kal = self.cfg.calibration
         self.session.calibration = uebernimm(
             treffer, [int(t) for t in teile], bild,
+            quelle=ohne_zugangsdaten(self.player.source_id or ""),
             feinschliff=kal.roi_feinschliff,
             feinschliff_weite=kal.roi_feinschliff_weite,
             feinschliff_min_pixel=kal.roi_feinschliff_min_pixel,
