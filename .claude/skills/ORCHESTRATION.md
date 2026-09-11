@@ -1886,3 +1886,74 @@ noch diese. Und es sagte niemand. Jetzt: `uebernimm_kalibrierung` durch alle
 drei Schichten, Uebernahme beim naechsten Frame, Gedaechtnis der betroffenen
 Detektoren geleert (die Schwellen haengen an der Messstelle), Zustand der Bahn
 unangetastet.
+
+### Die Schablone auf die Lampenmitte gezogen (2026-09-11)
+
+Auf Wunsch des Nutzers nach dem Nachkalibrieren-Fenster. `tools/fit_schablone_lampen.py`
+misst je Lampe ueber ALLE Tafeln und trennt dabei zwei Dinge:
+
+* was alle Tafeln TEILEN -- ein Fehler der Bauart, gehoert in die Schablone;
+* was je Tafel ANDERS ausfaellt -- Schaetzrauschen des Fundes. In die Schablone
+  geschrieben, verschlechtert es drei Tafeln, um eine zu verbessern.
+
+Kriterium: korrigiert wird nur, wenn der gemeinsame Versatz groesser ist als
+sein Standardfehler (Streuung zwischen den Tafeln / Wurzel ihrer Zahl).
+**5 von 9 Lampen** erfuellten das:
+
+```
+Lampe   gemeinsam       Streuung   Fehler   korrigiert
+1       +0,19/+0,21 %     0,43      0,21      ja
+2       -0,18/-0,52 %     0,34      0,17      ja
+3       +0,10/-0,16 %     0,45      0,22      nein
+5       -0,47/-0,33 %     0,40      0,20      ja
+6       +0,11/+0,06 %     0,75      0,38      nein  (Rauschen)
+9       -0,08/-0,07 %     0,21      0,10      ja
+```
+
+GEMESSEN auf Frames 38000-44000, also unabhaengig von allem Angepassten
+(Trennschaerfe der Kegellampen, schwaechste Lampe je Bahn):
+
+| Bahn | vorher | jetzt | von Hand |
+|---|---|---|---|
+| 2 | 40,9 | **54,0** | 31,6 |
+| 3 | 11,9 | 11,9 | 2,8 |
+| 4 | 19,3 | **28,7** | 3,7 |
+| 5 | 26,0 | 25,0 | 4,9 |
+
+Zwei Bahnen deutlich besser, eine gleich, eine minimal schlechter. Ein kleiner
+Schritt -- die Lampen waren schon vorher nicht der Engpass.
+
+**Die Handkalibrierung faellt hier drastisch ab** (2,8 bis 4,9). Sie traegt die
+ALTEN, doppelt so grossen Lampen-ROIs (0,080 x 0,075), und die passen nicht zu
+`core_percentile: 0` -- genau die Paarung aus BUG-021. `1Spieltag.json` ist
+damit fuer den heutigen Konfigurationsstand die falsche Datei;
+`1Spieltag_enge_lampen.json` ist die richtige.
+
+### Was beim Nachzentrieren im LAUFENDEN Betrieb herauskam: nichts
+
+Vom Nutzer angeregt, mit der richtigen Sicherheitsfrage versehen (*"das darf
+dann natuerlich nicht dazu fuehren, dass eine deaktivierte Lampe ploetzlich an
+ist"*). Angepasst auf Frames 20000-26000, gemessen auf 26000-32000:
+
+```
+Bahn        Fisher ohne   mit      schwaechste ohne   mit
+2              82,7      85,4          55,3          59,1
+3              98,6      85,8          48,3          59,0
+4              83,9      79,8          56,9          53,1
+5              75,4      80,2          58,3          65,3
+```
+
+Zwei besser, zwei schlechter. **Verworfen.** Der Grund ist physikalisch: Die
+Lampen-ROI ist 6 px gross und liegt ganz innerhalb der leuchtenden Scheibe --
+ein halber Pixel Verschiebung laesst dieselben Pixel drin.
+
+Der Hinweis des Nutzers dazu ist gemessen richtig und gilt fuer GRUEN:
+
+```
+Gruenlampe klein+mittig   AUS 43,1   AN 94,8   <- sitzt ganz im gruenen Glas
+Gruenlampe gross          AUS 25,5   AN 69,5   <- Gehaeusering senkt AUS
+```
+
+Nicht die Lage war dort das Problem, sondern die Groesse: Das Lampenglas ist
+gruen, ob die Lampe brennt oder nicht. Eine Nachjustierung ZUR Lampenmitte hin
+liefe bei Gruen also in genau diese Falle.
