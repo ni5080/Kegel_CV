@@ -48,6 +48,14 @@ class LaneObservation:
     running_total: int = 0
     last_event: LaneEvent | None = None
     sampling: bool = False          # laeuft gerade ein Sampling-Vorgang?
+    # Was der Ziffernleser GERADE sieht, Feldname -> Lesung. NUR fuer die
+    # Anzeige: Die Wurfzaehlung benutzt diese Werte nicht, sie fasst ihre
+    # eigenen Messungen ueber das ganze Ereignisfenster zusammen.
+    #
+    # WOFUER -- Wunsch des Nutzers am 2026-09-11: "ich haette gerne, dass dort
+    # auch steht, was er gerade an Ziffern erkannt hat ... Das wuerde mir
+    # helfen bei der Evaluierung, ob wir die Ziffern bald wieder reinnehmen."
+    digits: dict[str, DigitReading] = field(default_factory=dict)
 
     @property
     def green_text(self) -> str:
@@ -208,6 +216,10 @@ class LaneProcessor:
         self.lamp_trace = None
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
+        # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
+        # Sie gehen in keine Zaehlung.
+        self._live_digit_interval = cfg.detection.digits.live_read_interval
+        self._live_digits: dict[str, DigitReading] = {}
         self.sampler = FrameSampler(lane.lane_id, cfg.sampling)
         self._preview_warned = False
 
@@ -357,6 +369,39 @@ class LaneProcessor:
                      "mitlaufenden Schwellen beginnen von vorn",
                      self.display_number, ", ".join(geaendert))
         return geaendert
+
+    def _lies_anzeige_live(self, frame: Frame) -> None:
+        """Liest ALLE Ziffernfelder fuer die Anzeige -- ohne die Zaehlung.
+
+        WOFUER -- Wunsch des Nutzers am 2026-09-11:
+
+            "ich haette gerne, dass dort auch steht, was er gerade an Ziffern
+             erkannt hat. Also welche Werte angeblich wo stehen. Das wuerde mir
+             helfen bei der Evaluierung, ob wir die Ziffern bald wieder
+             reinnehmen, oder nicht."
+
+        STRIKT GETRENNT von allem, was zaehlt. Diese Werte gehen in keine
+        Summe, in keine Gegenprobe und in keinen Versand -- sie werden nur
+        angezeigt. Die Trennung ist kein Formalismus: Die Ziffern sind derzeit
+        aus der Wertung genommen, und eine Anzeige, die sie stillschweigend
+        wieder einspeist, wuerde genau die Frage verwischen, die der Nutzer
+        beantworten will.
+
+        Auch bewusst OHNE zeitliche Glaettung, anders als bei den Lampen: Wer
+        beurteilen will, wie gut der Leser ist, will sehen, was er JETZT liest
+        -- nicht, was eine Mehrheit der letzten zwei Sekunden ergab.
+
+        Gelesen wird auf DEMSELBEN Weg wie in der Auswertung (`read_digits`):
+        Eine Anzeige, die anders liest als die Analyse, taugte zur Beurteilung
+        nichts.
+        """
+        try:
+            self._live_digits = self.read_digits(frame)
+        except Exception as exc:  # noqa: BLE001
+            # P8: Eine unlesbare Anzeige beendet nichts -- sie wird eben nicht
+            # angezeigt.
+            log.debug("Bahn %d: Anzeige nicht lesbar: %s",
+                      self.display_number, exc)
 
     def _read_late_fields(self, frame: Frame) -> None:
         """Liest die spaet aktualisierten Felder und behaelt die juengsten Werte.
@@ -1144,6 +1189,19 @@ class LaneProcessor:
                 and frame.index % nulltakt == 0):
             self._pruefe_nullzustand(frame)
 
+        # Die Anzeige der gelesenen Ziffern -- nur fuers Auge, kein Einfluss
+        # auf irgendeine Zaehlung.
+        #
+        # VERSETZT JE BAHN, und das ist kein Schoenheitsfehler: GEMESSEN kostet
+        # eine Lesung 4,25 ms je Bahn. Laesen alle vier im selben Frame, kaeme
+        # dieser eine Frame auf 17 ms zusaetzlich -- zusammen mit den 29 ms des
+        # letzten Laufs waere das Budget von 40 ms gerissen, und ein Frame, der
+        # zu lange braucht, geht im Livestream verloren. Versetzt traegt jeder
+        # betroffene Frame nur eine Bahn.
+        if (self._live_digit_interval > 0
+                and (frame.index - self.lane_id) % self._live_digit_interval == 0):
+            self._lies_anzeige_live(frame)
+
         # Der Fehlwurfzaehler dagegen IMMER -- ein Wurf ohne Kegel faellt,
         # waehrend die gruene Lampe an ist, also ausserhalb jedes Fensters.
         takt = self.cfg.detection.digits.foul_read_interval
@@ -1222,6 +1280,7 @@ class LaneProcessor:
             throw_count=self.throw_count,
             running_total=self.running_total,
             sampling=self.sampler.open_event is not None,
+            digits=dict(self._live_digits),
         )
 
     def reset(self) -> None:

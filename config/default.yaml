@@ -778,6 +778,21 @@ detection:
   # Stand gelesen, und der Zuwachs passte zum jeweils VORHERIGEN Wurf.
   late_fields: [total_a, total_b]
   late_read_interval: 5
+  # ZIFFERN IN DER LIVE-ANZEIGE: jeden n-ten Frame alle Felder lesen und im
+  # Bahnpanel zeigen (0 = aus). 25 Frames sind eine Sekunde.
+  #
+  # WOFUER (Nutzer, 2026-09-11): "ich haette gerne, dass dort auch steht, was
+  # er gerade an Ziffern erkannt hat ... das wuerde mir helfen bei der
+  # Evaluierung, ob wir die Ziffern bald wieder reinnehmen."
+  #
+  # Diese Lesungen gehen in KEINE Zaehlung, keine Summe und keinen Versand.
+  #
+  # GEMESSEN 2026-09-11: eine Lesung kostet 4,25 ms je Bahn. Bei Takt 25 sind
+  # das 0,68 ms je Frame -- und weil die Bahnen VERSETZT lesen (je Bahn ein
+  # anderer Frame), traegt kein einzelner Frame mehr als eine Lesung. Alle vier
+  # im selben Frame waeren 17 ms auf einmal gewesen, bei 29 ms Grundlast und
+  # 40 ms Budget also ein verlorener Frame.
+  live_read_interval: 25
   late_keep: 14
 
   # FEHLWURFZAEHLER (linkes Display, Q2). Einzige Quelle fuer Wuerfe ohne

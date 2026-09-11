@@ -585,6 +585,19 @@ class DigitDetectionConfig(BaseModel):
     # Abstand der Mitlesungen waehrend des Fensters (in Frames)
     late_read_interval: int = Field(default=5, ge=1)
 
+    # ZIFFERN IN DER LIVE-ANZEIGE. Jeden n-ten Frame werden alle Felder
+    # gelesen und im Bahnpanel angezeigt -- 0 schaltet es ab.
+    #
+    # WOFUER (Nutzer, 2026-09-11): "ich haette gerne, dass dort auch steht, was
+    # er gerade an Ziffern erkannt hat ... das wuerde mir helfen bei der
+    # Evaluierung, ob wir die Ziffern bald wieder reinnehmen."
+    #
+    # Diese Lesungen gehen in KEINE Zaehlung. 25 Frames sind eine Sekunde --
+    # schnell genug fuers Auge. GEMESSEN 2026-09-11: 4,25 ms je Bahn und
+    # Lesung, bei Takt 25 also 0,68 ms je Frame. Die Bahnen lesen VERSETZT,
+    # damit kein einzelner Frame alle vier auf einmal traegt.
+    live_read_interval: int = Field(default=25, ge=0)
+
     # FEHLWURFZAEHLER (linkes Display). Er ist die einzige Quelle, die einen
     # Wurf ohne Kegel verraet: Faellt nichts, schaltet die Anlage die gruene
     # Lampe gar nicht aus, und der Wurf ist fuer den Trigger unsichtbar (Q10).

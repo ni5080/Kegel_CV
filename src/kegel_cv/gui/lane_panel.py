@@ -55,6 +55,43 @@ PIN_LAYOUT: dict[int, tuple[float, int]] = {
 }
 
 
+# Die Ziffernfelder in der Reihenfolge, in der sie auf der TAFEL stehen --
+# oben die beiden Displays, darunter die Zeile aus Wurfnummer, Kegelzahl und
+# Gesamtsumme. Kurze Namen, weil die Zeile in ein schmales Panel muss.
+ANZEIGEFELDER: tuple[tuple[str, str], ...] = (
+    ("left_display", "Fehl"),
+    ("total_a", "SummeA"),
+    ("throw_number", "Wurf"),
+    ("pin_count", "Kegel"),
+    ("total_b", "SummeB"),
+)
+LEER_ANZEIGE = "<span style='color:#666;'>Ziffern: –</span>"
+# Ab dieser Sicherheit gilt eine Lesung als belastbar. Darunter wird sie grau
+# gezeigt statt verschwiegen: Eine unsichere Lesung ist die interessanteste
+# Auskunft fuer den, der den Leser beurteilen will.
+SICHER_AB = 0.60
+
+
+def anzeige_zeile(lesungen: dict) -> str:
+    """Baut die Zeile 'was steht gerade auf der Tafel' fuer ein Bahnpanel.
+
+    Ohne Qt und ohne Zustand -- damit pruefbar, ohne ein Fenster zu oeffnen.
+    """
+    if not lesungen:
+        return LEER_ANZEIGE
+    teile = []
+    for name, kurz in ANZEIGEFELDER:
+        lesung = lesungen.get(name)
+        if lesung is None:
+            continue
+        text = lesung.text or "?"
+        sicher = lesung.is_readable and lesung.confidence >= SICHER_AB
+        farbe = "#ddd" if sicher else "#888"
+        teile.append(f"<span style='color:#666;'>{kurz}</span> "
+                     f"<span style='color:{farbe};'>{text}</span>")
+    return "  ".join(teile) if teile else LEER_ANZEIGE
+
+
 class PinDiagram(QWidget):
     """Zeichnet die neun Kegel als Raute. Gefallene Kegel werden hervorgehoben.
 
@@ -171,6 +208,25 @@ class LanePanel(QGroupBox):
         middle.addLayout(numbers, 1)
         layout.addLayout(middle)
 
+        # --- Was der Ziffernleser GERADE sieht ---
+        #
+        # WOFUER -- Wunsch des Nutzers am 2026-09-11: "ich haette gerne, dass
+        # dort auch steht, was er gerade an Ziffern erkannt hat. Also welche
+        # Werte angeblich wo stehen. Das wuerde mir helfen bei der Evaluierung,
+        # ob wir die Ziffern bald wieder reinnehmen."
+        #
+        # In der Anordnung der TAFEL, nicht alphabetisch: Wer vergleicht,
+        # schaut abwechselnd auf Bild und Zeile -- dann muss dieselbe Zahl an
+        # derselben Stelle stehen.
+        self.digit_label = QLabel(LEER_ANZEIGE)
+        self.digit_label.setFont(QFont("Consolas", 9))
+        self.digit_label.setTextFormat(Qt.RichText)
+        self.digit_label.setToolTip(
+            "Was der Ziffernleser in diesem Augenblick liest. Grau = unsicher "
+            "oder unlesbar.\n\nDiese Werte gehen in KEINE Zaehlung -- sie "
+            "stehen hier nur, um den Leser beurteilen zu koennen.")
+        layout.addWidget(self.digit_label)
+
         # --- Wurftabelle ---
         self.table = QTableWidget(0, len(self.HEADERS))
         self.table.setHorizontalHeaderLabels(self.HEADERS)
@@ -203,6 +259,7 @@ class LanePanel(QGroupBox):
         self.throw_label.setText(
             f"Wurf {observation.throw_count}" if observation.throw_count else "Wurf –"
         )
+        self.digit_label.setText(anzeige_zeile(observation.digits))
 
     def _set_green(self, state: LampState, score: float = 0.0) -> None:
         text, background, foreground = {

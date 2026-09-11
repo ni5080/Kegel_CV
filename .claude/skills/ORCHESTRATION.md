@@ -1957,3 +1957,28 @@ Gruenlampe gross          AUS 25,5   AN 69,5   <- Gehaeusering senkt AUS
 Nicht die Lage war dort das Problem, sondern die Groesse: Das Lampenglas ist
 gruen, ob die Lampe brennt oder nicht. Eine Nachjustierung ZUR Lampenmitte hin
 liefe bei Gruen also in genau diese Falle.
+
+### Die gelesenen Ziffern stehen jetzt im Bahnpanel (2026-09-11)
+
+*"ich haette gerne, dass dort auch steht, was er gerade an Ziffern erkannt hat.
+Also welche Werte angeblich wo stehen. Das wuerde mir helfen bei der
+Evaluierung, ob wir die Ziffern bald wieder reinnehmen, oder nicht."*
+
+Eine Zeile je Bahn, in der Anordnung der TAFEL (Fehl · SummeA · Wurf · Kegel ·
+SummeB). Unsichere Lesungen werden grau gezeigt, nicht verschwiegen -- sie sind
+die interessanteste Auskunft fuer den, der den Leser beurteilen will.
+
+Drei Eigenschaften, die dazugehoeren:
+
+* **Keine Rueckwirkung.** Diese Lesungen gehen in keine Summe, keine
+  Gegenprobe und keinen Versand. Die Ziffern sind seit dem 2026-08-26 aus der
+  Wertung genommen; eine Anzeige, die sie stillschweigend wieder einspeist,
+  wuerde genau die Frage verwischen, die beantwortet werden soll.
+* **Derselbe Leseweg wie in der Auswertung** (`read_digits`) -- eine Anzeige,
+  die anders liest als die Analyse, taugte zur Beurteilung nichts.
+* **Ohne zeitliche Glaettung**, anders als bei den Lampen: Gezeigt wird, was
+  der Leser JETZT sieht, nicht die Mehrheit der letzten zwei Sekunden.
+
+GEMESSEN: eine Lesung kostet 4,25 ms je Bahn. Deshalb lesen die Bahnen
+VERSETZT (je Bahn ein anderer Frame) -- alle vier im selben Frame waeren 17 ms
+auf einmal, bei 29 ms Grundlast und 40 ms Budget also ein verlorener Frame.
