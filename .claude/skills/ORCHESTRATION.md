@@ -1433,9 +1433,13 @@ das andere ueberschreiben.
 `service_role` aussieht. Hintergrund: Sobald `throws` per RLS auf Lesen
 beschraenkt wird, braucht die Bilderkennung zum Schreiben den geheimen
 Schluessel -- sie laeuft lokal und ist kein Browser, dort gehoert er hin. Die
-noetigen Schritte stehen in `apps/liveticker/README.md`. **Noch nicht
-ausgefuehrt** -- RLS ist auf der Tabelle unveraendert, das ist die
-Produktivdatenbank des Nutzers.
+noetigen Schritte stehen in `apps/liveticker/README.md`.
+
+**UEBERHOLT** (Stand dieses Absatzes: "noch nicht ausgefuehrt"). Am 2026-09-11
+gegen die Produktivdatenbank gemessen: Der oeffentliche Schluessel darf lesen
+und sonst nichts -- INSERT, UPDATE und DELETE enden mit HTTP 401 `42501`.
+Siehe den Abschnitt "Geklaert: der oeffentliche Schluessel darf nur lesen" am
+Ende dieses Dokuments.
 
 
 ## 2026-09-07: Ein Lauf ohne eine einzige erkannte Lampe (BUG-021)
@@ -2028,22 +2032,48 @@ Der Grobdurchgang gibt auf, wenn seine beste Guete unter `boardmatch_min_guete`
 bleibt -- dann wird wie bisher das volle Raster abgesucht. GEMESSEN trennt das
 sauber: echte Tafel 0,715 bis 0,728, Bilder ohne Tafel -1,000 / 0,038 / -0,035.
 
-### OFFEN: Widerspruch in der Doku zum Datenbankzugriff
+### Geklaert: der oeffentliche Schluessel darf nur lesen (2026-09-11)
 
-`apps/liveticker/README.md` sagt, seit dem 2026-09-07 duerfe `anon` auf
-`throws` nur noch lesen (RLS plus `revoke insert, update, delete`), und nennt
-eine Messung (Lesen 206, Schreiben 401 `42501`). Der Abschnitt vom selben Tag
-weiter oben in DIESEM Dokument sagt **"Noch nicht ausgefuehrt -- RLS ist auf
-der Tabelle unveraendert"**. Beides kann nicht stimmen.
+Die Doku widersprach sich. `apps/liveticker/README.md` sagte, seit dem
+2026-09-07 duerfe `anon` auf `throws` nur noch lesen; der Abschnitt vom selben
+Tag weiter oben in DIESEM Dokument sagte "Noch nicht ausgefuehrt -- RLS ist auf
+der Tabelle unveraendert". Anlass der Klaerung war eine Rueckfrage von aussen,
+vor dem Einbinden des Tickers.
 
-GEPRUEFT 2026-09-11, soweit ohne Risiko moeglich: Lesen mit dem
-`sb_publishable_`-Schluessel liefert HTTP 200 mit Zeilen. Ob Schreiben
-gesperrt ist, laesst sich nur durch einen Schreibversuch feststellen -- und ein
-GELUNGENER Versuch hinterliesse eine Zeile in der Produktivtabelle. Deshalb
-NICHT geprueft. Vor dem Veroeffentlichen des Tickers gehoert das geklaert:
+GEMESSEN 2026-09-11 gegen die Produktivdatenbank, mit dem
+`sb_publishable_`-Schluessel:
+
+| Aufruf | Antwort |
+|---|---|
+| SELECT | HTTP 200, liefert Zeilen |
+| INSERT | HTTP 401, `42501` |
+| UPDATE | HTTP 401, `42501` |
+| DELETE | HTTP 401, `42501` |
+
+**Die README hatte recht, dieser Abschnitt war veraltet.** Es wurde nichts
+geschrieben: PATCH und DELETE liefen gegen einen Filter, der keine Zeile
+trifft, und der INSERT wurde abgewiesen.
+
+WORAUF DER SCHUTZ BERUHT, und das ist der Unterschied zur alten Formulierung:
+Der Wortlaut der Absage ist *"permission denied for table throws"* mit dem
+Hinweis *"GRANT UPDATE ON public.throws TO anon"*. Das sind die
+TABELLENRECHTE (`revoke insert, update, delete`), nicht eine RLS-Regel -- eine
+solche meldete "new row violates row-level security policy". Ob `relrowsecurity`
+zusaetzlich gesetzt ist, laesst sich von aussen nicht sehen; PostgREST gibt das
+Schema fuer oeffentliche Schluessel nicht heraus ("Only secret API keys can be
+used for this endpoint").
+
+Fuer den Ticker genuegt das: Die Rolle kann nicht schreiben. Wer es nachsehen
+will, braucht SQL-Zugang:
 
 ```sql
 select relrowsecurity from pg_class where relname = 'throws';
 select grantee, privilege_type from information_schema.role_table_grants
  where table_name = 'throws';
 ```
+
+**`lane` ist die reale Bahnnummer der Anlage.** `ThrowResult.lane` bekommt
+`display_number`, und das ist `real_lane_number` aus der Kalibrierung
+(Vorgabe `lane_number_mapping: [2, 3, 4, 5]`). VORBEHALT: Wird eine
+Kalibrierung ohne Eingabe der Bahnnummern erzeugt, faellt `display_number` auf
+die Tafelposition von links zurueck (1..4).
