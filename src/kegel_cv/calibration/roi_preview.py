@@ -67,7 +67,7 @@ def zeichne_rois(tafel: np.ndarray, rois, skalierung: int = 2,
     return bild
 
 
-def _quadmasse(ecken) -> tuple[float, float]:
+def quadmasse(ecken) -> tuple[float, float]:
     """Breite und Hoehe eines Vierecks, ueber die Gegenkanten gemittelt."""
     q = np.asarray(ecken, dtype=float)
     breite = (np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[3])) / 2
@@ -97,7 +97,7 @@ def tafelmontage(bild: np.ndarray, bahnen, breite: int = 220,
     kacheln = []
     for bahn in bahnen:
         ecken = [(float(p[0]), float(p[1])) for p in bahn.quad]
-        b, h = _quadmasse(ecken)
+        b, h = quadmasse(ecken)
         hoehe = max(1, int(round(breite * h / b))) if b else breite
         transform = PerspectiveTransform(Quad.from_points(ecken), breite, hoehe)
         kacheln.append(zeichne_rois(transform.warp(bild), bahn.rois,

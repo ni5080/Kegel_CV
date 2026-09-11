@@ -145,6 +145,10 @@ class MainWindow(QMainWindow):
         # Videodaten fuer die Dauer der Analyse. Bei einem
         # Livestream ist der Player dann geschlossen.
         self._analyse_info: VideoInfo | None = None
+        # Wartet die Oberflaeche gerade auf den Klick in eine Tafel, die
+        # nachgezogen werden soll? Solange das laeuft, bedeutet ein Klick
+        # "diese Tafel" und nichts anderes.
+        self._nachkal_auswahl = False
 
         self.setWindowTitle("Kegel_CV - Automatische Kegelerfassung")
         self._apply_window_size()
@@ -377,6 +381,19 @@ class MainWindow(QMainWindow):
         self.btn_find_lanes.setStyleSheet("padding:6px;")
         self.btn_find_lanes.clicked.connect(self._on_find_lanes)
         cal_layout.addWidget(self.btn_find_lanes)
+
+        # DIE EINE TAFEL, DIE NICHT SITZT. Die automatische Kalibrierung
+        # trifft im Mittel auf 0,76 px genau -- aber wenn eine von vier
+        # danebenliegt, muss genau diese eine nachziehbar sein, und zwar
+        # gross: Im Vollbild misst eine Lampen-ROI sechs Pixel.
+        self.btn_nachkalibrieren = QPushButton("Nachkalibrieren")
+        self.btn_nachkalibrieren.setToolTip(
+            "Danach die Tafel im Bild anklicken, die nicht sitzt. Sie wird "
+            "entzerrt und gross gezeigt; dort lassen sich Lampen und "
+            "Ziffernfelder einzeln ziehen und in der Groesse aendern.")
+        self.btn_nachkalibrieren.setStyleSheet("padding:6px;")
+        self.btn_nachkalibrieren.clicked.connect(self._on_nachkalibrieren)
+        cal_layout.addWidget(self.btn_nachkalibrieren)
 
         # DER LETZTE PIXEL. Eine automatisch gefundene Tafel sitzt auf ein bis
         # drei Pixel genau. Fuer die Lampen genuegt das, fuer die Ziffern
@@ -1325,6 +1342,115 @@ class MainWindow(QMainWindow):
             f"Auswahl dabei -- auch in einer anderen Halle.")
         self.statusBar().showMessage(f"Bauart {name} aufgenommen", 8000)
 
+    # ----------------------------------------------------- Nachkalibrieren
+
+    def _on_nachkalibrieren(self) -> None:
+        """Wartet auf den Klick in die Tafel, die nachgezogen werden soll.
+
+        WOFUER -- Wunsch des Nutzers am 2026-09-11:
+
+            "ich brauche einen Button 'Nachkalibrieren' ... an dem ich jedes
+             Board das ich aendern will anklicken kann, das wird mir gross
+             gezeigt und ich kann die ROIs anpassen"
+
+        WARUM NICHT EINE AUSWAHLLISTE: Welche Tafel schief sitzt, sieht man im
+        Bild -- ihre Nummer kennt man deshalb noch lange nicht. Die Liste
+        zwaenge zu einer Uebersetzung, die das Auge gar nicht leistet.
+        """
+        bahnen = self.session.calibration.lanes
+        if not bahnen:
+            QMessageBox.information(
+                self, "Nichts zu ziehen",
+                "Es ist noch keine Bahn kalibriert -- erst "
+                "'Automatisch kalibrieren'.")
+            return
+        if self._bild_zum_nachziehen() is None:
+            QMessageBox.information(
+                self, "Kein Bild",
+                "Erst ein Video oder einen Stream laden.")
+            return
+
+        if len(bahnen) == 1:
+            self._oeffne_tafel_editor(bahnen[0])
+            return
+
+        # ZIEHEN AUS. Waehrend der Auswahl bedeutet ein Klick "diese Tafel" --
+        # bliebe das Ziehen an, griffe er den Bereich darunter und verschoebe
+        # ihn, statt die Tafel zu oeffnen.
+        self._nachkal_auswahl = True
+        self.video_view.set_drag_enabled(False)
+        hinweis = ("Tafel anklicken, die nachgezogen werden soll "
+                   "(Esc bricht ab)")
+        self.calibration_hint.setText(hinweis)
+        self.video_view.set_status_text(hinweis)
+        self.statusBar().showMessage(hinweis)
+
+    def _beende_nachkal_auswahl(self) -> None:
+        if not self._nachkal_auswahl:
+            return
+        self._nachkal_auswahl = False
+        self.video_view.set_status_text("")
+        self._update_calibration_hint()
+
+    def _bild_zum_nachziehen(self) -> np.ndarray | None:
+        """Das aktuellste Bild -- aus der Wiedergabe oder aus der Analyse.
+
+        Waehrend der Analyse ist der Player geschlossen; das Bild kommt dann
+        aus dem Worker (`_current_frame`). Nachziehen soll auch dann gehen:
+        Genau im Lauf faellt auf, dass eine Tafel nicht sitzt.
+        """
+        if self.player.current_frame is not None:
+            return self.player.current_frame.image
+        if self._current_frame is not None:
+            return self._current_frame.image
+        return None
+
+    def _tafel_unter(self, x: float, y: float):
+        """Welche Tafel liegt unter dem Klick? None, wenn keine."""
+        import cv2
+        for lane in self.session.calibration.lanes:
+            ecken = np.asarray(lane.quad, dtype=np.float32)
+            if cv2.pointPolygonTest(ecken, (float(x), float(y)), False) >= 0:
+                return lane
+        return None
+
+    def _oeffne_tafel_editor(self, lane) -> None:
+        """Zeigt eine Tafel entzerrt und gross, mit ziehbaren Bereichen."""
+        from .board_editor import TafelEditorDialog
+
+        bild = self._bild_zum_nachziehen()
+        if bild is None:
+            return
+        # BEI EINEM STREAM NICHT ANHALTEN. Der Player holt neue Bilder nur,
+        # solange seine Wiedergabe laeuft -- angehalten stuende im Dialog
+        # dieselbe Anzeige wie vor fuenf Minuten, und ob eine Ziffernbox sitzt,
+        # entscheidet sich an wechselnden Ziffern. Bei einer Datei ist das
+        # Anhalten dagegen richtig: Dort laeuft sonst das Spiel weiter, waehrend
+        # man zieht.
+        if not self.player.is_live:
+            self.player.pause()
+        dialog = TafelEditorDialog(
+            lane, bild,
+            tafeln=len(self.session.calibration.lanes),
+            bild_quelle=self._bild_zum_nachziehen,
+            parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            self.statusBar().showMessage("Nachkalibrieren abgebrochen", 3000)
+            return
+
+        ziele = (self.session.calibration.lanes if dialog.auf_alle else [lane])
+        for ziel in ziele:
+            for roi in dialog.rois:
+                ziel.set_roi(roi.model_copy(deep=True))
+        self._redraw_overlays()
+        self._update_calibration_hint()
+        wohin = (f"alle {len(ziele)} Tafeln" if dialog.auf_alle
+                 else f"Bahn {lane.display_number}")
+        log.info("Nachkalibriert: %d Bereiche auf %s", len(dialog.rois), wohin)
+        self.statusBar().showMessage(
+            f"{len(dialog.rois)} Bereiche auf {wohin} uebernommen -- "
+            "noch nicht gespeichert", 8000)
+
     def _setze_position(self, index: int, gesamt: int,
                         sekunden: float) -> None:
         """Die eine Stelle, an der die Positionsanzeige geschrieben wird.
@@ -1458,6 +1584,19 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Kalibrierung angepasst", 2000)
 
     def _on_video_clicked(self, x: float, y: float) -> None:
+        # VOR ALLEM ANDEREN: Wurde 'Nachkalibrieren' gedrueckt, waehlt dieser
+        # Klick die Tafel aus -- er setzt keinen Punkt und schiebt nichts.
+        if self._nachkal_auswahl:
+            lane = self._tafel_unter(x, y)
+            if lane is None:
+                self.statusBar().showMessage(
+                    "Daneben -- bitte in eine der eingerahmten Tafeln "
+                    "klicken (Esc bricht ab)", 4000)
+                return
+            self._beende_nachkal_auswahl()
+            self._oeffne_tafel_editor(lane)
+            return
+
         if self.session.step is CalibrationStep.FRAME_DIGITS:
             done = self.session.frame_digit(x, y)
             self.video_view.set_pending_points(
@@ -1524,6 +1663,10 @@ class MainWindow(QMainWindow):
             self._update_calibration_hint()
 
     def _on_cancel_calibration(self) -> None:
+        # Esc muss auch aus der Tafelauswahl herausfuehren -- sonst bleibt die
+        # Oberflaeche stumm im Wartezustand, in dem kein Klick mehr das tut,
+        # was er sonst tut.
+        self._beende_nachkal_auswahl()
         self.session.cancel()
         self.video_view.set_pending_points(None, [])
         self._update_calibration_hint()
@@ -1531,6 +1674,14 @@ class MainWindow(QMainWindow):
     def _update_calibration_hint(self) -> None:
         label = self.session.next_corner_label
         roi_hint = self.session.current_roi_label
+
+        # Die Tafelauswahl hat Vorrang: Sie schaltet das Ziehen ab, und jeder
+        # andere Zweig dieser Methode schaltet es wieder ein. Ohne diese
+        # Abfrage genuegte ein beliebiges Ereignis, um den Klick wieder zum
+        # Ziehen zu machen -- die Auswahl waere zufaellig kaputt.
+        if self._nachkal_auswahl:
+            self.video_view.set_drag_enabled(False)
+            return
 
         # Waehrend der Fuehrung sagt sie, was zu tun ist -- ein Satz statt
         # dreier Bedienelemente, zwischen denen man selbst waehlen muss.

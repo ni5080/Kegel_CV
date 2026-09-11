@@ -1739,3 +1739,71 @@ Vorgabe `calibration.lane_count`). Das ist zugleich das Abbruchkriterium.
   eigenen Faden.
 * Der Ziffernversatz (`digit_shift`) bleibt Handarbeit — ein
   ergebnisunabhaengiges Kriterium dafuer fehlt weiterhin.
+
+---
+
+## Automatische Kalibrierung, zweiter Anlauf: Bild in Bild (2026-09-10/11)
+
+Der Merkmalsabgleich wurde **ersetzt**, auf Ansage des Nutzers: *"wir lassen
+alle deine Ansaetze und fangen doch an, automatische Kalibrierung darueber,
+das Bild in Bild gesucht wird ... dann kann man das Bild auch bisschen
+verzerren und verkippen lassen."* Die Abschnitte darueber beschreiben den
+alten Weg und gelten nur noch als Historie.
+
+`calibration/board_match.py` sucht das Musterbild mit einer Maske im Frame,
+ueber mehrere Skalen und Drehungen, und zieht danach jede Ecke einzeln nach.
+
+### Gemessen: Streuung zwischen den vier gleichen Tafeln
+
+Das ist das richtige Mass -- der Abstand zu einer handgesetzten Referenz
+enthaelt deren eigenen, systematischen Fehler. Acht Stellen eines Spiels von
+3:08 h:
+
+| Verfahren | Streuung | Dauer |
+|---|---|---|
+| Merkmalsabgleich | 1,43 px | ~7 s |
+| Bild in Bild | 1,00 px | 16 s |
+| + getrennte Maskenraender (Lampen 0,022 / Ziffern 0,008) | 0,97 px | 20-24 s |
+| **+ Verkippung (Ecken einzeln, ZNCC)** | **0,76 px** | 24-32 s |
+| von Hand gesetzt | 0,89 px | Minuten |
+
+Alle acht Stellen finden alle vier Tafeln, kein Wert ueber 1,0 px. Die
+automatische Kalibrierung sitzt damit **enger als die von Hand**.
+
+Drei Befunde, die den Weg dorthin erklaeren:
+
+1. `TM_CCORR_NORMED` mit Maske ist **ueber Vorlagengroessen hinweg nicht
+   vergleichbar** -- kleinere Vorlagen gewinnen grundlos. Bewertet wird
+   deshalb mit maskiertem ZNCC im entzerrten Raum.
+2. Die **obere Matrixleiste** ist keine ROI, sondern wechselnder Text. Sie
+   muss als eigenes Rechteck maskiert werden; ohne das scheiterten einzelne
+   Bilder vollstaendig.
+3. **Der Median ueber mehrere Funde schlaegt den besten Einzeltreffer**, und
+   Weitersammeln nach dem vollstaendigen Fund halbiert den Fehler.
+
+Verworfen und dokumentiert: Kantenfang (`edge_snap.ziehe_nach`) und ECC --
+beide machten es messbar schlechter (1,35 -> 1,90 / 2,34). Der Neuschnitt der
+Vorlage war unnoetig: Die Randzeilen sind zu 94-99 % Gehaeuse.
+
+### Nachkalibrieren: eine Tafel gross ziehen (2026-09-11)
+
+*"ich brauche einen Button 'Nachkalibrieren' ... an dem ich jedes Board das ich
+aendern will anklicken kann, das wird mir gross gezeigt und ich kann die ROIs
+anpassen"*
+
+`gui/board_editor.py` -- Knopf, dann Klick in die Tafel, dann die **entzerrte**
+Tafel gross (rund 530 px statt 250 im Vollbild) mit ziehbaren Bereichen.
+Gearbeitet wird in normierten Tafelkoordinaten, also genau dort, wo die ROIs
+definiert sind: kein Umweg ueber eine Homographie.
+
+* Rand ziehen = Groesse, Mitte ziehen = Lage, Pfeiltaste = ein Tafelpixel.
+  Die Ziffern haengen an einzelnen Pixeln (gemessen: 1 px = 9 Prozentpunkte
+  Lesegenauigkeit) -- mit der Maus ist ein Pixel nicht zu treffen.
+* Der Dialog arbeitet auf **Kopien**; "Abbrechen" bleibt folgenlos.
+* Optional auf alle Tafeln uebertragen -- die Koordinaten sind normiert, was
+  auf einer Tafel sitzt, sitzt auf jeder derselben Bauart.
+* Waehrend der Tafelauswahl ist das Ziehen im Video **abgeschaltet**: Sonst
+  griffe der Auswahlklick den Bereich darunter und verschoebe ihn.
+* Ein Livestream wird dafuer nicht angehalten -- der Player holt neue Bilder
+  nur, solange er laeuft, und ob eine Ziffernbox sitzt, entscheidet sich an
+  wechselnden Ziffern.
