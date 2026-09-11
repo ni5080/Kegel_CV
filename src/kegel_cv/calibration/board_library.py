@@ -33,7 +33,7 @@ erkannter Typ wird dem Nutzer VORGESCHLAGEN, nicht aufgezwungen.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -42,6 +42,7 @@ import numpy as np
 from .board_finder import BoardFinder, Treffer, entzerre, quad_groesse
 from .board_match import finde_tafeln, stabile_maske
 from .model import Calibration
+from .roi_feinschliff import schleife_nach
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,11 @@ class Erkennung:
 
     typ: Tafeltyp
     treffer: list[Treffer]
+    # Die Bilder, in denen gefunden wurde. Sie werden fuer den Feinschliff der
+    # Bereiche gebraucht (`roi_feinschliff`) -- und der Median ueber mehrere
+    # Bilder ist dort das, was den Effekt vom Rauschen trennt. Die Suche hat
+    # sie ohnehin gesehen; sie wurden bisher nur weggeworfen.
+    bilder: list[np.ndarray] = field(default_factory=list)
 
     @property
     def merkmale(self) -> int:
@@ -312,6 +318,31 @@ class LaufendeSuche:
         return (np.arange(s - 0.025, s + 0.026, 0.0125),
                 (w - 0.5, w, w + 0.5))
 
+    # So viele Bilder gehen in den Feinschliff der Bereiche. Vier genuegen:
+    # GEMESSEN 2026-09-11 streut derselbe Versatz ueber vier Stellen um 0,0 bis
+    # 0,4 px, der Median daraus ist stabil. Mehr Bilder kosten nur Rechenzeit.
+    FEINSCHLIFF_BILDER = 4
+
+    def _bilder(self, stand: dict) -> list[np.ndarray]:
+        """Verschiedene Bilder, in denen Tafeln gefunden wurden.
+
+        Aus der groessten Gruppe genommen -- das ist die Tafel, die am
+        haeufigsten sass, also die verlaesslichste Auswahl an brauchbaren
+        Bildern. Doppelte werden uebergangen: Dieselbe Aufnahme zweimal zu
+        messen macht den Median nicht stabiler.
+        """
+        if not stand["gruppen"]:
+            return []
+        groesste = max(stand["gruppen"], key=len)
+        bilder: list[np.ndarray] = []
+        for _, bild in groesste:
+            if bild is None or any(b is bild for b in bilder):
+                continue
+            bilder.append(bild)
+            if len(bilder) >= self.FEINSCHLIFF_BILDER:
+                break
+        return bilder
+
     def _treffer(self, stand: dict) -> list[Treffer]:
         treffer = [_gemittelt(g) for g in stand["gruppen"]
                    if len(g) >= self.min_frames]
@@ -359,7 +390,8 @@ class LaufendeSuche:
             treffer = self._treffer(stand)
             if not treffer:
                 continue
-            kandidat = Erkennung(typ=stand["typ"], treffer=treffer)
+            kandidat = Erkennung(typ=stand["typ"], treffer=treffer,
+                                 bilder=self._bilder(stand))
             if bestes is None or (len(kandidat.treffer), kandidat.merkmale) > \
                     (len(bestes.treffer), bestes.merkmale):
                 bestes = kandidat
@@ -569,12 +601,19 @@ def _verfeinere(bild: np.ndarray, treffer: list[Treffer],
 
 
 def uebernimm(erkennung: Erkennung, nummern: list[int],
-              bild: np.ndarray | None = None) -> Calibration:
+              bild: np.ndarray | None = None, *, feinschliff: bool = False,
+              feinschliff_weite: int = 5, feinschliff_min_pixel: int = 200,
+              feinschliff_max_versatz: float = 3.0) -> Calibration:
     """Baut aus einer Erkennung eine vollstaendige Kalibrierung.
 
-    Die ROIs des Typs werden unveraendert uebernommen -- sie liegen in
-    normierten Tafelkoordinaten und gelten deshalb fuer jede Tafel dieser
-    Bauart, egal wie gross oder schraeg sie im Bild steht.
+    Die ROIs des Typs werden uebernommen -- sie liegen in normierten
+    Tafelkoordinaten und gelten deshalb fuer jede Tafel dieser Bauart, egal wie
+    gross oder schraeg sie im Bild steht.
+
+    NUR FAST. Mit `feinschliff` wird jede Tafel danach einzeln nachgezogen:
+    GEMESSEN 2026-09-11 wandert die Gruenlampe ueber die vier Tafeln um 1,6 px,
+    waehrend die Lampenraute stehenbleibt -- innerhalb einer Tafel wollen die
+    Gruppen unterschiedlich weit verschoben werden. Siehe `roi_feinschliff`.
     """
     if len(nummern) != len(erkennung.treffer):
         raise ValueError(
@@ -598,6 +637,16 @@ def uebernimm(erkennung: Erkennung, nummern: list[int],
         bahn.quad = t.quad
         bahnen.append(bahn)
     kal.lanes = bahnen
+
+    if feinschliff:
+        bilder = erkennung.bilder or ([bild] if bild is not None else [])
+        muster_grau = cv2.cvtColor(erkennung.typ.muster, cv2.COLOR_BGR2GRAY)
+        maske = stabile_maske(erkennung.typ.muster, muster.rois)
+        for bahn in bahnen:
+            schleife_nach(bahn, muster_grau, maske, bilder,
+                          weite=feinschliff_weite,
+                          min_pixel=feinschliff_min_pixel,
+                          max_versatz=feinschliff_max_versatz)
     return kal
 
 

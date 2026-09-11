@@ -165,6 +165,26 @@ class CalibrationConfig(BaseModel):
     # So sicher muss ein Fund sein (maskierter ZNCC). GEMESSEN: echte Tafeln
     # 0,52 bis 0,87, und die naechstbeste Stelle im Bild lag klar darunter.
     boardmatch_min_guete: float = Field(default=0.45, ge=0.0, le=1.0)
+    # FEINSCHLIFF DER LAMPEN JE TAFEL. Nach dem Fund wird jede Tafel einzeln
+    # gegen das Musterbild nachgezogen -- getrennt fuer Kegellampen und
+    # Gruenlampe. GEMESSEN 2026-09-11: Ueber die vier Tafeln wandert die
+    # Gruenlampe um 1,6 px, waehrend die Lampenraute stehenbleibt. Eine
+    # Verschiebung der ganzen Tafel kann das nicht einfangen.
+    #
+    # Trennschaerfe der gruenen Lampe (Fisher, schwaechste Bahn entscheidet):
+    #     automatisch            6,3
+    #     + Feinschliff          9,1
+    #     + groessere ROI       13,4     (von Hand gesetzt: 10,1)
+    roi_feinschliff: bool = True
+    # Suchweite in Vorlagenpixeln. Groesser als der erwartete Fehler (gemessen
+    # bis 1,6 px), sonst misst man die Fenstergrenze statt den Versatz.
+    roi_feinschliff_weite: int = Field(default=5, ge=1, le=20)
+    # Unter so vielen unveraenderlichen Pixeln im Ausschnitt ist das Ergebnis
+    # nicht belastbar. GEMESSEN: Lampenraute 9272 px, Gruenlampe 456 px.
+    roi_feinschliff_min_pixel: int = Field(default=200, ge=20)
+    # Groesserer Versatz heisst nicht Feinschliff, sondern dass etwas anderes
+    # nicht stimmt -- dann wird verworfen statt verschoben.
+    roi_feinschliff_max_versatz: float = Field(default=3.0, gt=0.0)
     lane_count: int = Field(default=4, ge=1)
     lane_number_mapping: list[int] | None = None
     # ZUORDNUNG LAMPE -> KEGELNUMMER (beantwortet die offene Frage Q5).

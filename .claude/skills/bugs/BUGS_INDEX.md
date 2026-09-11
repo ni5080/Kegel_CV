@@ -27,6 +27,7 @@
 | [021](BUG-021-lampen-stumm-ohne-warnung/SKILL.md) | `DETECT` | Alle vier Bahnen meldeten 67 Wuerfe lang null Lampen (zu grosse ROIs aus einer alten Kalibrierung) — ohne jede Warnung, Ergebnisse gingen so an die Datenbank | 2026-09-07 | **hoch** | `test_lamp_watchdog.py::TestAmEchtenFall` |
 | [022](BUG-022-zwei-schreiber-auf-einer-anzeige/SKILL.md) | `GUI` | Player und Analyse malten waehrend eines Laufs in dieselbe Videoanzeige — das Bild sprang zwischen zwei 26 s auseinanderliegenden Stellen hin und her | 2026-09-07 | mittel | `test_analyse_sperrt_wiedergabe.py` |
 | [023](BUG-023-funktion-nie-ausgefuehrt/SKILL.md) | `GUI` | Die Tafelbibliothek-Pruefung lief nie: Aufruf an `_on_video_opened`, wo noch kein Frame da ist — der stille `return` verdeckte ausserdem einen `AttributeError` dahinter | 2026-09-10 | **hoch** | `test_auto_kalibrieren.py::TestBibliothekWirdGefunden` |
+| [024](BUG-024-roi-aenderung-erreicht-die-analyse-nie/SKILL.md) | `GUI` | Eine im laufenden Betrieb verschobene ROI wirkte nicht -- die Analyse liest nur die beim Start vorberechneten Pixelrechtecke, und nichts sagte es | 2026-09-11 | **hoch** | `test_kalibrierung_im_lauf.py` |
 | [019](BUG-019-verworfener-spielwechsel-verschiebt-die-kette/SKILL.md) | `COUNT` | Verworfener Spielwechsel-Zyklus stellte die alte Wurfnummer wieder her — 5 von 64 Sätzen begannen bei 31 statt 1 | 2026-09-03 | **hoch** | `test_throw_analyzer.py::TestVerworfenerSpielwechselVerschiebtDieKette` |
 
 ---

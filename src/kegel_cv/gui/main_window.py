@@ -640,6 +640,8 @@ class MainWindow(QMainWindow):
             6000)
         log.info("Ziffernrahmen um %+d/%+d px verschoben (gesamt %+d/%+d)",
                  dx, dy, soll[0], soll[1])
+        self._redraw_overlays()
+        self._reiche_kalibrierung_weiter()
 
     def _on_find_lanes(self) -> None:
         """Sucht alle Tafeln desselben Bautyps anhand der aktiven Bahn.
@@ -1171,8 +1173,15 @@ class MainWindow(QMainWindow):
                     f"{treffer.merkmale} tragende Merkmale).")
         # Vorschau mit vorlaeufigen Bahnnummern 1..n -- die echten werden
         # erst nach der Bestaetigung abgefragt, und fuer das Bild sind sie
-        # ohne Belang.
-        vorschau = uebernimm(treffer, list(range(1, anzahl + 1)), bild)
+        # ohne Belang. MIT Feinschliff, denn beurteilt werden soll das, was
+        # danach auch gemessen wird.
+        kal_cfg = self.cfg.calibration
+        vorschau = uebernimm(
+            treffer, list(range(1, anzahl + 1)), bild,
+            feinschliff=kal_cfg.roi_feinschliff,
+            feinschliff_weite=kal_cfg.roi_feinschliff_weite,
+            feinschliff_min_pixel=kal_cfg.roi_feinschliff_min_pixel,
+            feinschliff_max_versatz=kal_cfg.roi_feinschliff_max_versatz)
         return TrefferDialog(zeichne_treffer(bild, treffer.treffer),
                              tafelmontage(bild, vorschau.lanes),
                              kopf, self).exec() == QDialog.Accepted
@@ -1241,8 +1250,13 @@ class MainWindow(QMainWindow):
                                 f"getrennt.")
             return
 
+        kal = self.cfg.calibration
         self.session.calibration = uebernimm(
-            treffer, [int(t) for t in teile], bild)
+            treffer, [int(t) for t in teile], bild,
+            feinschliff=kal.roi_feinschliff,
+            feinschliff_weite=kal.roi_feinschliff_weite,
+            feinschliff_min_pixel=kal.roi_feinschliff_min_pixel,
+            feinschliff_max_versatz=kal.roi_feinschliff_max_versatz)
         nullen = self._richte_an_nullen_aus(bild)
         self.session.active_lane = 1
         self._digit_shift_angewandt = (0, 0)
@@ -1444,6 +1458,7 @@ class MainWindow(QMainWindow):
                 ziel.set_roi(roi.model_copy(deep=True))
         self._redraw_overlays()
         self._update_calibration_hint()
+        self._reiche_kalibrierung_weiter()
         wohin = (f"alle {len(ziele)} Tafeln" if dialog.auf_alle
                  else f"Bahn {lane.display_number}")
         log.info("Nachkalibriert: %d Bereiche auf %s", len(dialog.rois), wohin)
@@ -1582,6 +1597,27 @@ class MainWindow(QMainWindow):
                 return
         self._redraw_overlays()
         self.statusBar().showMessage("Kalibrierung angepasst", 2000)
+        self._reiche_kalibrierung_weiter()
+
+    def _reiche_kalibrierung_weiter(self) -> None:
+        """Gibt nachgezogene Bereiche an eine LAUFENDE Analyse weiter.
+
+        WOFUER -- Befund des Nutzers am 2026-09-11:
+
+            "wenn man die ROIs im Livestream verschiebt, aendert sich ja gar
+             nichts... es lief einfach weiter, als haette ich nichts geaendert"
+
+        Und niemand konnte das sehen. Deshalb geht die Aenderung jetzt in den
+        Lauf hinein UND in die Statuszeile -- eine Aenderung, die nichts
+        bewirkt, muss das wenigstens sagen.
+        """
+        if not (self._analyse_aktiv and self._worker is not None):
+            return
+        self._worker.uebernimm_kalibrierung(self.session.calibration)
+        self.statusBar().showMessage(
+            "Aenderung an die laufende Analyse uebergeben -- die mitlaufenden "
+            "Schwellen der betroffenen Bahn beginnen von vorn (rund eine "
+            "Minute).", 8000)
 
     def _on_video_clicked(self, x: float, y: float) -> None:
         # VOR ALLEM ANDEREN: Wurde 'Nachkalibrieren' gedrueckt, waehlt dieser

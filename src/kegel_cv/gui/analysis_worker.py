@@ -68,6 +68,11 @@ class AnalysisWorker(QThread):
         # diese Wuerfe gehoeren nicht in die Datenbank. Ausgewertet, angezeigt
         # und protokolliert werden sie trotzdem -- nur eben nicht gesendet.
         self._sending = sending_enabled
+        # Eine im laufenden Betrieb nachgezogene Kalibrierung, die beim
+        # naechsten Frame uebernommen wird. Bewusst eine KOPIE und keine
+        # geteilte Referenz: Sonst laese der Worker mitten im Ziehen einen
+        # halb geaenderten Zustand.
+        self._neue_kalibrierung: Calibration | None = None
 
     # ------------------------------------------------------------- Steuerung
 
@@ -102,6 +107,25 @@ class AnalysisWorker(QThread):
     def sending(self) -> bool:
         with QMutexLocker(self._mutex):
             return self._sending
+
+    def uebernimm_kalibrierung(self, kalibrierung: Calibration) -> None:
+        """Reicht nachgezogene Bereiche in den laufenden Lauf hinein.
+
+        WOFUER -- Befund des Nutzers am 2026-09-11: Wer waehrend der Analyse
+        einen Rahmen zieht, aendert nichts; die Analyse liest die Rechtecke,
+        die sie beim Start ausgerechnet hat. Das geschah stillschweigend.
+
+        Uebernommen wird beim naechsten Frame, nicht sofort: Mitten in der
+        Auswertung eines Frames die Messstellen zu tauschen, hiesse zwei
+        verschiedene Kalibrierungen in einem Ergebnis zu mischen.
+        """
+        with QMutexLocker(self._mutex):
+            self._neue_kalibrierung = kalibrierung.model_copy(deep=True)
+
+    def _abgeholte_kalibrierung(self) -> Calibration | None:
+        with QMutexLocker(self._mutex):
+            neue, self._neue_kalibrierung = self._neue_kalibrierung, None
+        return neue
 
     # ------------------------------------------------------------------- Lauf
 
@@ -212,6 +236,17 @@ class AnalysisWorker(QThread):
                 if paused:
                     self.msleep(50)
                     continue
+
+                # Nachgezogene Bereiche VOR der Auswertung uebernehmen -- sonst
+                # gehoert das Ergebnis dieses Frames halb zur alten und halb
+                # zur neuen Kalibrierung.
+                neue = self._abgeholte_kalibrierung()
+                if neue is not None:
+                    betroffen = pipeline.uebernimm_kalibrierung(
+                        neue, frame.image.shape)
+                    log.info("Kalibrierung im Lauf uebernommen bei Frame %d "
+                             "(%d Bahnen geaendert)", frame.index,
+                             len(betroffen))
 
                 result = pipeline.process(frame)
 

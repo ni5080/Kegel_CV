@@ -60,6 +60,22 @@ class GleitendesHistogramm:
         """Stammen die Schwellen aus einem zweigipfligen Fenster?"""
         return self._gemessen
 
+    def vergiss(self) -> None:
+        """Wirft das Gedaechtnis weg -- nach einer verschobenen ROI.
+
+        WOFUER: Wird die ROI der gruenen Lampe im laufenden Betrieb gezogen,
+        misst dieselbe Lampe ab sofort ANDERE Pegel. Die alten Werte im Fenster
+        beschreiben dann eine Lage, die es nicht mehr gibt, und das Tal
+        dazwischen liegt falsch. Lieber eine Minute ohne gemessene Schwelle
+        (dann gelten die festen aus der Konfiguration) als eine Schwelle, die
+        aus zwei verschiedenen Messstellen zusammengesetzt ist.
+        """
+        self._bins[:] = 0
+        self._werte.clear()
+        self._schwellen = (self.cfg.on_threshold, self.cfg.off_threshold)
+        self._gemessen = False
+        self._seit_takt = 0
+
     def hinzufuegen(self, wert: float) -> None:
         i = min(self._anzahl_bins - 1, max(0, int(wert / self.cfg.histogram_bin)))
         self._werte.append(i)
@@ -149,6 +165,12 @@ class HsvGreenDetector:
         self._history: deque[float] = deque(maxlen=cfg.adaptive_window)
         self._histogramm = (GleitendesHistogramm(cfg)
                             if cfg.histogram_thresholds else None)
+
+    def vergiss(self) -> None:
+        """Gedaechtnis leeren -- nach einer verschobenen ROI (siehe dort)."""
+        self._history.clear()
+        if self._histogramm is not None:
+            self._histogramm.vergiss()
 
     def _thresholds(self) -> tuple[float, float]:
         """Schwellen (AN, AUS) -- anteilig zwischen den beobachteten Niveaus.
@@ -273,6 +295,15 @@ class WarmthLampDetector:
         # Zweites Gedaechtnis fuer die LEUCHTENDEN Messungen -- siehe
         # `_beide_wolken`.
         self._an_history: dict[str, deque[float]] = {}
+
+    def vergiss(self) -> None:
+        """Beide Gedaechtnisse leeren -- nach verschobenen Lampen-ROIs.
+
+        Der mitlaufende AUS-Bezugswert ist an die MESSSTELLE gebunden. Wandert
+        sie, beschreibt er die alte Stelle weiter und die Schwelle sitzt falsch.
+        """
+        self._history.clear()
+        self._an_history.clear()
 
     def _beide_wolken(self, name: str) -> tuple[float, float] | None:
         """Schwellen aus BEIDEN gemessenen Wolken -- oder None, wenn zu duenn.

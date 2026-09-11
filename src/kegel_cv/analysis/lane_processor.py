@@ -298,6 +298,66 @@ class LaneProcessor:
                  len(self._digit_cell_boxes))
         return True
 
+    def uebernimm_kalibrierung(self, neue_bahn,
+                               frame_shape: tuple[int, ...]) -> list[str]:
+        """Nimmt im LAUFENDEN Betrieb geaenderte Bereiche entgegen.
+
+        WOFUER -- Befund des Nutzers am 2026-09-11:
+
+            "wenn man die ROIs im Livestream verschiebt, aendert sich ja gar
+             nichts... ich habe Rahmen von Gruen weggezogen und von der
+             Pin_Count und es lief einfach weiter, als haette ich nichts
+             geaendert"
+
+        Und so war es auch: `prepare` rechnet die normierten Bereiche EINMAL in
+        Pixelrechtecke um, danach liest die Analyse nur noch diese Rechtecke.
+        Wer die normierten Koordinaten verschiebt, verschiebt nichts, was noch
+        gelesen wird. Das war nicht einmal sichtbar -- der Rahmen sprang im
+        Bild, die Messung blieb.
+
+        WAS DABEI VERGESSEN WERDEN MUSS: Die mitlaufenden Schwellen sind an die
+        MESSSTELLE gebunden. Wandert sie, beschreiben die gesammelten Werte eine
+        Lage, die es nicht mehr gibt. Deshalb wird das Gedaechtnis der
+        betroffenen Detektoren geleert -- eine Minute mit den festen Schwellen
+        aus der Konfiguration ist besser als eine Schwelle aus zwei
+        verschiedenen Messstellen.
+
+        Der ZUSTAND der Bahn bleibt: Wurfzaehler, Zustandsmaschine und Summen
+        haengen nicht an der ROI-Lage, und sie neu zu setzen hiesse, Wuerfe
+        doppelt oder gar nicht zu buchen.
+
+        Zurueck kommt, was sich geaendert hat -- fuer das Protokoll.
+        """
+        alt_gruen = self.lane.get_roi("green_lamp")
+        alt_lampen = [r.rect for r in self.lane.pin_lamps()]
+        alt_ziffern = {r.name: r.rect for r in self.lane.rois
+                       if r.name.startswith(("digit_", "throw_number",
+                                             "pin_count", "total_", "left_"))}
+
+        self.lane = neue_bahn
+        if not self.prepare(frame_shape):
+            return []
+
+        neu_gruen = self.lane.get_roi("green_lamp")
+        geaendert: list[str] = []
+        if alt_gruen is None or neu_gruen is None or alt_gruen.rect != neu_gruen.rect:
+            self.green_detector.vergiss()
+            geaendert.append("Gruenlampe")
+        if alt_lampen != [r.rect for r in self.lane.pin_lamps()]:
+            self.lamp_detector.vergiss()
+            geaendert.append("Kegellampen")
+        if alt_ziffern != {r.name: r.rect for r in self.lane.rois
+                           if r.name.startswith(("digit_", "throw_number",
+                                                 "pin_count", "total_",
+                                                 "left_"))}:
+            geaendert.append("Ziffernfelder")
+
+        if geaendert:
+            log.info("Bahn %d: Kalibrierung im Lauf uebernommen (%s) -- die "
+                     "mitlaufenden Schwellen beginnen von vorn",
+                     self.display_number, ", ".join(geaendert))
+        return geaendert
+
     def _read_late_fields(self, frame: Frame) -> None:
         """Liest die spaet aktualisierten Felder und behaelt die juengsten Werte.
 

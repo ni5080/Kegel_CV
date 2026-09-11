@@ -1807,3 +1807,82 @@ definiert sind: kein Umweg ueber eine Homographie.
 * Ein Livestream wird dafuer nicht angehalten -- der Player holt neue Bilder
   nur, solange er laeuft, und ob eine Ziffernbox sitzt, entscheidet sich an
   wechselnden Ziffern.
+
+### Die Gruenlampe war zu klein geschnitten (2026-09-11)
+
+Ein Livelauf mit automatischer Kalibrierung verlor auf zwei Bahnen den ersten
+Wurf, spaeter auch mitten im Spiel. Der Nutzer: *"der erkennt ja gerade auf
+Bahn 5 gar nicht richtig, ob sie aus ist."*
+
+**Nicht die Erkennung, die Kalibrierung.** GEMESSEN an der Gruenspur des Laufs:
+
+| Bahn | AN | AUS | Abstand | AUS-Frames |
+|---|---|---|---|---|
+| 2 | 96,7 | 50,0 | 46,7 | 1305 |
+| 3 | 97,6 | 33,3 | 64,3 | **309** |
+| 4 | 96,7 | 56,7 | 40,0 | 2861 |
+| 5 | **73,3** | 33,3 | 40,0 | **398** |
+
+Bei gleich vielen Wuerfen sammelt Bahn 4 das Neunfache an AUS-Frames der Bahn 3
+-- dort fehlen ganze Gruenphasen, und das sind die fehlenden Wuerfe.
+
+Zwei Ursachen, beide in der Bauart:
+
+1. Die Gruenlampen-ROI des Typs war **0,0393 x 0,0319**, die von Hand gesetzte
+   **0,0650 x 0,0520** -- 2,7fache Flaeche.
+2. Sie sass **1,1 bis 1,7 px zu hoch**, auf allen vier Tafeln (Vergleich gegen
+   die Handkalibrierung derselben Aufzeichnung).
+
+Klein UND daneben heisst: ein Teil der Flaeche liegt auf dem Gehaeuse, der
+AN-Pegel sackt in Richtung AUS, und die Schwelle findet kein Tal mehr.
+
+**Das Mass, das entschieden hat** (`tools/measure_gruen_trennschaerfe.py`):
+Otsu trennt die Punktwolke, dann Fisher = Abstand^2 / Streuung. Es haengt an
+keinem Kriterium, auf das eine Kalibrierung optimiert wurde. Die **schwaechste**
+Bahn entscheidet -- dort geht der Wurf verloren.
+
+| Bahn | von Hand | automatisch | jetzt |
+|---|---|---|---|
+| 2 | 110,5 | 80,6 | 69,7 |
+| 3 | 36,6 | 38,9 | 26,3 |
+| 4 | 10,1 | 14,1 | 13,4 |
+| 5 | 14,6 | **6,3** | **16,2** |
+| **schwaechste** | 10,1 | **6,3** | **13,4** |
+
+Die Groesse wurde durchprobiert, nicht geraten: 1,0x -> 9,1; 1,3x -> 11,5;
+**1,65x -> 13,4**; 2,0x -> 12,9; 2,4x -> 12,8. Groesser verwaessert (AN faellt
+von 99 auf 37). Das Optimum trifft auf drei Stellen die Groesse, die der Nutzer
+von Hand gewaehlt hatte.
+
+### Feinschliff je Tafel -- fuer die Lampen, NICHT fuer die Ziffern
+
+`calibration/roi_feinschliff.py`. Nach dem Fund wird jede Tafel einzeln gegen
+das Musterbild nachgezogen, getrennt nach Lampenraute und Gruenlampe. GEMESSEN
+an zwei Quellen, Versatz in Vorlagenpixeln:
+
+```
+Gruppe        Tafel 1  Tafel 2  Tafel 3  Tafel 4
+lampen         -0,07    -0,07    +0,14    -0,11
+gruenlampe     -0,94    -0,36    +0,34    +0,69
+```
+
+Die Gruenlampe wandert um 1,6 px, die Lampenraute nicht -- **eine Verschiebung
+der ganzen Tafel kann das nicht einfangen**, es ist eine Restverzerrung, die
+Massstab, Drehung und Eckenkorrektur uebriglassen.
+
+**Fuer die Ziffern gemessen und verworfen.** 7290 beleuchtete Zellen, sauber
+gelesen: throw_number 86,1 -> 79,2 %, pin_count 71,5 -> **47,8** %, total_b
+26,4 -> 31,9 %, left_display 70,0 -> 77,8 %; insgesamt 56,8 -> 57,2 %. Zwei
+Felder besser, zwei schlechter, ein klarer Verlierer. Der Grund ist inhaltlich:
+Der Feinschliff richtet an der STRUKTUR aus -- eine Lampe sitzt daran, eine
+Ziffernzelle im Fenster nicht. Fuer die Ziffern gilt weiter `digit_zero_fit`
+(Ausrichtung an den Nullen, also an einem bekannten Sollwert).
+
+### ROI-Aenderungen wirken jetzt im laufenden Betrieb (BUG-024)
+
+Vorher wirkte ein waehrend der Analyse gezogener Rahmen nicht -- `prepare`
+rechnet die Bereiche einmal in Pixelrechtecke um, danach liest die Analyse nur
+noch diese. Und es sagte niemand. Jetzt: `uebernimm_kalibrierung` durch alle
+drei Schichten, Uebernahme beim naechsten Frame, Gedaechtnis der betroffenen
+Detektoren geleert (die Schwellen haengen an der Messstelle), Zustand der Bahn
+unangetastet.

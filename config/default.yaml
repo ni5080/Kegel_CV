@@ -194,6 +194,34 @@ calibration:
   # Alle acht Stellen finden alle vier Tafeln; der Merkmalsabgleich schaffte
   # das an dreien nicht. So sicher muss ein Fund sein (maskierter ZNCC):
   boardmatch_min_guete: 0.45
+  # FEINSCHLIFF DER LAMPEN JE TAFEL -- nach dem Fund wird jede Tafel einzeln
+  # gegen das Musterbild nachgezogen, getrennt fuer Kegellampen und Gruenlampe.
+  #
+  # ANLASS (Nutzer, 2026-09-11): "Ich hatte das Gefuehl, dass jedes Board
+  # leicht anders verschoben war." GEMESSEN an zwei Quellen, Versatz in
+  # Vorlagenpixeln:
+  #
+  #     Gruppe        Tafel 1  Tafel 2  Tafel 3  Tafel 4
+  #     lampen         -0,07    -0,07    +0,14    -0,11
+  #     gruenlampe     -0,94    -0,36    +0,34    +0,69
+  #
+  # Die Gruenlampe wandert um 1,6 px, die Lampenraute nicht -- eine
+  # Verschiebung der GANZEN Tafel kann das also nicht einfangen.
+  #
+  # Wirkung auf die Trennschaerfe der gruenen Lampe (Fisher; die schwaechste
+  # Bahn entscheidet, denn dort geht der Wurf verloren):
+  #     automatisch      6,3   <- Bahn 5 verlor Wuerfe
+  #     + Feinschliff    9,1
+  #     + groessere ROI 13,4   (von Hand gesetzt: 10,1)
+  #
+  # NUR DIE LAMPEN. Fuer die Ziffern wurde es GEMESSEN und verworfen: 7290
+  # Zellen, pin_count fiel von 71,5 auf 47,8 % sauber gelesen. Der Feinschliff
+  # richtet an der Gehaeusestruktur aus -- eine Lampe sitzt daran, eine
+  # Ziffernzelle im Fenster nicht. Dafuer gibt es `digit_zero_fit`.
+  roi_feinschliff: true
+  roi_feinschliff_weite: 5          # Suchweite in Vorlagenpixeln
+  roi_feinschliff_min_pixel: 200    # darunter sagt der Ausschnitt nichts
+  roi_feinschliff_max_versatz: 3.0  # darueber wird verworfen, nicht geschoben
   # Anzahl der Bahnen im Overlay
   lane_count: 4
   # Zuordnung Overlay-Position -> reale Bahnnummer.

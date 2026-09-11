@@ -178,6 +178,33 @@ class AnalysisPipeline:
                         "einen Wurf erfinden.")
         return usable
 
+    def uebernimm_kalibrierung(self, neue: Calibration,
+                               frame_shape: tuple[int, ...]) -> list[int]:
+        """Nimmt im LAUFENDEN Betrieb nachgezogene Bereiche entgegen.
+
+        Die Bahnen behalten ihren Zustand -- getauscht werden nur die Bereiche
+        und die daraus gerechneten Rechtecke. Siehe
+        `LaneProcessor.uebernimm_kalibrierung`.
+
+        Bahnen, die in der neuen Kalibrierung fehlen, bleiben unveraendert
+        stehen: Eine laufende Analyse darf an einer Nachjustierung nicht
+        stillschweigend Bahnen verlieren (P8).
+        """
+        neue_bahnen = {bahn.lane_id: bahn for bahn in neue.lanes}
+        betroffen: list[int] = []
+        for processor in self.processors:
+            bahn = neue_bahnen.get(processor.lane_id)
+            if bahn is None:
+                continue
+            if processor.uebernimm_kalibrierung(bahn, frame_shape):
+                betroffen.append(processor.lane_id)
+        self.calibration = neue
+        # Die Schutzzonen der Personenmaske haengen an den Tafelecken und
+        # muessen mitwandern -- sonst schwaerzt sie in die Tafel hinein.
+        self.person_maske.set_tafeln(
+            {p.display_number: p.lane_box() for p in self.processors})
+        return betroffen
+
     def process(self, frame: Frame) -> FrameResult:
         """Verarbeitet einen Frame ueber alle Bahnen."""
         started = time.perf_counter()
