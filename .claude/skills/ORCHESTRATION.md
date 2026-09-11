@@ -2077,3 +2077,43 @@ select grantee, privilege_type from information_schema.role_table_grants
 (Vorgabe `lane_number_mapping: [2, 3, 4, 5]`). VORBEHALT: Wird eine
 Kalibrierung ohne Eingabe der Bahnnummern erzeugt, faellt `display_number` auf
 die Tafelposition von links zurueck (1..4).
+
+### Mehrere Bereiche zugleich, und gemerkte Feinkorrekturen (2026-09-11)
+
+*"je Tafel die Moeglichkeit, ein Offset von x und y zu setzen ... dafuer soll
+er die ROIs anklicken, die er gleichzeitig verschieben moechte. Am besten
+waere es, wenn sich der Code das merkt, und wenn das naechste Mal der Tafeltyp
+ausgewaehlt wird, dann schlaegt er automatisch vielleicht verschiedene
+Kalibrierungen vor."*
+
+**Teil 1 -- gemeinsam verschieben.** Im Nachkalibrieren-Fenster lassen sich
+mehrere Bereiche waehlen (Klick, Strg-Klick zum Sammeln, Knoepfe fuer "alle",
+"Lampen", "Ziffern") und zusammen versetzen: ueber zwei Eingabefelder in
+Tafelpixeln oder mit den Pfeiltasten. Das Ziehen wurde dabei von "Mitte auf den
+Zeiger" auf RELATIV umgestellt -- bei mehreren Bereichen gibt es keine
+gemeinsame Mitte, und auch ein einzelner sprang vorher, wenn man ihn nicht
+mittig anfasste.
+
+Der Grund ist nicht Bequemlichkeit: Was zusammen danebenliegt, gehoert zusammen
+verschoben. Die untere Ziffernzeile wandert gemessen als GANZES -- sie einzeln
+nachzuziehen hiesse, denselben Fehler achtmal zu schaetzen statt einmal.
+
+**Teil 2 -- `calibration/korrekturen.py`.** Gemerkt wird der Unterschied zur
+BAUART, je Tafelposition von links, in normierten Tafelkoordinaten. Drei
+Entscheidungen dahinter:
+
+1. **Keine Tafelecken.** Die haengen an Kamera, Zoom und Blickwinkel und sind
+   in der naechsten Halle wertlos. Die Versaetze auf der Tafel beschreiben
+   dagegen die ANLAGE und gelten wieder. (Wer eine ganze Kalibrierung sichern
+   will, hat dafuer weiter "Speichern".)
+2. **Je Tafel, nicht gemittelt.** GEMESSEN wandert die Gruenlampe ueber die
+   vier Tafeln um 1,6 px, waehrend die Lampenraute stehenbleibt -- ein
+   gemeinsamer Mittelwert verschlechterte drei Tafeln, um eine zu verbessern.
+3. **Vorgeschlagen, nicht angewandt.** Ob eine Korrektur aus einer anderen
+   Halle hier passt, weiss der Mensch davor. Eine still uebernommene waere ein
+   Fehler, den niemand sucht, weil niemand von ihr weiss. Sie steht als
+   Auswahlfeld unter der Kachel ihrer Bauart.
+
+Fehlt beim Anwenden eine Tafelposition (es wurden weniger Tafeln gefunden als
+beim Merken), bleibt sie unveraendert -- sonst landete die Korrektur der
+dritten Tafel auf der zweiten.

@@ -408,9 +408,11 @@ class TestAnzahlIstEinstellbar:
         gesehen = {}
         echt = mw.TafeltypDialog.__init__
 
-        def merken(self, typen, vorgabe_anzahl=4, parent=None):
+        def merken(self, typen, vorgabe_anzahl=4, korrekturen=None,
+                   parent=None):
             gesehen["vorgabe"] = vorgabe_anzahl
-            echt(self, typen, vorgabe_anzahl, parent)
+            gesehen["korrekturen"] = korrekturen
+            echt(self, typen, vorgabe_anzahl, korrekturen, parent)
 
         monkeypatch.setattr(mw.TafeltypDialog, "__init__", merken)
         monkeypatch.setattr(mw.TafeltypDialog, "exec",

@@ -145,6 +145,9 @@ class MainWindow(QMainWindow):
         # Videodaten fuer die Dauer der Analyse. Bei einem
         # Livestream ist der Player dann geschlossen.
         self._analyse_info: VideoInfo | None = None
+        # Im Bauart-Fenster gewaehlte Feinkorrektur -- wird nach der Suche
+        # auf die frische Kalibrierung gelegt.
+        self._gewaehlte_korrektur = None
         # Wartet die Oberflaeche gerade auf den Klick in eine Tafel, die
         # nachgezogen werden soll? Solange das laeuft, bedeutet ein Klick
         # "diese Tafel" und nichts anderes.
@@ -394,6 +397,19 @@ class MainWindow(QMainWindow):
         self.btn_nachkalibrieren.setStyleSheet("padding:6px;")
         self.btn_nachkalibrieren.clicked.connect(self._on_nachkalibrieren)
         cal_layout.addWidget(self.btn_nachkalibrieren)
+
+        # WAS EINMAL NACHGEZOGEN WURDE, SOLL NICHT ZWEIMAL NACHGEZOGEN WERDEN.
+        # Gemerkt wird der Unterschied zur Bauart, nicht die Kalibrierung: Die
+        # Tafelecken haengen an Kamera und Blickwinkel, die Versaetze auf der
+        # Tafel beschreiben die Anlage.
+        self.btn_korrektur_merken = QPushButton("Feinkorrektur merken")
+        self.btn_korrektur_merken.setToolTip(
+            "Merkt, wie weit die Bereiche hier von der Bauart abweichen -- je "
+            "Tafel. Beim naechsten 'Automatisch kalibrieren' steht diese "
+            "Korrektur unter der Bauart zur Auswahl.")
+        self.btn_korrektur_merken.setStyleSheet("padding:6px;")
+        self.btn_korrektur_merken.clicked.connect(self._on_korrektur_merken)
+        cal_layout.addWidget(self.btn_korrektur_merken)
 
         # DER LETZTE PIXEL. Eine automatisch gefundene Tafel sitzt auf ein bis
         # drei Pixel genau. Fuer die Lampen genuegt das, fuer die Ziffern
@@ -1039,7 +1055,8 @@ class MainWindow(QMainWindow):
             return
 
         typen = self._tafeltypen()
-        dialog = TafeltypDialog(typen, self.cfg.calibration.lane_count, self)
+        dialog = TafeltypDialog(typen, self.cfg.calibration.lane_count,
+                                self._korrekturen(typen), self)
         if dialog.exec() != QDialog.Accepted or dialog.ergebnis is None:
             return
         if dialog.ergebnis == "neu":
@@ -1047,6 +1064,7 @@ class MainWindow(QMainWindow):
             return
         gesucht = typen if dialog.ergebnis == "alle" else [dialog.ergebnis]
         ziel = dialog.anzahl.value()
+        self._gewaehlte_korrektur = dialog.korrektur
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -1290,6 +1308,14 @@ class MainWindow(QMainWindow):
             feinschliff_weite=kal.roi_feinschliff_weite,
             feinschliff_min_pixel=kal.roi_feinschliff_min_pixel,
             feinschliff_max_versatz=kal.roi_feinschliff_max_versatz)
+        # GEMERKTE FEINKORREKTUR, falls im Bauart-Fenster gewaehlt. Sie liegt
+        # AUF dem Ergebnis der Suche -- der Feinschliff hat da schon getan, was
+        # sich messen laesst; hier kommt dazu, was ein Mensch gesehen hat.
+        korrigiert = 0
+        if self._gewaehlte_korrektur is not None:
+            from ..calibration.korrekturen import wende_an
+            korrigiert = wende_an(self.session.calibration,
+                                  self._gewaehlte_korrektur)
         nullen = self._richte_an_nullen_aus(bild)
         self.session.active_lane = 1
         self._digit_shift_angewandt = (0, 0)
@@ -1307,9 +1333,88 @@ class MainWindow(QMainWindow):
         self._redraw_overlays()
         zusatz = (f" {nullen} Ziffernfelder an den Nullen ausgerichtet."
                   if nullen else "")
+        if korrigiert:
+            zusatz += (f" Feinkorrektur '{self._gewaehlte_korrektur.name}' "
+                       f"auf {korrigiert} Bereiche gelegt.")
         self.statusBar().showMessage(
             f"Bauart {treffer.typ.name} uebernommen, {anzahl} Bahnen.{zusatz} "
             f"Rahmen pruefen -- notfalls 'Ziffern verschieben'.", 12000)
+
+    def _korrekturen(self, typen: list) -> dict:
+        """Die gemerkten Feinkorrekturen zu allen bekannten Bauarten."""
+        from ..calibration.korrekturen import lade
+        ordner = self.cfg.resolve(self.cfg.calibration.boardtype_directory)
+        return {typ.name: lade(ordner, typ.name) for typ in typen}
+
+    def _on_korrektur_merken(self) -> None:
+        """Merkt, was an dieser Anlage von Hand nachgezogen wurde.
+
+        WOFUER -- Wunsch des Nutzers am 2026-09-11:
+
+            "Am besten waere es, wenn sich der Code das merkt, und wenn das
+             naechste Mal der Tafeltyp ausgewaehlt wird, dann schlaegt er
+             automatisch vielleicht verschiedene Kalibrierungen vor."
+
+        GEMERKT WIRD DER UNTERSCHIED ZUR BAUART, nicht die Kalibrierung. Die
+        Tafelecken haengen an Kamera, Zoom und Blickwinkel und sind in der
+        naechsten Halle wertlos; die Versaetze auf der Tafel beschreiben
+        dagegen die ANLAGE und gelten wieder.
+        """
+        from ..calibration.korrekturen import (aus_vergleich, lade, speichere)
+
+        if not self.session.calibration.lanes:
+            QMessageBox.information(
+                self, "Nichts zu merken",
+                "Es ist noch keine Bahn kalibriert.")
+            return
+        typen = self._tafeltypen()
+        if not typen:
+            QMessageBox.information(
+                self, "Keine Bauart",
+                "Zum Merken wird die Bauart gebraucht, gegen die verglichen "
+                "wird -- die Bibliothek ist leer.")
+            return
+
+        namen = [t.name for t in typen]
+        gewaehlt, ok = QInputDialog.getItem(
+            self, "Zu welcher Bauart?",
+            "Verglichen wird gegen die Bereiche dieser Bauart:", namen, 0,
+            False)
+        if not ok:
+            return
+        typ = next(t for t in typen if t.name == gewaehlt)
+
+        vorschlag = datetime.now().strftime("Anlage %d.%m. %H:%M")
+        name, ok = QInputDialog.getText(
+            self, "Feinkorrektur merken",
+            "Name -- am besten die Halle oder die Anlage:", text=vorschlag)
+        if not ok or not name.strip():
+            return
+
+        korrektur = aus_vergleich(typ.bahn.rois, self.session.calibration,
+                                  name.strip())
+        if not korrektur.tafeln:
+            QMessageBox.information(
+                self, "Kein Unterschied",
+                f"Die Bereiche sitzen genau wie in der Bauart "
+                f"{typ.name} -- es gibt nichts zu merken.")
+            return
+
+        ordner = self.cfg.resolve(self.cfg.calibration.boardtype_directory)
+        vorhanden = [k for k in lade(ordner, typ.name)
+                     if k.name != korrektur.name]
+        speichere(ordner, typ.name, vorhanden + [korrektur])
+        QMessageBox.information(
+            self, "Gemerkt",
+            f"<b>{korrektur.name}</b> steht jetzt bei der Bauart "
+            f"{typ.name}.<br><br>"
+            f"{korrektur.bereiche} Versaetze auf {len(korrektur.tafeln)} "
+            f"Tafeln.<br><br>"
+            f"Beim naechsten <b>Automatisch kalibrieren</b> steht sie unter "
+            f"dieser Bauart zur Auswahl.")
+        self.statusBar().showMessage(
+            f"Feinkorrektur '{korrektur.name}' gemerkt "
+            f"({korrektur.bereiche} Bereiche)", 8000)
 
     def _richte_an_nullen_aus(self, bild) -> int:
         """Verschiebt die Ziffernrahmen, bis die Nullen sicher gelesen werden.

@@ -20,11 +20,12 @@ import logging
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QGridLayout,
-                               QHBoxLayout, QLabel, QPushButton, QScrollArea,
-                               QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
+                               QGridLayout, QHBoxLayout, QLabel, QPushButton,
+                               QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from ..calibration.board_library import Tafeltyp
+from ..calibration.korrekturen import Korrektur
 
 log = logging.getLogger(__name__)
 
@@ -54,11 +55,19 @@ class TafeltypDialog(QDialog):
     """
 
     def __init__(self, typen: list[Tafeltyp], vorgabe_anzahl: int = 4,
+                 korrekturen: dict[str, list[Korrektur]] | None = None,
                  parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Kegelboard-Bauart waehlen")
         self.ergebnis: Tafeltyp | str | None = None
         self._typen = typen
+        # Gemerkte Feinkorrekturen je Bauart. Sie werden VORGESCHLAGEN, nicht
+        # angewandt: Ob die Korrektur aus einer anderen Halle hier passt, weiss
+        # der Mensch davor -- eine still uebernommene waere ein Fehler, den
+        # niemand sucht, weil niemand von ihr weiss.
+        self._korrekturen = korrekturen or {}
+        self._auswahl: dict[str, object] = {}
+        self.korrektur: Korrektur | None = None
 
         aussen = QVBoxLayout(self)
         aussen.addWidget(QLabel(
@@ -147,10 +156,32 @@ class TafeltypDialog(QDialog):
         spalte.setContentsMargins(4, 4, 4, 4)
         spalte.addWidget(knopf)
         spalte.addWidget(unterschrift)
+
+        # GEMERKTE FEINKORREKTUREN dieser Bauart. Sie stehen unter der Kachel,
+        # weil sie zu ihr gehoeren -- eine Korrektur ohne ihre Bauart ist
+        # sinnlos. Ohne gemerkte Korrektur erscheint das Feld gar nicht: Ein
+        # Auswahlfeld mit genau einem Eintrag ist nur Platz.
+        gemerkte = self._korrekturen.get(typ.name, [])
+        if gemerkte:
+            wahl = QComboBox()
+            wahl.addItem("ohne Feinkorrektur", None)
+            for k in gemerkte:
+                wahl.addItem(k.beschreibung(), k)
+            wahl.setToolTip(
+                "Von Hand nachgezogene Versaetze einer frueheren Kalibrierung "
+                "derselben Bauart.\n\n"
+                "Sie passen, wenn die Anlage dieselbe ist -- in einer anderen "
+                "Halle koennen sie danebenliegen. Nach dem Uebernehmen laesst "
+                "sich das im Bild pruefen.")
+            self._auswahl[typ.name] = wahl
+            spalte.addWidget(wahl)
         return kachel
 
     def _waehle(self, was: Tafeltyp | str) -> None:
         self.ergebnis = was
+        if isinstance(was, Tafeltyp):
+            feld = self._auswahl.get(was.name)
+            self.korrektur = feld.currentData() if feld is not None else None
         self.accept()
 
 

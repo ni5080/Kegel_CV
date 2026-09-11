@@ -26,8 +26,8 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
-                               QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-                               QWidget)
+                               QHBoxLayout, QLabel, QPushButton, QSpinBox,
+                               QVBoxLayout, QWidget)
 
 from ..calibration.geometry import GeometryError, PerspectiveTransform, Quad
 from ..calibration.model import Roi
@@ -80,6 +80,7 @@ class TafelLeinwand(QWidget):
 
     geaendert = Signal()
     zeiger = Signal(str)        # Name des Bereichs unter der Maus ("" = keiner)
+    auswahl_geaendert = Signal(int)   # wie viele Bereiche gerade gewaehlt sind
 
     def __init__(self, rois: list[Roi], tafel_px: tuple[int, int],
                  parent: QWidget | None = None) -> None:
@@ -97,8 +98,21 @@ class TafelLeinwand(QWidget):
         self._tafel_px = (max(1, tafel_px[0]), max(1, tafel_px[1]))
         self._pixmap: QPixmap | None = None
         self._namen = False
-        self._gewaehlt: str | None = None
-        self._zieht: tuple[str, str] | None = None   # (Name, Kante)
+        # MEHRERE BEREICHE ZUGLEICH. Wunsch des Nutzers am 2026-09-11: "der
+        # Nutzer braucht je Tafel die Moeglichkeit, ein Offset von x und y zu
+        # setzen ... dafuer soll er die ROIs anklicken, die er gleichzeitig
+        # verschieben moechte."
+        #
+        # Das ist mehr als Bequemlichkeit: Was zusammen danebenliegt, gehoert
+        # zusammen verschoben. GEMESSEN wandert die untere Ziffernzeile als
+        # GANZES um denselben Betrag -- sie einzeln nachzuziehen hiesse, den
+        # gleichen Fehler achtmal zu schaetzen statt einmal.
+        self._gewaehlt: set[str] = set()
+        # Was gerade gezogen wird: Name, Kante, Startpunkt und die Rechtecke
+        # der Auswahl zu Beginn des Ziehens.
+        self._zieht: tuple[str, str] | None = None
+        self._zieh_start: tuple[float, float] | None = None
+        self._zieh_rechtecke: dict[str, tuple] = {}
 
     # ------------------------------------------------------------- Anzeige
 
@@ -163,7 +177,7 @@ class TafelLeinwand(QWidget):
             if not roi.enabled:
                 continue
             farbe = _qfarbe(roi.name)
-            gewaehlt = roi.name == self._gewaehlt
+            gewaehlt = roi.name in self._gewaehlt
             kasten = self._kasten(roi)
             maler.setPen(QPen(farbe, 2 if gewaehlt else 1))
             maler.drawRect(kasten)
@@ -232,8 +246,22 @@ class TafelLeinwand(QWidget):
         if event.button() != Qt.LeftButton:
             return
         treffer = self._treffer(event.position())
+        # Strg oder Umschalt sammelt ein, ein blosser Klick waehlt neu. Wer
+        # daneben klickt, hebt die Auswahl auf -- sonst bleibt eine unsichtbare
+        # Auswahl stehen und die naechste Pfeiltaste verschiebt Unerwartetes.
+        dazu = bool(event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier))
+        if treffer is None:
+            if not dazu:
+                self._gewaehlt.clear()
+        elif dazu:
+            self._gewaehlt.symmetric_difference_update({treffer[0]})
+        elif treffer[0] not in self._gewaehlt:
+            self._gewaehlt = {treffer[0]}
+
         self._zieht = treffer
-        self._gewaehlt = treffer[0] if treffer else None
+        self._zieh_start = self._nach_norm(event.position())
+        self._zieh_rechtecke = {r.name: r.rect for r in self.rois}
+        self.auswahl_geaendert.emit(len(self._gewaehlt))
         self.setFocus()
         self.update()
 
@@ -245,11 +273,29 @@ class TafelLeinwand(QWidget):
             return
         name, kante = self._zieht
         nx, ny = self._nach_norm(event.position())
-        self._aendere(name, kante, nx, ny)
+        if kante != "move":
+            self._aendere(name, kante, nx, ny)
+            return
+
+        # RELATIV ziehen, nicht auf den Zeiger springen. Bei mehreren
+        # ausgewaehlten Bereichen gaebe es keine gemeinsame Mitte -- und auch
+        # bei einem einzelnen springt er sonst, wenn man ihn nicht genau
+        # mittig angefasst hat.
+        if self._zieh_start is None:
+            return
+        dx = nx - self._zieh_start[0]
+        dy = ny - self._zieh_start[1]
+        self._verschiebe_auswahl(dx, dy, name)
 
     def mouseReleaseEvent(self, event) -> None:   # noqa: N802
-        if event.button() == Qt.LeftButton:
-            self._zieht = None
+        if event.button() != Qt.LeftButton:
+            return
+        self._zieht = None
+        self._zieh_start = None
+        # NEUE AUSGANGSLAGE. Der Versatz im Eingabefeld rechnet ab hier --
+        # sonst naehme der naechste Dreh am Feld das Ziehen wieder zurueck.
+        self._zieh_rechtecke = {r.name: r.rect for r in self.rois}
+        self.auswahl_geaendert.emit(len(self._gewaehlt))
 
     def keyPressEvent(self, event) -> None:       # noqa: N802
         """Pfeiltasten schieben den gewaehlten Bereich um EINEN Tafelpixel.
@@ -259,21 +305,65 @@ class TafelLeinwand(QWidget):
         """
         schritte = {Qt.Key_Left: (-1, 0), Qt.Key_Right: (1, 0),
                     Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1)}
-        if self._gewaehlt is None or event.key() not in schritte:
+        if not self._gewaehlt or event.key() not in schritte:
             super().keyPressEvent(event)
             return
         dx, dy = schritte[event.key()]
-        roi = self._roi(self._gewaehlt)
-        if roi is None:
-            return
-        cx, cy = roi.center
-        self._aendere(roi.name, "move",
-                      cx + dx / self._tafel_px[0], cy + dy / self._tafel_px[1])
+        self._zieh_rechtecke = {r.name: r.rect for r in self.rois}
+        self.versetze(dx, dy)
 
     # ------------------------------------------------------------- Aendern
 
     def _roi(self, name: str) -> Roi | None:
         return next((r for r in self.rois if r.name == name), None)
+
+    @property
+    def auswahl(self) -> set[str]:
+        """Welche Bereiche gerade gewaehlt sind."""
+        return set(self._gewaehlt)
+
+    def waehle(self, namen) -> None:
+        """Setzt die Auswahl von aussen -- fuer Knoepfe wie 'alle Ziffern'."""
+        vorhanden = {r.name for r in self.rois}
+        self._gewaehlt = {n for n in namen if n in vorhanden}
+        self._zieh_rechtecke = {r.name: r.rect for r in self.rois}
+        self.auswahl_geaendert.emit(len(self._gewaehlt))
+        self.update()
+
+    def versetze(self, dx_px: float, dy_px: float) -> None:
+        """Verschiebt die ganze Auswahl um dx/dy TAFELPIXEL.
+
+        WOFUER -- Wunsch des Nutzers am 2026-09-11: "je Tafel die Moeglichkeit,
+        ein Offset von x und y zu setzen ... dafuer soll er die ROIs anklicken,
+        die er gleichzeitig verschieben moechte."
+
+        Gerechnet wird ab den Rechtecken, die beim Beginn der Verschiebung
+        galten (`_zieh_rechtecke`). Sonst summierte sich jede Bewegung auf die
+        vorige auf, und ein Drehen am Eingabefeld liefe davon.
+        """
+        self._verschiebe_auswahl(dx_px / self._tafel_px[0],
+                                 dy_px / self._tafel_px[1])
+
+    def _verschiebe_auswahl(self, dx: float, dy: float,
+                            wenigstens: str | None = None) -> None:
+        """Verschiebt die Auswahl um dx/dy in normierten Koordinaten."""
+        namen = set(self._gewaehlt)
+        if wenigstens:
+            # Wer einen nicht gewaehlten Bereich anfasst, meint genau diesen.
+            namen.add(wenigstens)
+        if not namen:
+            return
+        for i, roi in enumerate(self.rois):
+            if roi.name not in namen:
+                continue
+            ausgang = self._zieh_rechtecke.get(roi.name, roi.rect)
+            x, y, w, h = ausgang
+            neu_x = min(max(x + dx, 0.0), max(0.0, 1.0 - w))
+            neu_y = min(max(y + dy, 0.0), max(0.0, 1.0 - h))
+            self.rois[i] = roi.model_copy(
+                update={"rect": (neu_x, neu_y, w, h), "enabled": True})
+        self.update()
+        self.geaendert.emit()
 
     def _aendere(self, name: str, kante: str, nx: float, ny: float) -> None:
         roi = self._roi(name)
@@ -339,6 +429,7 @@ class TafelEditorDialog(QDialog):
         self.setWindowTitle(f"Bahn {lane.display_number} nachkalibrieren")
         self._lane = lane
         self._bild_quelle = bild_quelle
+        self._versatz_angewandt = (0, 0)
         self._ausgang = [r.model_copy(deep=True) for r in lane.rois]
         self.auf_alle = False
 
@@ -366,6 +457,56 @@ class TafelEditorDialog(QDialog):
         self.info.setStyleSheet("color:#888;")
         self.info.setWordWrap(True)
         spalte.addWidget(self.info)
+
+        # --- Auswahl und gemeinsamer Versatz ---
+        #
+        # WOFUER (Nutzer, 2026-09-11): "je Tafel die Moeglichkeit, ein Offset
+        # von x und y zu setzen ... dafuer soll er die ROIs anklicken, die er
+        # gleichzeitig verschieben moechte."
+        wahl = QHBoxLayout()
+        self.auswahl_info = QLabel("nichts gewaehlt")
+        self.auswahl_info.setStyleSheet("color:#888;")
+        self.auswahl_info.setMinimumWidth(120)
+        wahl.addWidget(self.auswahl_info)
+
+        # Die Gruppen, die erfahrungsgemaess GEMEINSAM danebenliegen -- die
+        # Ziffernzeile wandert als Ganzes, die Lampenraute ebenso.
+        for beschriftung, passt in (
+                ("alle", lambda n: True),
+                ("Lampen", lambda n: n.startswith(("pin_lamp", "green_lamp"))),
+                ("Ziffern", lambda n: n.startswith(
+                    ("digit_", "throw_number", "pin_count", "total_",
+                     "left_display")))):
+            knopf = QPushButton(beschriftung)
+            knopf.setToolTip(f"{beschriftung} auswaehlen")
+            knopf.setMaximumWidth(70)
+            knopf.clicked.connect(
+                lambda _=False, f=passt: self.leinwand.waehle(
+                    [r.name for r in self.leinwand.rois if f(r.name)]))
+            wahl.addWidget(knopf)
+
+        wahl.addSpacing(12)
+        wahl.addWidget(QLabel("Versatz:"))
+        self.versatz_x = QSpinBox()
+        self.versatz_x.setRange(-30, 30)
+        self.versatz_x.setPrefix("x ")
+        self.versatz_x.setSuffix(" px")
+        self.versatz_x.setToolTip(
+            "Verschiebt ALLE gewaehlten Bereiche um so viele Tafelpixel. "
+            "Dasselbe tun die Pfeiltasten, je Druck um einen.")
+        self.versatz_y = QSpinBox()
+        self.versatz_y.setRange(-30, 30)
+        self.versatz_y.setPrefix("y ")
+        self.versatz_y.setSuffix(" px")
+        self.versatz_y.setToolTip(self.versatz_x.toolTip())
+        self.versatz_x.valueChanged.connect(self._on_versatz)
+        self.versatz_y.valueChanged.connect(self._on_versatz)
+        wahl.addWidget(self.versatz_x)
+        wahl.addWidget(self.versatz_y)
+        wahl.addStretch(1)
+        spalte.addLayout(wahl)
+
+        self.leinwand.auswahl_geaendert.connect(self._zeige_auswahl)
 
         zeile = QHBoxLayout()
         # NAMEN AUS: Bei 25 Bereichen -- neun Lampen und acht Ziffernstellen --
@@ -433,6 +574,41 @@ class TafelEditorDialog(QDialog):
                      max(460, int(bild_hoehe * px[0] / max(1, px[1])) + 60))
         self.resize(breite, hoehe)
         self.setMaximumSize(platz.width(), platz.height())
+
+    def _zeige_auswahl(self, anzahl: int) -> None:
+        """Meldet, wie viele Bereiche gewaehlt sind, und setzt den Versatz zurueck.
+
+        ZURUECKSETZEN IST WESENTLICH: Die Felder zeigen den Versatz DIESER
+        Auswahl. Bliebe der alte Wert stehen, verschoebe die naechste Auswahl
+        sich beim ersten Dreh um die Differenz zu einem Wert, der sie nie
+        betraf.
+        """
+        self.auswahl_info.setText(
+            "nichts gewaehlt" if not anzahl
+            else f"{anzahl} Bereich{'e' if anzahl > 1 else ''} gewaehlt")
+        for feld in (self.versatz_x, self.versatz_y):
+            feld.blockSignals(True)
+            feld.setValue(0)
+            feld.blockSignals(False)
+        self._versatz_angewandt = (0, 0)
+
+    def _on_versatz(self) -> None:
+        """Schiebt die Auswahl auf den eingestellten Gesamtversatz.
+
+        Die Felder tragen den GESAMTversatz, verschoben wird die Differenz --
+        dasselbe Muster wie bei den Ziffernrahmen im Hauptfenster. Wer von +2
+        auf +3 dreht, verschiebt um einen Pixel, nicht um drei.
+        """
+        soll = (self.versatz_x.value(), self.versatz_y.value())
+        if not self.leinwand.auswahl:
+            self.auswahl_info.setText("erst Bereiche anklicken")
+            for feld in (self.versatz_x, self.versatz_y):
+                feld.blockSignals(True)
+                feld.setValue(0)
+                feld.blockSignals(False)
+            return
+        self.leinwand.versetze(soll[0], soll[1])
+        self._versatz_angewandt = soll
 
     def _zeige_bereich(self, name: str) -> None:
         if not name:

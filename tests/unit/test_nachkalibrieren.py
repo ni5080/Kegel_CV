@@ -225,7 +225,7 @@ class TestLeinwand:
         um einen einzelnen geht es bei den Ziffern (gemessen: ein Pixel = neun
         Prozentpunkte Lesegenauigkeit)."""
         leinwand = self._leinwand(qt_app)
-        leinwand._gewaehlt = "green_lamp"
+        leinwand.waehle(["green_lamp"])
         vorher = leinwand._roi("green_lamp").center
         leinwand.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Right,
                                          Qt.NoModifier))
@@ -376,3 +376,116 @@ class TestUebernehmen:
         bahnen = fenster.session.calibration.lanes
         assert (bahnen[0].get_roi("green_lamp")
                 is not bahnen[1].get_roi("green_lamp"))
+
+
+class TestMehrereZugleich:
+    """"je Tafel die Moeglichkeit, ein Offset von x und y zu setzen ... dafuer
+    soll er die ROIs anklicken, die er gleichzeitig verschieben moechte"
+    (Nutzer, 2026-09-11).
+
+    Der Grund ist nicht Bequemlichkeit: Was zusammen danebenliegt, gehoert
+    zusammen verschoben. Die untere Ziffernzeile wandert GEMESSEN als Ganzes --
+    sie einzeln nachzuziehen hiesse, denselben Fehler achtmal zu schaetzen.
+    """
+
+    def _leinwand(self, qt_app):
+        leinwand = be.TafelLeinwand(eine_bahn().rois, (100, 100))
+        leinwand.resize(400, 400)
+        leinwand.set_bild(bild(120, 100, 100))
+        return leinwand
+
+    def test_die_auswahl_laesst_sich_setzen(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        leinwand.waehle(["green_lamp", "throw_number"])
+        assert leinwand.auswahl == {"green_lamp", "throw_number"}
+
+    def test_unbekannte_namen_werden_uebergangen(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        leinwand.waehle(["green_lamp", "gibt_es_nicht"])
+        assert leinwand.auswahl == {"green_lamp"}
+
+    def test_alle_gewaehlten_wandern_gleich_weit(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        vorher = {r.name: r.rect for r in leinwand.rois}
+        leinwand.waehle(["green_lamp", "throw_number"])
+        leinwand.versetze(3, -2)
+        for name in ("green_lamp", "throw_number"):
+            neu = leinwand._roi(name).rect
+            assert neu[0] - vorher[name][0] == pytest.approx(3 / 100, abs=1e-9)
+            assert neu[1] - vorher[name][1] == pytest.approx(-2 / 100, abs=1e-9)
+
+    def test_nicht_gewaehlte_bleiben_stehen(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        vorher = leinwand._roi("digit_throw_number_1").rect
+        leinwand.waehle(["green_lamp"])
+        leinwand.versetze(3, 3)
+        assert leinwand._roi("digit_throw_number_1").rect == vorher
+
+    def test_der_versatz_ist_ein_GESAMTwert(self, qt_app):
+        """Wer von +2 auf +3 dreht, verschiebt um einen Pixel, nicht um drei --
+        sonst liefe ein Drehen am Eingabefeld davon."""
+        leinwand = self._leinwand(qt_app)
+        vorher = leinwand._roi("green_lamp").rect[0]
+        leinwand.waehle(["green_lamp"])
+        leinwand.versetze(2, 0)
+        leinwand.versetze(3, 0)
+        assert leinwand._roi("green_lamp").rect[0] - vorher == \
+            pytest.approx(3 / 100, abs=1e-9)
+
+    def test_ohne_auswahl_passiert_nichts(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        vorher = {r.name: r.rect for r in leinwand.rois}
+        leinwand.versetze(5, 5)
+        assert {r.name: r.rect for r in leinwand.rois} == vorher
+
+    def test_auch_gemeinsam_bleibt_alles_in_der_tafel(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        leinwand.waehle([r.name for r in leinwand.rois])
+        leinwand.versetze(90, 90)
+        for roi in leinwand.rois:
+            x, y, w, h = roi.rect
+            assert 0.0 <= x and x + w <= 1.0001
+            assert 0.0 <= y and y + h <= 1.0001
+
+    def test_pfeiltaste_bewegt_die_ganze_auswahl(self, qt_app):
+        leinwand = self._leinwand(qt_app)
+        leinwand.waehle(["green_lamp", "throw_number"])
+        vorher = {r.name: r.rect[0] for r in leinwand.rois}
+        leinwand.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Right,
+                                         Qt.NoModifier))
+        for name in ("green_lamp", "throw_number"):
+            assert leinwand._roi(name).rect[0] - vorher[name] == \
+                pytest.approx(1 / 100, abs=1e-9)
+
+
+class TestDieBedienelemente:
+    def test_die_gruppenknoepfe_waehlen_richtig(self, qt_app):
+        d = be.TafelEditorDialog(eine_bahn(), bild())
+        from PySide6.QtWidgets import QPushButton
+        knoepfe = {k.text(): k for k in d.findChildren(QPushButton)}
+        knoepfe["Lampen"].click()
+        assert d.leinwand.auswahl == {"green_lamp"}
+        knoepfe["Ziffern"].click()
+        assert d.leinwand.auswahl == {"digit_throw_number_1", "throw_number"}
+
+    def test_der_versatz_wirkt_ueber_das_eingabefeld(self, qt_app):
+        d = be.TafelEditorDialog(eine_bahn(), bild())
+        vorher = d.leinwand._roi("green_lamp").rect[0]
+        d.leinwand.waehle(["green_lamp"])
+        d.versatz_x.setValue(4)
+        assert d.leinwand._roi("green_lamp").rect[0] > vorher
+
+    def test_eine_neue_auswahl_setzt_den_versatz_zurueck(self, qt_app):
+        """Bliebe der alte Wert stehen, verschoebe sich die naechste Auswahl
+        beim ersten Dreh um die Differenz zu einem Wert, der sie nie betraf."""
+        d = be.TafelEditorDialog(eine_bahn(), bild())
+        d.leinwand.waehle(["green_lamp"])
+        d.versatz_x.setValue(4)
+        d.leinwand.waehle(["throw_number"])
+        assert d.versatz_x.value() == 0
+
+    def test_ohne_auswahl_sagt_er_es(self, qt_app):
+        d = be.TafelEditorDialog(eine_bahn(), bild())
+        d.versatz_x.setValue(3)
+        assert "anklicken" in d.auswahl_info.text()
+        assert d.versatz_x.value() == 0
