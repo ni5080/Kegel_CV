@@ -86,3 +86,47 @@ class TestKalibrierung:
             if video and "@" in str(video).split("://")[-1].split("/")[0]:
                 belastet.append(pfad.name)
         assert not belastet, f"Zugangsdaten in: {belastet}"
+
+
+class TestDieProjektadresseStehtNichtInDerKonfiguration:
+    """Die Supabase-Adresse gehoert in die `.env`, nicht in eine Datei, die
+    alle teilen.
+
+    ANLASS (2026-09-11, vor dem Oeffentlichmachen des Repositories): In
+    `config/default.yaml`, `overlay.yaml` und `lauf_overlay.yaml` stand die
+    Projekt-URL eines bestimmten Vereins. Kein Geheimnis -- jede lesende
+    Anwendung traegt sie --, aber sie benennt eine fremde Datenbank und ist
+    fuer jeden anderen Nutzer schlicht falsch.
+    """
+
+    KONFIGURATIONEN = ("default.yaml", "overlay.yaml", "lauf_overlay.yaml")
+
+    def _config_dir(self) -> Path:
+        return Path(__file__).resolve().parents[2] / "config"
+
+    @pytest.mark.parametrize("name", KONFIGURATIONEN)
+    def test_keine_echte_adresse(self, name):
+        text = (self._config_dir() / name).read_text(encoding="utf-8")
+        for zeile in text.splitlines():
+            nackt = zeile.strip()
+            if nackt.startswith("#") or "supabase.co" not in nackt:
+                continue
+            assert "abcdefgh" in nackt or "<" in nackt, (
+                f"{name}: echte Projektadresse in einer geteilten Datei: "
+                f"{nackt}")
+
+    @pytest.mark.parametrize("name", KONFIGURATIONEN)
+    def test_die_umgebungsvariable_ist_benannt(self, name):
+        """Ohne sie waere die leere Adresse nur ein Loch statt eines Hinweises."""
+        text = (self._config_dir() / name).read_text(encoding="utf-8")
+        assert "url_env:" in text and "SUPABASE_URL" in text
+
+    def test_die_vorlage_existiert(self):
+        """`.env.example` ist die einzige Stelle, an der die noetigen Namen
+        stehen duerfen -- ohne sie raet jeder neue Nutzer."""
+        vorlage = Path(__file__).resolve().parents[2] / ".env.example"
+        assert vorlage.is_file()
+        text = vorlage.read_text(encoding="utf-8")
+        for name in ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_READ_KEY"):
+            assert name in text
+        assert "jnqx" not in text.lower(), "auch die Vorlage nennt kein echtes Projekt"

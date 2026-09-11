@@ -67,9 +67,19 @@ def lies_supabase_config() -> dict[str, object]:
         vorgabe["url"] = abschnitt.get("url", "")
         vorgabe["table"] = abschnitt.get("table", "throws")
         vorgabe["key_env"] = abschnitt.get("api_key_env", "SUPABASE_KEY")
+        vorgabe["url_env"] = abschnitt.get("url_env", "SUPABASE_URL")
     except Exception as fehler:  # noqa: BLE001 -- bewusst breit, siehe Docstring
         log.warning("config/default.yaml nicht lesbar (%s) -- Angaben bitte "
                     "in den Einstellungen nachtragen", fehler)
+
+    # DIE ADRESSE HAT VORRANG AUS DER UMGEBUNG. Sie benennt die Datenbank eines
+    # bestimmten Vereins und steht seit dem 2026-09-11 in `.env` statt in der
+    # geteilten Konfiguration -- siehe `SupabaseConfig.url`.
+    umgebung = lies_env(PROJEKT / ".env")
+    aus_umgebung = (os.environ.get(vorgabe.get("url_env", "SUPABASE_URL"), "")
+                    or umgebung.get(vorgabe.get("url_env", "SUPABASE_URL"), ""))
+    if aus_umgebung:
+        vorgabe["url"] = aus_umgebung
     return vorgabe
 
 

@@ -1184,7 +1184,16 @@ class SupabaseConfig(BaseModel):
     """Versand der Wurfergebnisse an eine Supabase-Tabelle."""
 
     enabled: bool = False
-    url: str = ""                       # z. B. https://xxxx.supabase.co
+    # DIE ADRESSE STEHT IN EINER UMGEBUNGSVARIABLEN, nicht hier -- aus
+    # demselben Grund wie der Schluessel, nur eine Stufe schwaecher: Sie ist
+    # kein Geheimnis, aber sie benennt die Datenbank EINES BESTIMMTEN Vereins.
+    # In einem oeffentlichen Repository ist das eine Einladung zum
+    # Ausprobieren, und fuer jeden anderen Nutzer ist sie schlicht falsch.
+    #
+    # Leer heisst "nicht eingerichtet": Dann wird nicht versendet, und die
+    # Analyse laeuft trotzdem (P8).
+    url: str = ""                       # z. B. https://abcdefgh.supabase.co
+    url_env: str = "SUPABASE_URL"
     table: str = "throws"
     # Der Schluessel steht in einer UMGEBUNGSVARIABLEN, nicht hier.
     # Konfigurationsdateien landen in der Versionsverwaltung, Zugangsdaten nie.

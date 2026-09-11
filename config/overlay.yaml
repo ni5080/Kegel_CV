@@ -1292,8 +1292,18 @@ output:
     enabled: true
 
     # Projekt-URL (Supabase-Dashboard, Settings -> API -> Project URL).
-    # Kein Geheimnis: Sie steht in jeder Anwendung, die die Datenbank liest.
-    url: "https://jnqxfqolxwuqqgwezlhj.supabase.co"
+    #
+    # STEHT IN DER `.env`, nicht hier -- als `SUPABASE_URL`. Sie ist kein
+    # Geheimnis (jede lesende Anwendung traegt sie), aber sie benennt die
+    # Datenbank EINES BESTIMMTEN Vereins: In einer geteilten Konfigurationsdatei
+    # ist das eine Einladung zum Ausprobieren, und fuer jeden anderen Nutzer
+    # ist sie schlicht falsch.
+    #
+    # Leer heisst "nicht eingerichtet": Es wird nichts versendet, die Analyse
+    # laeuft trotzdem. Der Wert hier ist nur der Rueckfall, wenn keine
+    # Umgebungsvariable gesetzt ist.
+    url: ""           # z. B. https://abcdefgh.supabase.co
+    url_env: "SUPABASE_URL"
     table: "throws"
 
     # DER SCHLUESSEL STEHT HIER NICHT.

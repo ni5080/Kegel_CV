@@ -37,9 +37,22 @@ def build_sink(cfg: AppConfig, video_id: str = "") -> ResultSink:
         )
         return NullSink()
 
+    # DIE ADRESSE KOMMT AUS DER UMGEBUNG, die Konfiguration ist nur Rueckfall.
+    # Sie benennt die Datenbank eines bestimmten Vereins und hat in einer
+    # Datei, die alle teilen, nichts verloren -- fuer jeden anderen Nutzer ist
+    # sie ausserdem falsch.
+    adresse = os.environ.get(supabase.url_env, "") or supabase.url
+    if not adresse:
+        log.warning(
+            "Supabase ist eingeschaltet, aber es ist keine Adresse gesetzt "
+            "(Umgebungsvariable '%s' oder 'output.supabase.url') -- es wird "
+            "nichts versendet.", supabase.url_env,
+        )
+        return NullSink()
+
     try:
         innerer = SupabaseSink(
-            url=supabase.url, table=supabase.table, api_key=schluessel,
+            url=adresse, table=supabase.table, api_key=schluessel,
             timeout_s=supabase.timeout_s, video_id=video_id,
         )
     except ValueError as exc:

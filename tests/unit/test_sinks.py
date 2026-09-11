@@ -188,3 +188,49 @@ class TestWeiterhinBerechnet:
         assert w.running_total > 0
         assert w.game_number == 1
         assert w.status is ThrowStatus.VALID
+
+
+class TestAdresseAusDerUmgebung:
+    """Die Projekt-URL kommt aus `SUPABASE_URL`, die Konfiguration ist nur
+    Rueckfall -- sie benennt die Datenbank eines bestimmten Vereins und hat in
+    einer geteilten Datei nichts verloren (2026-09-11)."""
+
+    def _cfg(self, url: str = ""):
+        # ZUERST laden: `load_config` liest die `.env` in die Umgebung. Wer
+        # danach setzt oder loescht, gewinnt -- andersherum holt die Datei den
+        # geloeschten Wert still zurueck.
+        from kegel_cv.config import load_config
+        cfg = load_config()
+        cfg.output.supabase.enabled = True
+        cfg.output.supabase.url = url
+        return cfg
+
+    def test_die_umgebung_gewinnt(self, monkeypatch):
+        from kegel_cv.sinks.factory import build_sink
+        cfg = self._cfg("https://ausderdatei.supabase.co")
+        monkeypatch.setenv("SUPABASE_KEY", "sb_secret_test")
+        monkeypatch.setenv("SUPABASE_URL", "https://ausderumgebung.supabase.co")
+        sink = build_sink(cfg)
+        assert "ausderumgebung" in sink.inner.endpoint
+
+    def test_ohne_umgebung_zaehlt_die_datei(self, monkeypatch):
+        from kegel_cv.sinks.factory import build_sink
+        cfg = self._cfg("https://ausderdatei.supabase.co")
+        monkeypatch.setenv("SUPABASE_KEY", "sb_secret_test")
+        monkeypatch.delenv("SUPABASE_URL", raising=False)
+        sink = build_sink(cfg)
+        assert "ausderdatei" in sink.inner.endpoint
+
+    def test_ohne_adresse_wird_nichts_versendet(self, monkeypatch, caplog):
+        """P8: Eine fehlende Adresse darf die Analyse nicht verhindern --
+        der Nutzer will seine Wuerfe sehen, auch ohne Datenbank."""
+        import logging
+        from kegel_cv.sinks.base import NullSink
+        from kegel_cv.sinks.factory import build_sink
+        cfg = self._cfg("")
+        monkeypatch.setenv("SUPABASE_KEY", "sb_secret_test")
+        monkeypatch.delenv("SUPABASE_URL", raising=False)
+        with caplog.at_level(logging.WARNING):
+            sink = build_sink(cfg)
+        assert isinstance(sink, NullSink)
+        assert any("Adresse" in s for s in caplog.messages), caplog.messages

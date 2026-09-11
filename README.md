@@ -1,19 +1,39 @@
-# Kegel_CV — Automatische Kegelerfassung aus Video
+# Kegel_CV — automatische Kegelerfassung aus Video
 
-Lokale Desktop-Anwendung, die aus Kegelbahn-Videos (FUNK-Anzeigetafeln, 4 Bahnen)
-jeden Wurf automatisch erfasst: gefallene Kegel, Anzahl, Wurfnummer, laufende
-Summe und Zwischensummen nach je 15 Würfen.
+Lokale Desktop-Anwendung, die aus einem Kegelbahn-Video oder Livestream jeden
+Wurf selbst erfasst: **welche Kegel gefallen sind, wie viele, auf welcher Bahn,
+wann.** Gelesen wird die Anzeigetafel der Anlage (FUNK), nicht die Kegel selbst.
 
-Leitgedanke: **robust, nachvollziehbar und debugbar** — nicht „möglichst viel KI".
-Jedes Ergebnis kann erklären, wie es zustande kam.
+Leitgedanke: **robust, nachvollziehbar und debugbar** — nicht „möglichst viel
+KI". Jedes Ergebnis trägt seine Herkunft mit sich: Frames, Messwerte,
+Entscheidungen.
+
+---
+
+## Was dabei herauskommt
+
+Gemessen gegen ein von Hand geführtes Wurfprotokoll (480 Würfe, 4 Bahnen,
+52 Minuten):
+
+| Bahn | erfasst | richtig |
+|---|---|---|
+| 2 | 100 % | **100 %** |
+| 3 | 100 % | **100 %** |
+| 4 | 100 % | **100 %** |
+| 5 | 100 % | 98,3 % |
+| **alle** | **100 %** | **99,6 %** |
+
+Alle sechzehn Sätze aufs Kegel genau (3224 gegen 3224). Die zwei Abweichungen
+liegen im Protokoll, nicht im Werkzeug — vom Autor des Protokolls bestätigt.
+
+Verarbeitung: rund 20–29 ms je Frame bei 40 ms Budget, also echtzeitfähig.
 
 ---
 
 ## Schnellstart
 
-Einmalig nach dem Klonen — ohne diesen Schritt findet Python das Paket nicht:
-
 ```bash
+python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e .
 ```
 
@@ -21,186 +41,296 @@ Einmalig nach dem Klonen — ohne diesen Schritt findet Python das Paket nicht:
 .venv/Scripts/python.exe -m kegel_cv.main
 ```
 
-Mit direktem Videostart:
+Optional direkt mit einem Video oder einer Kalibrierung:
 
 ```bash
-.venv/Scripts/python.exe -m kegel_cv.main --video "kegelVideos/2026-08-22 09-15-50.mp4"
+.venv/Scripts/python.exe -m kegel_cv.main --video "kegelVideos/spiel.mp4" --calibration data/calibrations/meine.json
 ```
+
+Als Quelle geht auch eine **Adresse**: HLS (`.m3u8`), RTSP, oder ein
+YouTube-Link — der wird mit `yt-dlp` aufgelöst.
 
 Tests:
 
 ```bash
-.venv/Scripts/python.exe -m pytest tests/unit -q
+.venv/Scripts/python.exe -m pytest tests -q
 ```
+
+**Ohne Datenbank läuft alles.** Der Versand ist der einzige Teil, der
+Zugangsdaten braucht; fehlen sie, meldet das Werkzeug es einmal im Protokoll
+und wertet weiter aus.
 
 ---
 
-## Bedienung
+## Bedienung in vier Schritten
 
-### 1. Video laden
-Rechts oben ein Video auswählen und auf **Laden** klicken (oder `Datei → Video öffnen`).
+### 1. Quelle laden
+
+Video aus der Liste wählen und **Laden**, oder eine Adresse in das Stream-Feld
+eintragen.
 
 | Taste | Wirkung |
 |---|---|
 | `Leertaste` | Wiedergabe / Pause |
-| `→` | ein Frame vor |
-| `←` | ein Frame zurück |
-| `Esc` | Kalibrierschritt abbrechen |
+| `→` / `←` | ein Frame vor / zurück |
+| `Esc` | laufenden Kalibrierschritt abbrechen |
 
-### 2. Bahn kalibrieren
-Auf **Bahn n kalibrieren** klicken, dann die vier Ecken der Anzeigetafel anklicken —
-in dieser Reihenfolge:
+### 2. Automatisch kalibrieren
 
-```
-   1 o-----------o 2      1 = oben links
-     |           |        2 = oben rechts
-     |  TAFEL    |        3 = unten rechts
-   4 o-----------o 3      4 = unten links
-```
+**Automatisch kalibrieren** zeigt die bekannten Kegelboard-Bauarten als Bilder.
+Eine anklicken — der Rest folgt aus dem Musterbild: Tafelecken, neun
+Kegellampen, grüne Lampe, alle Ziffernfelder.
 
-Die Reihenfolge ist verbindlich. Wird sie vertauscht, meldet die Anwendung das
-sofort, statt ein verdrehtes Tafelbild zu erzeugen. Mit **Punkt zurück** lässt sich
-der letzte Klick rückgängig machen.
+Danach wird gefragt, ob die Rahmen sitzen (mit Bild), und welche Bahnnummern
+die Tafeln von links nach rechts haben.
 
-### 3. Bereiche setzen
-Nach den Ecken sind alle 15 Bereiche bereits sinnvoll vorbelegt (gemessen am
-realen Material). Zum genauen Setzen:
+Steht die Anlage noch nicht in der Bibliothek: eine Tafel von Hand vermessen
+(**Geführt kalibrieren**) und über **Neues Board aufnehmen** dauerhaft merken.
+Danach findet das Werkzeug diese Bauart überall wieder — auch in einer anderen
+Halle.
 
-- **Bereiche anklicken (14)** — führt nacheinander durch alle Bereiche.
-  Jeweils in die **Mitte** des Elements klicken:
-  Kegellampe 1…9 → grüne Lampe → Kegelanzahl → Wurfnummer → Summe A → Summe B
-- **nur Raute** — setzt ausschließlich die neun Kegellampen neu
-- **überspringen** — lässt den aktuellen Bereich unverändert
-- Über die Auswahlliste lässt sich jeder Bereich einzeln neu setzen
+### 3. Nachkalibrieren, falls eine Tafel nicht sitzt
 
-Ein Klick außerhalb der Tafel wird abgelehnt statt an den Rand geschoben —
-eine falsch platzierte ROI würde sonst erst bei der Erkennung auffallen.
+**Nachkalibrieren** anklicken, dann die betroffene Tafel im Bild. Sie erscheint
+entzerrt und groß; dort lassen sich alle Bereiche ziehen:
 
-### 4. Live-Analyse
+- **Mitte ziehen** verschiebt, **Rand ziehen** ändert die Größe
+- **Pfeiltasten** verschieben um genau einen Tafelpixel
+- **Abbrechen** bleibt folgenlos, es wird auf Kopien gearbeitet
 
-**Analyse starten** wertet das Video durchgehend aus und zeigt pro Bahn live:
-grüne Lampe mit Score, Zustand der Zustandsmaschine und die gefallenen Kegel als
-Raute. Das Tempo ist umschaltbar (Echtzeit / halb / so schnell wie möglich) —
-beim Zuschauen ist Echtzeit meist nützlicher als Vollgas.
+Die Bereiche liegen auch im Livebild und lassen sich dort direkt anfassen —
+während der Analyse ebenso, die Änderung wird beim nächsten Frame übernommen.
 
-Erkannte Würfe erscheinen live in den Tabellen — mit Wurfnummer, Zyklusposition,
-Kegelzahl, laufender Summe und Status (farbig hinterlegt). Ein Tooltip auf jeder
-Zeile zeigt die vollständige Begründung: welche Frames, welche Messwerte, welche
-Prüfungen.
+### 4. Analyse starten
 
-Gemessen an `2026-08-22 09-24-46.mp4`: **1,8 ms pro Frame** für vier Bahnen
-inklusive Debug-Ausgabe, **27 Würfe in 4 Minuten Video, alle Summenketten
-stimmig**.
+Die Wurftabellen füllen sich live, je Bahn eine. Unter jeder steht, was der
+Ziffernleser gerade liest — grau, wenn er unsicher ist.
 
-**Kalibrierung prüfen** misst die grünen Lampen über mehrere hundert Frames und
-meldet pro Bahn, ob das Signal trägt:
-
-```
-Bahn 2: SCHWACH  (Score 27-59) -- nur 1 Frame im Zustand AN (Minimum 3),
-                  vermutlich Rauschen statt echtem Wechsel; ROI bitte prüfen.
-Bahn 3: OK       (Score 20-75) -- klarer Wechsel erkannt (44 AN / 78 AUS)
-Bahn 4: KEIN WECHSEL -- durchgehend AUS, auf dieser Bahn wurde nicht geworfen
-```
-
-Das lohnt sich direkt nach dem Kalibrieren: Eine ungenau gesetzte ROI erzeugt
-keinen Fehler, sondern ein schwaches Signal — die Analyse läuft dann scheinbar,
-erkennt aber nie einen Wurf.
-
-### 5. Kalibrierung speichern
-**Speichern** legt die Kalibrierung in `data/calibrations/` ab. Sie enthält die
-Videomaße, sodass beim Laden gewarnt wird, wenn sie nicht zum Video passt.
-
-> **Wichtig:** Die Overlay-Position unterscheidet sich zwischen Aufnahme-Sessions
-> (nachgemessen). Deshalb wird zu Beginn jedes Videos neu kalibriert bzw. die
-> passende gespeicherte Kalibrierung geladen.
+Jeder Lauf legt unter `debug/<quelle>/lauf_<zeit>/` ab: `wuerfe.csv`,
+`gruenspur.csv`, `lampenspur.csv`, Zyklusblätter und die Bildbelege je Ereignis.
 
 ---
 
-## Aufbau
+## Datenbank (optional)
+
+Jeder erkannte Wurf kann sofort als Zeile an eine **Supabase**-Tabelle gehen,
+damit ein Ticker oder der Spielleiter live mitliest.
+
+### Zugangsdaten
+
+`.env.example` nach `.env` kopieren und ausfüllen. Die Datei bleibt lokal
+(`.gitignore`), die Konfiguration enthält **weder Adresse noch Schlüssel**:
 
 ```
-Video → Frames → 4 Bahnen → ROIs → zeitliche Zustandsanalyse
-      → Ereignis → Frame-Sampling → Lampen/Ziffern → Wurfergebnis
-      → Plausibilitätsprüfung → GUI / Log / später API
+SUPABASE_URL=https://abcdefgh.supabase.co
+SUPABASE_KEY=sb_secret_...            # schreibend, für die Bilderkennung
+SUPABASE_READ_KEY=sb_publishable_...  # lesend, für den Liveticker
 ```
 
-```
-src/kegel_cv/
-├── config/       Konfiguration (YAML + Validierung)
-├── models/       Datenmodelle, Zähl- und Zykluslogik
-├── video/        VideoSource-Abstraktion (Datei heute, Stream später)
-├── calibration/  Homographie, ROIs, Persistenz
-├── detection/    Detektoren (Phase 4–7)
-├── analysis/     Sampling, Aggregation, Validierung (Phase 8–9)
-├── debug/        Frame- und Event-Logging
-├── sinks/        Ergebnisausgabe (API vorbereitet, nicht gebaut)
-└── gui/          PySide6-Oberfläche
-```
-
-Ausführlich: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-
----
-
-## Konfiguration
-
-Alle Parameter stehen in [`config/default.yaml`](config/default.yaml) — mit
-Begründung, und bei gemessenen Werten mit dem Messbeleg. Im Code stehen keine
-Magic Numbers.
+Dann in `config/default.yaml`:
 
 ```yaml
-detection:
-  green:
-    on_threshold: 45.0   # gemessen: AUS 17-24, AN 60-74 -> Mitte mit Reserve
-    off_threshold: 35.0  # Hysterese gegen Flattern bei Rauschen
+output:
+  supabase:
+    enabled: true
 ```
 
----
+### Die Tabelle anlegen
 
-## Dokumentation
+Im Supabase-Dashboard unter **SQL Editor**:
 
-| Datei | Inhalt |
-|---|---|
-| [`docs/VIDEO_ANALYSIS.md`](docs/VIDEO_ANALYSIS.md) | **Gemessene** Fakten über Material und Anzeigetafel |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architektur und Technologieentscheidungen |
-| [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Offene fachliche Fragen (bewusst nicht geraten) |
-| [`.claude/skills/ORCHESTRATION.md`](.claude/skills/ORCHESTRATION.md) | Projektzustand, Phasenplan, Skill-Landkarte |
-| [`.claude/skills/BUG_ORCHESTRATION.md`](.claude/skills/BUG_ORCHESTRATION.md) | Wie aus Bugs dauerhafter Schutz wird |
+```sql
+create table if not exists throws (
+    id            bigint generated always as identity primary key,
 
----
+    video_id      text,                 -- welche Aufnahme / Übertragung
+    lane          int  not null,        -- Bahnnummer laut Anzeigetafel
+    pins_count    int  not null,        -- gefallene Kegel in diesem Wurf
+    pins          int[],                -- welche Kegel (Nummern 1..9)
+    video_time_s  real,                 -- Zeitpunkt im Video
+    recorded_at   timestamptz not null default now(),
 
-## Werkzeuge
+    -- Der Beleg zum Wert: die eingemessene Anzeigetafel als Base64-JPEG
+    board_jpeg        text,
+    board_before_jpeg text
+);
+
+create index if not exists throws_lane_time on throws (lane, recorded_at desc);
+```
+
+Damit Abonnenten sofort benachrichtigt werden (der Liveticker nutzt das):
+
+```sql
+alter publication supabase_realtime add table throws;
+```
+
+### Rechte: lesen ja, schreiben nein
+
+Der Liveticker läuft im Browser und trägt seinen Schlüssel offen mit sich. Das
+ist genau die Aufgabe eines *publishable key* — **aber nur, solange die Rolle
+`anon` wirklich nur lesen darf.** Zwei Schichten, beide empfohlen:
+
+```sql
+-- 1. Tabellenrechte: anon darf ausschliesslich lesen
+revoke insert, update, delete on public.throws from anon;
+grant select on public.throws to anon;
+
+-- 2. Row Level Security als zweite Schicht. Ohne die Policy koennte
+--    anschliessend NIEMAND mehr lesen -- beides gehoert zusammen.
+alter table public.throws enable row level security;
+
+create policy "throws oeffentlich lesbar"
+    on public.throws for select
+    to anon
+    using (true);
+```
+
+Der **geheime** Schlüssel (`sb_secret_…`, Rolle `service_role`) umgeht beides —
+deshalb schreibt die Bilderkennung weiterhin. Sie läuft lokal und ist kein
+Browser; dort ist er richtig aufgehoben.
+
+Nachsehen, ob es greift:
+
+```sql
+select relrowsecurity from pg_class where relname = 'throws';
+
+select grantee, privilege_type
+  from information_schema.role_table_grants
+ where table_name = 'throws' and grantee = 'anon';
+```
+
+Und von außen, mit dem öffentlichen Schlüssel — ein Schreibversuch muss
+`401` mit Code `42501` liefern:
 
 ```bash
-# ROI-Platzierung visuell prüfen (Ergebnisse in debug/roi_check/)
-.venv/Scripts/python.exe tools/verify_rois.py --frame 90
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "$SUPABASE_URL/rest/v1/throws" \
+  -H "apikey: $SUPABASE_READ_KEY" -H "Content-Type: application/json" \
+  -d '{"lane":-1,"pins_count":0,"pins":[]}'
+```
 
-# gegen eine gespeicherte Kalibrierung
-.venv/Scripts/python.exe tools/verify_rois.py --calibration data/calibrations/meine.json
+### Was in der Tabelle steht — und was nicht
+
+**Übertragen wird nur, was gemessen ist:** Bahn, Anzahl Kegel, Kegelnummern,
+Zeitstempel. Wurfnummer, laufende Summe, Zyklus, Spielnummer und
+Zwischensummen werden zwar berechnet und angezeigt, aber **nicht gesendet**.
+
+Der Grund ist Erfahrung: Genau diese abgeleiteten Größen sind schiefgegangen.
+Die aus der Anzeige gelesene Wurfnummer löschte einmal 28 % der Würfe. Alle
+setzen Regelwissen voraus — wann ein Bahnwechsel ansteht, wann ein Spiel endet,
+wie gewertet wird —, das die auswertende Anwendung besser kennt als eine
+Bilderkennung.
+
+Die Spalten `throw_number`, `running_total`, `status`, `cycle` und `game`
+existieren aus der Frühzeit noch und sind bei neuen Zeilen **`null`**. Wer
+darauf aufbaut, baut auf Sand.
+
+Nützliche Abfragen für eine lesende Anwendung:
+
+```sql
+-- Die letzten Würfe, neueste zuerst (ohne die grossen Bildspalten)
+select id, lane, pins_count, pins, video_time_s, recorded_at
+  from throws
+ order by id desc
+ limit 50;
+
+-- Gefallene Kegel je Bahn in dieser Übertragung
+select lane, count(*) as wuerfe, sum(pins_count) as kegel
+  from throws
+ where video_id = '...'
+ group by lane
+ order by lane;
+
+-- Das Tafelbild eines einzelnen Wurfs -- erst auf Anforderung holen,
+-- die Spalte ist gross.
+select board_jpeg from throws where id = 1234;
+```
+
+`recorded_at` ist die Wanduhrzeit des Versands, `video_time_s` die Position in
+der Aufzeichnung. Innerhalb eines Laufs sortiert `video_time_s` je `lane`
+verlässlicher.
+
+---
+
+## Liveticker
+
+Eine kleine Weboberfläche, die die Tabelle live mitliest:
+
+```bash
+.venv/Scripts/python.exe apps/liveticker/start.py --bahnen 2,3,4,5
+```
+
+Zum Veröffentlichen als **eine einzige HTML-Datei**, ohne externe Verweise:
+
+```bash
+.venv/Scripts/python.exe apps/liveticker/build.py --bahnen 2,3,4,5
+```
+
+Beide nehmen `SUPABASE_READ_KEY` mit Vorrang und **brechen ab**, sobald der
+Wert nach `sb_secret_` oder `service_role` aussieht. Einzelheiten:
+[`apps/liveticker/README.md`](apps/liveticker/README.md).
+
+---
+
+## Wie es arbeitet
+
+```
+Video/Stream ─► grüne Lampe (billig, jeder Frame)
+                    │  geht sie aus, ist ein Wurf gefallen
+                    ▼
+               Frames um das Ereignis sammeln
+                    │
+                    ▼
+         9 Kegellampen  +  Ziffernfelder  ─►  Wurf + Beweiskette
+```
+
+Vier Grundsätze, die den Aufbau erklären:
+
+- **Billige Trigger steuern teure Analyse.** Kein Frame-für-Frame-ML.
+- **Die vier Bahnen sind unabhängig.** Nie synchrone Ereignisse annehmen.
+- **Ein einzelner Frame entscheidet nichts.** Ziffern flackern, Lampen blinken
+  (gemessen: Periode 28–30 Frames).
+- **Widersprüchliche Quellen werden nicht „wegentschieden".** Die Redundanz
+  existiert, um Fehler zu zeigen.
+
+Die Kegelzahl kommt aus den **Lampen**, nicht aus den Ziffern; die Ziffern sind
+Gegenprobe. Deshalb trägt ein Lesefehler nicht bis ins Ergebnis.
+
+---
+
+## Ordner
+
+```
+config/default.yaml    alle Parameter, mit Messbeleg im Kommentar
+data/boardtypes/       bekannte Kegelboard-Bauarten (Musterbild + Bereiche)
+data/calibrations/     gespeicherte Kalibrierungen
+src/kegel_cv/          video/ calibration/ detection/ analysis/ sinks/ gui/
+tools/                 Mess- und Prüfwerkzeuge (nicht Teil der Anwendung)
+apps/liveticker/       Weboberfläche zum Mitlesen
+docs/                  gemessene Fakten, Architektur, offene Fragen
+tests/                 über 1000 Tests
+```
+
+Nützliche Werkzeuge:
+
+```bash
+tools/verify_rois.py              # Bildbeleg der kalibrierten Bereiche
+tools/compare_protocol.py         # Lauf gegen ein Wurfprotokoll vergleichen
+tools/measure_gruen_trennschaerfe.py   # trennt die grüne Lampe sauber AN/AUS?
+tools/measure_lampenmitte.py      # sitzen die Lampen-ROIs auf den Lampen?
 ```
 
 ---
 
 ## Stand
 
-| Phase | Inhalt | Status |
-|---|---|---|
-| 0 | Analyse von Material und Anzeigetafel | ✅ |
-| 1 | Video-Player | ✅ |
-| 2 | Kalibrierung (Ecken, Homographie, Speichern) | ✅ |
-| 3 | ROI-Konfiguration per Klick, mit Zoom | ✅ |
-| 4 | Grünlampen-Erkennung, Zustandsmaschine | ✅ |
-| 5 | Frame-Sampling rund um das Ereignis | ✅ |
-| 6 | Lampenerkennung (9 Kegel) | ✅ |
-| 7 | Ziffernerkennung (7-Segment) | 🔨 ~60 %, siehe `docs/VIDEO_ANALYSIS.md` |
-| 8 | Wurferkennung, Double-Counting-Schutz | ✅ |
-| 9 | Summen und 15-Wurf-Zyklen | ✅ |
-| 10 | Live-Analyse mit Wurftabellen | ✅ |
-| 11 | Robustheit & Performance | offen |
-| 12 | API-Anbindung | bewusst zurückgestellt |
+Fertig und am Material gemessen: Videoquelle (Datei, Stream, YouTube),
+Kalibrierung (automatisch und von Hand), Grün- und Lampenerkennung,
+Wurferkennung, Summen und Zyklen, Live-Oberfläche, Versand, Liveticker.
 
----
+Offen: Die **Ziffernerkennung** liegt bei rund 96 % auf den sicher prüfbaren
+Feldern und ist deshalb weiterhin nur Gegenprobe, nicht Quelle. Was sie gerade
+liest, steht in der Oberfläche unter jeder Bahn — genau dafür.
 
-## Voraussetzungen
-
-Python 3.10+, Abhängigkeiten in [`pyproject.toml`](pyproject.toml):
-OpenCV, NumPy, PySide6, PyYAML, pydantic. GPU wird nicht vorausgesetzt.
+Einzelheiten zum Projektzustand: `.claude/skills/ORCHESTRATION.md`.
+Gemessene Fakten über das Material: `docs/VIDEO_ANALYSIS.md`.
