@@ -2152,3 +2152,36 @@ Relativ zur Tafel und nicht in Pixeln, weil die Pixelzahl an Kamera und
 Abstand haengt, das Verhaeltnis zur Tafel aber nicht. Wirkung an 6000
 Ausschnitten: **27,9 % geschwaerzt bei Verdeckung, 0,09 % im Normalbetrieb** --
 die Ziffern bleiben lesbar.
+
+### Nachtrag am selben Tag: der erste Anlauf sah den Stillstehenden nicht
+
+Die Schwaerzung menschgrosser BEWEGTER Flecken (oben) ging an dem Fall vorbei,
+der den Befund ausgeloest hat. GEMESSEN am Mitschnitt vom 2026-09-08, Bahn 2,
+Frame 13489 -- ein Mensch beugt sich ueber die Tafel und ist im Bild voll zu
+sehen:
+
+```
+Verdeckung (Bewegung)                    0,081   Schwelle 0,14
+groesster bewegter Fleck auf der Tafel   0,09 Tafelflaechen
+```
+
+Er steht still und ist ins Hintergrundmodell gewandert -- die Grenze, die in
+`person_maske.py` seit jeher steht, hier zum ersten Mal mit Folgen.
+
+**`analysis/tafel_wache.py`** tritt an seine Stelle: eine Referenz der eigenen
+Tafel, die NUR nachlernt, wenn die Tafel normal aussieht. Dann kann niemand
+hineinwandern, egal wie lange er steht.
+
+| | Abweichung auf den stabilen Pixeln |
+|---|---|
+| Normalbetrieb (2705 Messungen) | Median 1,41 %, 95. Perzentil 2,55 % |
+| Mensch davor | 11,9 bis 14,1 % |
+
+14,27 % ist zugleich das Maximum des ganzen Mitschnitts -- es gab genau dieses
+eine Ereignis, und genau dort steht das Bild mit dem Gesicht.
+
+**Die Lehre, die ueber diesen Fall hinausgeht:** Eine Messung an bewegten
+Menschen beweist nichts ueber stillstehende. Der erste Anlauf war gemessen und
+trotzdem falsch, weil die Stichprobe den Fall nicht enthielt, um den es ging.
+Wer eine Schutzmassnahme misst, muss sie an dem Fall messen, der sie ausgeloest
+hat.

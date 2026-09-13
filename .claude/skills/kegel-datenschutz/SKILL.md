@@ -25,7 +25,7 @@ gebrochen.
 
 | Weg | Was drauf ist | Wo geschwaerzt wird |
 |---|---|---|
-| `board_jpeg` in der Datenbank / Liveticker | Tafelausschnitt | `board_image.schwaerze_menschen` |
+| `board_jpeg` in der Datenbank / Liveticker | Tafelausschnitt | `TafelWache` ueber `board_image.schwaerze_fremdes` |
 | `board_before_jpeg` | Tafelausschnitt vor dem Wurf | dieselbe Stelle |
 | Debugbilder je Ereignis (`FrameLogger`) | ganze Frames | `PersonMaske` (Frame ist schon maskiert) |
 | Wurfblaetter (`ThrowSheet`) | Ausschnitte | ueber die maskierten Frames |
@@ -60,42 +60,42 @@ Das war als Erfolgskriterium gedacht und war die Ursache. **Ein Test, der
 prueft, dass irgendwo NICHT geschwaerzt wird, gehoert immer mit der Frage
 verbunden, ob aus genau dieser Stelle etwas hinausgeht.**
 
-## Die Loesung: zweimal schwaerzen, mit verschiedenen Schranken
+## Die Loesung: zwei Verfahren fuer zwei verschiedene Faelle
 
 * **Analysebild** -- Tafelbereiche ausgenommen, wie bisher. Was gemessen wird,
   bleibt roh.
 * **Veroeffentlichtes Bild** -- der Tafelausschnitt wird ein zweites Mal
-  geschwaerzt, mit einer viel hoeheren Fleckenschranke
-  (`person_min_blob_boards`, in TAFELFLAECHEN).
+  geschwaerzt, und zwar von der `TafelWache` (`analysis/tafel_wache.py`).
 
-Warum eine zweite, hoehere Schranke: Auf der Tafel ist alles bewegter
-Vordergrund, was leuchtet. GEMESSEN 2026-09-13, Flecken, die einen
-Tafelbereich beruehren:
-
-```
-Mensch                    2,86 Tafelflaechen
-groesster Nicht-Mensch    0,18 Tafelflaechen   (wechselnde Ziffernzeile)
-```
-
-Warum RELATIV zur Tafel und nicht in Pixeln: Wie viele Pixel ein Mensch
-bedeckt, haengt an Kamera, Abstand und Aufloesung -- sein Verhaeltnis zur Tafel
-nicht.
-
-Wirkung, gemessen an 6000 Tafelausschnitten:
+WARUM NICHT DIESELBE BEWEGUNGSMASKE: Sie sieht nur, was sich bewegt. Wer
+stillsteht, wandert ins Hintergrundmodell. GEMESSEN am Mitschnitt vom
+2026-09-08, Frame 13489 -- ein Mensch beugt sich ueber die Tafel und ist im
+Bild voll zu sehen:
 
 ```
-bei gemeldeter Verdeckung   27,9 % der Flaeche geschwaerzt
-im Normalbetrieb             0,09 %
+Verdeckung (Bewegung)                    0,081   Schwelle 0,14
+groesster bewegter Fleck auf der Tafel   0,09 Tafelflaechen
+```
+
+Die Wache haelt stattdessen eine Referenz der eigenen Tafel und **lernt nur
+nach, wenn diese normal aussieht**. Damit kann niemand hineinwandern, egal wie
+lange er steht. Verglichen wird auf den stabilen Pixeln.
+
+```
+Normalbetrieb    Median 1,41 %   95. Perzentil 2,55 %
+Mensch davor     11,9 bis 14,1 %
 ```
 
 ## Was das Verfahren nicht kann
 
-* **Wer minutenlang stillsteht**, wandert ins Hintergrundmodell und wird nicht
-  mehr geschwaerzt (`history`, Vorgabe 500 Frames). Fuer die Verdeckungsbremse
-  unerheblich, fuer den Datenschutz eine echte Luecke.
-* **Ein Gesicht am Rand der Tafel**, kleiner als eine halbe Tafelflaeche,
-  bleibt stehen. Die Schranke trennt Mensch von Ziffernzeile, nicht Mensch von
-  Kleinigkeit.
+* **Wer minutenlang stillsteht**, wandert im uebrigen Bild ins
+  Hintergrundmodell und wird dort nicht mehr geschwaerzt (`history`, Vorgabe
+  500 Frames). AUF DER TAFEL faengt die Wache ihn -- ausserhalb nicht.
+* **Eine langsame Veraenderung** lernt die Wache mit. Wer sich Zentimeter fuer
+  Zentimeter vor die Tafel schiebt, kann unter der Nachlernschwelle bleiben.
+  Gemessen ist das nicht; es gehoert nachgesehen, wenn Material dazu auftaucht.
+* **Die Wache braucht eine Einlernzeit.** Vor der ersten sauberen Referenz
+  meldet sie nichts.
 * **Namen auf der Tafel.** Die Anlage zeigt in der oberen Leiste den
   Spielernamen. Der steht im Tafelbild und wird nicht geschwaerzt -- er gehoert
   zur Anzeige, nicht zum Hintergrund. Ob das gewollt ist, ist eine
@@ -106,6 +106,6 @@ im Normalbetrieb             0,09 %
 1. Schneidet der neue Weg aus dem **maskierten** Frame? (`pipeline.process`
    ersetzt `frame.image` -- alles danach sieht das geschwaerzte Bild.)
 2. Schneidet er aus einem **Tafelbereich**? Dann braucht er zusaetzlich
-   `schwaerze_menschen`.
-3. Stammt sein Frame aus dem **Ringpuffer**? Dann braucht er die Maske dieses
-   Frames -- `AnalysisPipeline.menschen_von(frame_index)`.
+   `LaneProcessor.fremdmaske(bild)` und `schwaerze_fremdes`.
+3. Stammt sein Frame aus dem **Ringpuffer**? Kein Problem: Die Wache vergleicht
+   gegen ihre Referenz, nicht gegen den Nachbarframe.

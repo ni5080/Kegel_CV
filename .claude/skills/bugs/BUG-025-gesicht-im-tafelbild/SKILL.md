@@ -52,17 +52,44 @@ verbunden, **ob aus genau dieser Stelle etwas hinausgeht**.
 Die zweite Lehre: Der Nutzer hat es an der ANWENDUNG gesehen, nicht am Code.
 Ein Datenschutzversprechen gehoert dort geprueft, wo die Bilder ankommen.
 
-## Behebung
+## Behebung -- in zwei Anlaeufen, und der erste war falsch
 
-Zweimal schwaerzen, mit verschiedenen Schranken:
+**Erster Anlauf (verworfen):** menschgrosse BEWEGTE Flecken auch auf der Tafel
+schwaerzen. Er ging an genau dem Fall vorbei, der den Befund ausgeloest hat.
 
-* Analysebild -- Tafelbereiche ausgenommen, unveraendert.
-* Veroeffentlichtes Bild -- `board_image.schwaerze_menschen`, mit einer
-  Schranke in TAFELFLAECHEN (`person_min_blob_boards`, Vorgabe 0,5).
+GEMESSEN am Mitschnitt vom 2026-09-08, Bahn 2, Frame 13489 -- ein Mensch beugt
+sich ueber die Tafel und ist im Bild voll zu sehen:
 
-Gemessen: Mensch 2,86 Tafelflaechen, groesster Nicht-Mensch 0,18. Wirkung an
-6000 Ausschnitten: 27,9 % geschwaerzt bei Verdeckung, 0,09 % im Normalbetrieb.
+```
+Verdeckung (Bewegung)                    0,081   Schwelle 0,14
+groesster bewegter Fleck auf der Tafel   0,09 Tafelflaechen
+```
 
-Die Maske eines vergangenen Frames haelt die Pipeline vor
-(`menschen_von(frame_index)`) -- ein Tafelbild stammt aus einem gesampelten
-Frame, nicht aus dem aktuellen.
+**Er steht still.** Das Hintergrundmodell hat ihn aufgenommen; als Vordergrund
+bleiben nur seine bewegten Raender. Das ist kein Fehler im Verfahren, sondern
+das Verfahren -- die Grenze steht seit jeher in `person_maske.py`, hier zum
+ersten Mal mit Folgen.
+
+**Zweiter Anlauf: `analysis/tafel_wache.py`.** Eine Referenz der eigenen Tafel,
+die NUR nachlernt, wenn die Tafel normal aussieht. Damit kann niemand
+hineinwandern, egal wie lange er steht. Verglichen wird auf den stabilen Pixeln
+(Gehaeuse, Fensterrahmen) -- dieselbe Maske, mit der die Tafel gefunden wird.
+
+GEMESSEN ueber 2705 Messungen aus 15 Minuten:
+
+```
+Normalbetrieb    Median 1,41 %   95. Perzentil 2,55 %
+Mensch davor     11,9 bis 14,1 %   (zugleich das Maximum des Laufs)
+```
+
+Die Schwelle liegt bei 5 % in der Luecke. Die Fremdmaske wird geschlossen und
+im Verhaeltnis zur Tafelkante verbreitert -- ein halb geschwaerztes Gesicht ist
+kein geschwaerztes Gesicht.
+
+## Die dritte Lehre
+
+**Eine Messung an bewegten Menschen beweist nichts ueber stillstehende.** Der
+erste Anlauf war gemessen (27,9 % geschwaerzt bei Verdeckung, 0,09 % im
+Normalbetrieb) -- die Messung war richtig und die Antwort trotzdem falsch,
+weil die Stichprobe den Fall nicht enthielt, um den es ging. Wer eine
+Schutzmassnahme misst, muss sie an dem Fall messen, der sie ausgeloest hat.
