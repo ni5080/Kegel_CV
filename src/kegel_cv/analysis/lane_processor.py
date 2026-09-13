@@ -214,6 +214,11 @@ class LaneProcessor:
         self._before_pins: PinLampReading | None = None
         # Wird von der Pipeline gesetzt. None heisst: keine Spur.
         self.lamp_trace = None
+        # Nachschlagefunktion Frame-Index -> (Menschenmaske, Raster). Ebenfalls
+        # von der Pipeline gesetzt; ohne sie geht der Tafelausschnitt
+        # unveraendert hinaus. Sie wird NUR fuer Bilder gebraucht, die
+        # veroeffentlicht werden -- die Messung liest den Ausschnitt roh.
+        self.menschen_von = None
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
         # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
@@ -632,7 +637,8 @@ class LaneProcessor:
                     (frame.index, frame.timestamp,
                      self._wurfnummer_lesen(frame),
                      encode_board(frame.image, self.lane_box(),
-                                  self.cfg.output.board_image_quality)))
+                                  self.cfg.output.board_image_quality,
+                                  *self._menschen(frame.index))))
         else:
             log.info("Bahn %d: Fehlwurfzaehler faellt %d -> %d bei Frame %d "
                      "-- Spielwechsel, kein Wurf", self.display_number,
@@ -726,6 +732,16 @@ class LaneProcessor:
         `AnalysisPipeline._aggregate_pins`.
         """
         return self._read_pin_lamps(frame, is_result=False)
+
+    def _menschen(self, frame_index: int):
+        """(Maske, Raster) fuer diesen Frame -- oder (None, 1).
+
+        Ohne die Pipeline gibt es keine Maske; dann geht der Ausschnitt
+        unveraendert hinaus, so wie bis zum 2026-09-13 immer.
+        """
+        if self.menschen_von is None:
+            return None, 1
+        return self.menschen_von(frame_index)
 
     def read_digits(self, frame: Frame) -> dict[str, DigitReading]:
         """Liest alle Ziffernfelder eines Frames.
@@ -1003,7 +1019,8 @@ class LaneProcessor:
             self._green_on_frame = frame.index
             self._board_before = encode_board(
                 frame.image, self.lane_box(),
-                self.cfg.output.board_image_quality)
+                self.cfg.output.board_image_quality,
+                *self._menschen(frame.index))
             # Gruen wieder an -> das Fenster ist zu Ende. Ist der Wurf zu diesem
             # Zeitpunkt noch offen (Wartezeit 0 oder Gruen kam frueher zurueck
             # als die Wartezeit), wird er JETZT abgeschlossen.

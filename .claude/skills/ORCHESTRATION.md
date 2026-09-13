@@ -2117,3 +2117,38 @@ Entscheidungen dahinter:
 Fehlt beim Anwenden eine Tafelposition (es wurden weniger Tafeln gefunden als
 beim Merken), bleibt sie unveraendert -- sonst landete die Korrektur der
 dritten Tafel auf der zweiten.
+
+### Gesichter im Tafelbild -- der Ausgang, den die Maske aussparte (2026-09-13)
+
+Vom Nutzer im Liveticker gesehen: *"sieht man sehr haeufig noch Gesichter ->
+immer dann, wenn sie Phantomwuerfe erzeugen."*
+
+Die Personenmaske schwaerzt bewegten Vordergrund, nimmt aber die Tafelbereiche
+aus -- zu Recht, dort steht das Signal. Genau dieses Rechteck geht als
+`board_jpeg` an die Datenbank. Wer vor der Tafel stand, war im ganzen Bild
+geschwaerzt, nur nicht dort, wo alle hinsehen. Die Haeufung hat denselben
+Grund wie das Bild: Dieselbe Person erzeugt den Phantomwurf.
+
+BELEGT an der Produktivdatenbank, 1000 Bilder: **21 % der Wuerfe mit "0 Kegel"
+zeigen eine verdeckte Tafel, gegen 0,8 % der uebrigen.**
+
+**Meine eigene Pruefung hatte den Befund gelobt** -- sie meldete "Bilder mit
+Schwaerzung IN einem Tafelbereich: 0 (muss 0 sein)". Als Erfolgskriterium
+formuliert, und es war die Ursache. Siehe BUG-025 und den neuen Skill
+`kegel-datenschutz`.
+
+Behoben durch zweimaliges Schwaerzen mit verschiedenen Schranken: Das
+Analysebild bleibt wie es war, der VEROEFFENTLICHTE Ausschnitt bekommt eine
+zweite Maske mit einer Schranke in TAFELFLAECHEN (`person_min_blob_boards`).
+
+GEMESSEN, Flecken die einen Tafelbereich beruehren:
+
+```
+Mensch                    2,86 Tafelflaechen
+groesster Nicht-Mensch    0,18 Tafelflaechen   (wechselnde Ziffernzeile)
+```
+
+Relativ zur Tafel und nicht in Pixeln, weil die Pixelzahl an Kamera und
+Abstand haengt, das Verhaeltnis zur Tafel aber nicht. Wirkung an 6000
+Ausschnitten: **27,9 % geschwaerzt bei Verdeckung, 0,09 % im Normalbetrieb** --
+die Ziffern bleiben lesbar.

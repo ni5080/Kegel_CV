@@ -744,6 +744,25 @@ class PersonMaskConfig(BaseModel):
     # Im ersten Frame ist alles Vordergrund -- gemessen 1,0 auf allen
     # vier Bahnen. Ohne diese Sperre faellt jeder Laufstart in die Bremse.
     warmup_frames: int = Field(default=60, ge=0)
+    # Ab dieser Groesse gilt ein Fleck als MENSCH und wird auch AUF der Tafel
+    # geschwaerzt -- aber nur in Bildern, die veroeffentlicht werden, nie in
+    # dem, was gemessen wird. Angegeben in TAFELFLAECHEN.
+    #
+    # ANLASS (Nutzer, 2026-09-13): "im Liveticker sieht man sehr haeufig noch
+    # Gesichter -> immer dann, wenn sie Phantomwuerfe erzeugen." Die
+    # Tafelbereiche sind vom Schwaerzen ausgenommen, weil dort das Signal
+    # steht -- und genau dieses Rechteck geht als `board_jpeg` hinaus.
+    # BELEGT an der Produktivdatenbank: Von 1000 Bildern zeigen 21 % der
+    # Wuerfe "0 Kegel" eine verdeckte Tafel, gegen 0,8 % der uebrigen.
+    #
+    # WARUM RELATIV: Wie viele Pixel ein Mensch bedeckt, haengt an Kamera und
+    # Abstand; sein Verhaeltnis zur Tafel nicht. GEMESSEN 2026-09-13, Flecken,
+    # die einen Tafelbereich beruehren:
+    #     Mensch                       2,86 Tafelflaechen
+    #     groesster Nicht-Mensch       0,18 Tafelflaechen
+    # 0,5 liegt in der Luecke, mit Abstand zu beiden Seiten. 0 schaltet das
+    # Schwaerzen auf der Tafel ab.
+    person_min_blob_boards: float = Field(default=0.5, ge=0.0)
 
 
 class DetectionConfig(BaseModel):

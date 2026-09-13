@@ -68,6 +68,23 @@ class MaskenErgebnis:
     verdeckung: dict[int, float] = field(default_factory=dict)
     verdeckte_bahnen: frozenset[int] = frozenset()
     geschwaerzte_pixel: int = 0
+    # Menschen AUCH IN den Tafelbereichen, im verkleinerten Raster.
+    #
+    # WOFUER -- Befund des Nutzers am 2026-09-13: "im Liveticker, wo ja
+    # mittlerweile Bilder angezeigt werden, sieht man sehr haeufig noch
+    # Gesichter -> Immer dann, wenn sie Phantomwuerfe erzeugen."
+    #
+    # Und so war es: Die Tafelbereiche sind vom Schwaerzen ausgenommen (dort
+    # steht das Signal), und genau dieses Rechteck wird als `board_jpeg`
+    # verschickt. Wer vor der Tafel steht, wurde ueberall geschwaerzt -- nur
+    # nicht dort, wo das veroeffentlichte Bild herkommt. Dieselbe Person
+    # erzeugt den Phantomwurf, deshalb die Haeufung.
+    #
+    # Diese Maske traegt NUR menschgrosse Flecken (siehe `person_min_blob_px`)
+    # und wird ausschliesslich auf BILDER angewandt, die das Haus verlassen --
+    # nie auf das, was gemessen wird.
+    menschen: np.ndarray | None = None
+    raster: int = 1
 
 
 class PersonMaske:
@@ -81,12 +98,14 @@ class PersonMaske:
     def __init__(self, *, history: int = 500, var_threshold: float = 32.0,
                  scale: int = 4, min_blob_px: int = 400,
                  dilate_px: int = 9, occlusion_fraction: float = 0.14,
-                 warmup_frames: int = 60, enabled: bool = True) -> None:
+                 warmup_frames: int = 60, enabled: bool = True,
+                 person_min_blob_boards: float = 0.5) -> None:
         if scale < 1:
             raise ValueError("scale muss mindestens 1 sein")
         self.enabled = enabled
         self.scale = scale
         self.min_blob_px = min_blob_px
+        self.person_min_blob_boards = person_min_blob_boards
         self.dilate_px = dilate_px
         self.occlusion_fraction = occlusion_fraction
         self.warmup_frames = warmup_frames
@@ -142,6 +161,10 @@ class PersonMaske:
         if self._frames <= self.warmup_frames:
             verdeckung = {nr: 0.0 for nr in verdeckung}
 
+        # Menschgrosse Flecken -- die duerfen auch AUF der Tafel geschwaerzt
+        # werden, allerdings nur in Bildern, die veroeffentlicht werden.
+        menschen = self._nur_menschen(maske)
+
         voll = cv2.resize(maske, (w, h), interpolation=cv2.INTER_NEAREST)
         voll = self._schuetze_tafeln(voll)
 
@@ -152,7 +175,48 @@ class PersonMaske:
                 nr for nr, anteil in verdeckung.items()
                 if anteil > self.occlusion_fraction),
             geschwaerzte_pixel=int(cv2.countNonZero(voll)),
+            menschen=menschen,
+            raster=self.scale,
         )
+
+    def _nur_menschen(self, maske: np.ndarray) -> np.ndarray | None:
+        """Behaelt nur Flecken, die zu gross fuer eine Anzeige sind.
+
+        WARUM EINE ZWEITE, VIEL HOEHERE SCHRANKE: Innerhalb der Tafel ist
+        alles bewegter Vordergrund, was leuchtet oder sich aendert. Die
+        gewoehnliche Schranke (`min_blob_px`, gegen Kugel und fallenden Kegel)
+        reicht dort nicht -- eine gleichzeitig wechselnde Ziffernzeile bildet
+        einen Fleck, der sie ueberschreitet.
+
+        WARUM RELATIV ZUR TAFEL und nicht in Pixeln: Wie viele Pixel ein
+        Mensch bedeckt, haengt an Kamera, Abstand und Aufloesung. Sein
+        Verhaeltnis zur Tafel haengt daran nicht -- wer die Tafel verdeckt,
+        ist so gross wie sie.
+
+        GEMESSEN 2026-09-13 an 1500 Frames, Flecken, die einen Tafelbereich
+        beruehren, gerechnet in Tafelflaechen (die Tafel misst dort 152x152):
+
+            bei gemeldeter Verdeckung   66 032 px  =  2,86 Tafeln
+            im Normalbetrieb, groesster  4 048 px  =  0,18 Tafeln
+
+        Dazwischen liegt der Faktor 16. Die Vorgabe 0,5 sitzt mit Abstand zu
+        beiden Seiten: dreimal ueber dem groessten Nicht-Menschen, sechsmal
+        unter dem Menschen.
+        """
+        if self.person_min_blob_boards <= 0 or not self._tafeln:
+            return None
+        flaechen = [w * h for _, _, w, h in self._tafeln.values()]
+        if not flaechen:
+            return None
+        schwelle_voll = self.person_min_blob_boards * (sum(flaechen) / len(flaechen))
+        schwelle = max(1, int(schwelle_voll / (self.scale * self.scale)))
+        anzahl, marken, stats, _ = cv2.connectedComponentsWithStats(
+            (maske > 0).astype(np.uint8), connectivity=8)
+        behalten = np.zeros_like(maske)
+        for i in range(1, anzahl):
+            if stats[i, cv2.CC_STAT_AREA] >= schwelle:
+                behalten[marken == i] = 255
+        return behalten if cv2.countNonZero(behalten) else None
 
     @staticmethod
     def _schwaerze(bild: np.ndarray, voll: np.ndarray) -> np.ndarray:

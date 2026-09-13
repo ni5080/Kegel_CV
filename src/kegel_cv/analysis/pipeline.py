@@ -8,8 +8,8 @@ spaeter unveraendert mit einem Livestream betreiben.
 from __future__ import annotations
 
 import logging
-from collections import Counter
 import time
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field, replace
 
 from ..calibration.model import Calibration
@@ -101,7 +101,8 @@ class AnalysisPipeline:
             history=m.history, var_threshold=m.var_threshold, scale=m.scale,
             min_blob_px=m.min_blob_px, dilate_px=m.dilate_px,
             occlusion_fraction=m.occlusion_fraction,
-            warmup_frames=m.warmup_frames, enabled=m.enabled)
+            warmup_frames=m.warmup_frames, enabled=m.enabled,
+            person_min_blob_boards=m.person_min_blob_boards)
         self._verdeckt_gemeldet: set[int] = set()
         self.buffer = FrameBuffer(cfg.processing.frame_buffer_size)
         self.performance = PerformanceMonitor()
@@ -115,6 +116,15 @@ class AnalysisPipeline:
                                     takt=cfg.debug.lamp_trace_interval)
         for processor in self.processors:
             processor.lamp_trace = self.lamp_trace
+            processor.menschen_von = self.menschen_von
+        # Die Menschenmasken der letzten Frames -- genauso viele wie der
+        # Ringpuffer haelt. Ein Tafelbild stammt aus einem gesampelten Frame,
+        # nicht aus dem aktuellen; ohne diesen Vorrat waere zum Zeitpunkt des
+        # Bildes nicht mehr bekannt, wo damals jemand stand.
+        #
+        # Gespeichert wird die VERKLEINERTE Maske (Raster 4): 130 KB je Frame
+        # statt 2 MB, und feiner muss es zum Schwaerzen nicht sein.
+        self._menschen: OrderedDict[int, tuple] = OrderedDict()
         # Jeder erkannte Wurf sofort als CSV-Zeile. Ohne sie gibt es die
         # Ergebnisse eines Laufs nur ueber einen ZWEITEN Durchlauf mit den
         # Werkzeugen -- an einem Spieltag laeuft die Analyse aber genau einmal.
@@ -217,6 +227,7 @@ class AnalysisPipeline:
         maskiert = self.person_maske.verarbeite(frame.image)
         if maskiert.bild is not frame.image:
             frame = replace(frame, image=maskiert.bild)
+        self._merke_menschen(frame.index, maskiert)
 
         for processor in self.processors:
             verdeckt = processor.display_number in maskiert.verdeckte_bahnen
@@ -325,8 +336,27 @@ class AnalysisPipeline:
         kandidaten = [ausloeser] + [f for f in sample.frames if f is not ausloeser]
         bester = pick_board_frame(kandidaten, processor.lamp_boxes,
                                   bild_von=lambda f: f.frame.image)
-        return encode_board((bester or ausloeser).frame.image, processor.lane_box(),
-                            self.cfg.output.board_image_quality)
+        gewaehlt = (bester or ausloeser).frame
+        # MENSCHEN AUCH IM TAFELAUSSCHNITT SCHWAERZEN. Der Ausschnitt ist der
+        # einzige Teil des Bildes, den die Personenmaske ausspart -- und genau
+        # er geht an die Datenbank und in den Liveticker (Befund des Nutzers,
+        # 2026-09-13).
+        return encode_board(gewaehlt.image, processor.lane_box(),
+                            self.cfg.output.board_image_quality,
+                            *self.menschen_von(gewaehlt.index))
+
+    def _merke_menschen(self, frame_index: int, maskiert) -> None:
+        """Haelt die Menschenmaske so lange vor wie der Ringpuffer die Frames."""
+        if maskiert.menschen is None:
+            self._menschen.pop(frame_index, None)
+        else:
+            self._menschen[frame_index] = (maskiert.menschen, maskiert.raster)
+        while len(self._menschen) > self.cfg.processing.frame_buffer_size:
+            self._menschen.popitem(last=False)
+
+    def menschen_von(self, frame_index: int):
+        """(Maske, Raster) eines vergangenen Frames -- oder (None, 1)."""
+        return self._menschen.get(frame_index, (None, 1))
 
     def _aggregate_pins(self, processor: LaneProcessor,
                         sample: SampleEvent) -> PinLampReading | None:
