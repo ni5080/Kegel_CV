@@ -744,25 +744,40 @@ class PersonMaskConfig(BaseModel):
     # Im ersten Frame ist alles Vordergrund -- gemessen 1,0 auf allen
     # vier Bahnen. Ohne diese Sperre faellt jeder Laufstart in die Bremse.
     warmup_frames: int = Field(default=60, ge=0)
-    # Ab dieser Groesse gilt ein Fleck als MENSCH und wird auch AUF der Tafel
-    # geschwaerzt -- aber nur in Bildern, die veroeffentlicht werden, nie in
-    # dem, was gemessen wird. Angegeben in TAFELFLAECHEN.
+    # WACHE UEBER DEN TAFELAUSSCHNITT (siehe `analysis/tafel_wache.py`).
     #
     # ANLASS (Nutzer, 2026-09-13): "im Liveticker sieht man sehr haeufig noch
     # Gesichter -> immer dann, wenn sie Phantomwuerfe erzeugen." Die
     # Tafelbereiche sind vom Schwaerzen ausgenommen, weil dort das Signal
     # steht -- und genau dieses Rechteck geht als `board_jpeg` hinaus.
-    # BELEGT an der Produktivdatenbank: Von 1000 Bildern zeigen 21 % der
-    # Wuerfe "0 Kegel" eine verdeckte Tafel, gegen 0,8 % der uebrigen.
     #
-    # WARUM RELATIV: Wie viele Pixel ein Mensch bedeckt, haengt an Kamera und
-    # Abstand; sein Verhaeltnis zur Tafel nicht. GEMESSEN 2026-09-13, Flecken,
-    # die einen Tafelbereich beruehren:
-    #     Mensch                       2,86 Tafelflaechen
-    #     groesster Nicht-Mensch       0,18 Tafelflaechen
-    # 0,5 liegt in der Luecke, mit Abstand zu beiden Seiten. 0 schaltet das
-    # Schwaerzen auf der Tafel ab.
-    person_min_blob_boards: float = Field(default=0.5, ge=0.0)
+    # Die Bewegungsmaske reicht dafuer NICHT: GEMESSEN am Mitschnitt vom
+    # 2026-09-08, Frame 13489 -- ein Mensch beugt sich ueber die Tafel, ist im
+    # Bild voll zu sehen, und die Bewegung meldet 0,081 (Schwelle 0,14). Er
+    # steht still und ist ins Hintergrundmodell gewandert.
+    #
+    # Die Wache haelt stattdessen eine Referenz der eigenen Tafel und lernt nur
+    # nach, wenn diese normal aussieht -- dann kann niemand hineinwandern.
+    #
+    # Ab dieser Abweichung (Graustufen) gilt ein Pixel als anders:
+    wache_abweichung_grau: int = Field(default=40, ge=1, le=255)
+    # Ab diesem Anteil abweichender STABILER Pixel (Gehaeuse, Fensterrahmen)
+    # steckt etwas vor der Tafel. GEMESSEN ueber 2705 Messungen:
+    #     Normalbetrieb    Median 1,41 %, 95. Perzentil 2,55 %
+    #     Mensch davor     11,9 bis 14,1 %   (zugleich das Maximum des Laufs)
+    # 0,05 liegt in der Luecke. 0 schaltet die Wache ab.
+    wache_schwelle: float = Field(default=0.05, ge=0.0, le=1.0)
+    # Nachgelernt wird nur unterhalb dieses Anteils -- der Kern des Verfahrens.
+    wache_nachlernen_unter: float = Field(default=0.10, ge=0.0, le=1.0)
+    wache_lernrate: float = Field(default=0.05, gt=0.0, le=1.0)
+    # Wie stark die Fremdmaske verbreitert wird, im Verhaeltnis zur Tafelkante.
+    # Die rohe Abweichung ist loechrig: Wo die Kleidung zufaellig die Farbe des
+    # Gehaeuses trifft, bliebe ein Loch -- und ein halb geschwaerztes Gesicht
+    # ist kein geschwaerztes Gesicht.
+    wache_wachstum: float = Field(default=0.10, ge=0.0, le=1.0)
+    # Jeden n-ten Frame nachfuehren. Die Referenz aendert sich langsam (Licht,
+    # nicht Inhalt), taeglich waere Verschwendung.
+    wache_takt: int = Field(default=5, ge=0)
 
 
 class DetectionConfig(BaseModel):

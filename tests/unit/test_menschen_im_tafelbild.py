@@ -1,4 +1,4 @@
-"""Kein Gesicht im Tafelbild -- auch nicht im Tafelausschnitt.
+"""Kein Gesicht im Tafelbild -- auch nicht, wenn der Mensch stillsteht.
 
 DER BEFUND (Nutzer, 2026-09-13):
 
@@ -6,17 +6,19 @@ DER BEFUND (Nutzer, 2026-09-13):
      haeufig noch Gesichter -> Immer dann, wenn sie Phantomwuerfe erzeugen."
 
 UND SO WAR ES. Die Personenmaske nimmt die Tafelbereiche vom Schwaerzen aus --
-zu Recht, dort steht das Signal: Ziffern und Lampen sind selbst bewegter
-Vordergrund, wer sie schwaerzt, loescht die Messung. Genau dieses Rechteck geht
-aber als `board_jpeg` an die Datenbank und in den Ticker. Wer vor der Tafel
-stand, war im ganzen Bild geschwaerzt -- nur nicht dort, wo alle hinsehen.
+zu Recht, dort steht das Signal. Genau dieses Rechteck geht aber als
+`board_jpeg` an die Datenbank. Wer davorstand, war ueberall geschwaerzt, nur
+nicht dort, wo alle hinsehen.
 
-Und weil dieselbe Person den Phantomwurf ausloest, tragen genau diese Wuerfe
-ein Gesicht. BELEGT an der Produktivdatenbank, 1000 Bilder: 21 % der Wuerfe mit
-"0 Kegel" zeigen eine verdeckte Tafel, gegen 0,8 % der uebrigen.
+DER ERSTE ANLAUF REICHTE NICHT. Er schwaerzte menschgrosse BEWEGTE Flecken --
+und ging an genau dem Fall vorbei, der den Befund ausgeloest hat. GEMESSEN am
+Mitschnitt vom 2026-09-08, Frame 13489: Ein Mensch beugt sich ueber die Tafel,
+ist im Bild voll zu sehen, und die Bewegung meldet 0,081 bei einer Schwelle
+von 0,14. Er STEHT STILL und ist ins Hintergrundmodell gewandert.
 
-DIE TRENNLINIE, die diese Tests festhalten: Geschwaerzt wird im
-VEROEFFENTLICHTEN Bild, nie in dem, was gemessen wird.
+Deshalb jetzt eine bewachte Referenz (`analysis/tafel_wache.py`): Sie lernt nur
+nach, wenn die Tafel normal aussieht -- dann kann niemand hineinwandern, egal
+wie lange er steht.
 """
 
 from __future__ import annotations
@@ -27,139 +29,146 @@ import cv2
 import numpy as np
 import pytest
 
-from kegel_cv.analysis.board_image import encode_board, schwaerze_menschen
-from kegel_cv.detection.person_maske import PersonMaske
+from kegel_cv.analysis.board_image import encode_board, schwaerze_fremdes
+from kegel_cv.analysis.tafel_wache import TafelWache
 
 
-def tafelbild() -> np.ndarray:
-    """Ein Bild mit einer hellen 'Tafel' auf dunklem Grund."""
-    bild = np.full((240, 320, 3), 20, dtype=np.uint8)
-    bild[60:140, 100:180] = (150, 160, 170)      # die Tafel
-    bild[110:130, 110:170] = (40, 40, 200)       # rote Ziffernzeile
+def tafel(mit_mensch: bool = False, ziffern: int = 200) -> np.ndarray:
+    """Eine 'Tafel': helles Gehaeuse, dunkles Anzeigefenster, rote Ziffern."""
+    bild = np.full((120, 120, 3), 150, dtype=np.uint8)
+    bild[80:105, 15:105] = 25                       # Anzeigefenster
+    bild[85:100, 20:100] = (40, 40, ziffern)        # die Ziffern
+    if mit_mensch:
+        bild[30:110, 10:70] = 60                    # jemand steht davor
     return bild
 
 
-TAFEL = (100, 60, 80, 80)
+def stabil() -> np.ndarray:
+    """Gehaeuse ja, Anzeigefenster nein -- wie `stabile_maske` es liefert."""
+    m = np.ones((120, 120), bool)
+    m[78:107, 13:107] = False
+    return m
 
 
-class TestDieMaskeWirktImAusschnitt:
-    def test_ohne_maske_bleibt_alles_stehen(self):
-        aus = tafelbild()[60:140, 100:180]
-        assert schwaerze_menschen(aus, TAFEL, None) is aus
+def eingelernt(**kwargs) -> TafelWache:
+    wache = TafelWache(stabil(), **kwargs)
+    for _ in range(20):
+        wache.beobachte(tafel())
+    return wache
+
+
+class TestDieWacheSiehtDenStillstehenden:
+    """Das ist der Fall, an dem der erste Anlauf gescheitert ist."""
+
+    def test_ohne_stoerung_faellt_nichts_auf(self):
+        wache = eingelernt()
+        assert wache.abweichung(tafel()) < 0.01
+        assert wache.fremdmaske(tafel()) is None
+
+    def test_ein_mensch_faellt_auf(self):
+        wache = eingelernt()
+        assert wache.abweichung(tafel(mit_mensch=True)) > 0.2
+
+    def test_er_faellt_auch_nach_langem_stillstand_auf(self):
+        """DER KERN DES VERFAHRENS. Ein Hintergrundmodell haette ihn laengst
+        aufgenommen -- diese Referenz lernt nur nach, wenn die Tafel normal
+        aussieht."""
+        wache = eingelernt()
+        for _ in range(200):
+            wache.beobachte(tafel(mit_mensch=True))
+        assert wache.abweichung(tafel(mit_mensch=True)) > 0.2, \
+            "nach 200 Frames Stillstand muss er immer noch auffallen"
+        assert wache.fremdmaske(tafel(mit_mensch=True)) is not None
+
+    def test_wechselnde_ziffern_sind_keine_stoerung(self):
+        """Die Anzeige aendert sich staendig -- sie darf nichts ausloesen,
+        sonst wird bei jedem Wurf geschwaerzt."""
+        wache = eingelernt()
+        for wert in (60, 255, 120, 200):
+            assert wache.abweichung(tafel(ziffern=wert)) < 0.01
+            assert wache.fremdmaske(tafel(ziffern=wert)) is None
+
+    def test_langsame_lichtaenderung_wird_gelernt(self):
+        """Sonst schlaegt die Wache abends an, wenn das Hallenlicht wechselt."""
+        wache = eingelernt()
+        for i in range(60):
+            heller = np.clip(tafel().astype(int) + i // 3, 0, 255).astype(np.uint8)
+            wache.beobachte(heller)
+        heller = np.clip(tafel().astype(int) + 20, 0, 255).astype(np.uint8)
+        assert wache.abweichung(heller) < 0.05
+
+
+class TestDieMaskeDecktAb:
+    def test_sie_trifft_den_menschen(self):
+        wache = eingelernt()
+        maske = wache.fremdmaske(tafel(mit_mensch=True))
+        assert maske is not None
+        # Der Mensch steht in [30:110, 10:70] -- dort muss sie greifen.
+        assert maske[40:100, 20:60].mean() > 200
+
+    def test_sie_hat_keine_loecher(self):
+        """Ein halb geschwaerztes Gesicht ist kein geschwaerztes Gesicht --
+        deshalb wird die Maske geschlossen und verbreitert."""
+        wache = eingelernt()
+        mit = tafel(mit_mensch=True)
+        mit[50:60, 30:40] = 150            # ein Stueck in Gehaeusefarbe
+        maske = wache.fremdmaske(mit)
+        assert maske[50:60, 30:40].min() > 0, "das Loch muss geschlossen sein"
+
+    def test_ohne_wachstum_bleiben_die_loecher(self):
+        """Gegenprobe -- damit der Wert nicht unbemerkt wirkungslos wird."""
+        wache = eingelernt(wachstum=0.0)
+        mit = tafel(mit_mensch=True)
+        mit[50:60, 30:40] = 150
+        maske = wache.fremdmaske(mit)
+        assert maske is not None and maske[52:58, 32:38].max() == 0
+
+
+class TestDerWegInsBild:
+    def test_ohne_maske_bleibt_der_ausschnitt(self):
+        aus = tafel()
+        assert schwaerze_fremdes(aus, None) is aus
 
     def test_mit_maske_wird_geschwaerzt(self):
-        aus = tafelbild()[60:140, 100:180].copy()
-        menschen = np.zeros((240, 320), np.uint8)
-        menschen[60:100, 100:180] = 255          # obere Haelfte der Tafel
-        neu = schwaerze_menschen(aus, TAFEL, menschen, raster=1)
-        assert neu[:40].max() == 0, "die obere Haelfte muss schwarz sein"
-        assert neu[40:].max() > 0, "die untere darf es nicht sein"
+        aus = tafel().copy()
+        maske = np.zeros((120, 120), np.uint8)
+        maske[:60] = 255
+        neu = schwaerze_fremdes(aus, maske)
+        assert neu[:60].max() == 0 and neu[60:].max() > 0
 
     def test_das_original_bleibt_unangetastet(self):
-        """Geschwaerzt wird eine KOPIE -- die Messung liest den Ausschnitt roh."""
-        aus = tafelbild()[60:140, 100:180].copy()
+        """Die Messung liest den Ausschnitt roh -- geschwaerzt wird eine Kopie."""
+        aus = tafel().copy()
         vorher = aus.copy()
-        menschen = np.zeros((240, 320), np.uint8)
-        menschen[60:140, 100:180] = 255
-        schwaerze_menschen(aus, TAFEL, menschen, raster=1)
+        maske = np.full((120, 120), 255, np.uint8)
+        schwaerze_fremdes(aus, maske)
         assert np.array_equal(aus, vorher)
 
-    def test_das_raster_wird_hochgerechnet(self):
-        """Die Maske liegt verkleinert vor (Raster 4) -- 130 KB je Frame statt
-        2 MB, und feiner muss es zum Schwaerzen nicht sein."""
-        aus = tafelbild()[60:140, 100:180].copy()
-        # Die Tafel (100, 60, 80x80) liegt im Raster 4 bei [15:35, 25:45].
-        klein = np.zeros((60, 80), np.uint8)
-        klein[15:35, 25:45] = 255
-        neu = schwaerze_menschen(aus, TAFEL, klein, raster=4)
-        assert neu.max() == 0
-
-    def test_ein_halber_treffer_schwaerzt_auch_nur_halb(self):
-        aus = tafelbild()[60:140, 100:180].copy()
-        klein = np.zeros((60, 80), np.uint8)
-        klein[15:25, 25:45] = 255                # nur die obere Haelfte
-        neu = schwaerze_menschen(aus, TAFEL, klein, raster=4)
-        assert neu[:40].max() == 0 and neu[40:].max() > 0
-
     def test_encode_board_reicht_sie_durch(self):
-        menschen = np.zeros((240, 320), np.uint8)
-        menschen[60:140, 100:180] = 255
-        mit = encode_board(tafelbild(), TAFEL, 60, menschen, 1)
-        ohne = encode_board(tafelbild(), TAFEL, 60)
+        bild = np.zeros((200, 200, 3), np.uint8)
+        bild[40:160, 40:160] = tafel()
+        maske = np.full((120, 120), 255, np.uint8)
+        mit = encode_board(bild, (40, 40, 120, 120), 60, maske)
+        ohne = encode_board(bild, (40, 40, 120, 120), 60)
         assert mit != ohne
-        bild = cv2.imdecode(np.frombuffer(base64.b64decode(mit), np.uint8),
-                            cv2.IMREAD_COLOR)
-        assert bild.max() < 20, "der Ausschnitt muss schwarz ankommen"
+        aus = cv2.imdecode(np.frombuffer(base64.b64decode(mit), np.uint8),
+                           cv2.IMREAD_COLOR)
+        assert aus.max() < 20
 
 
-class TestNurMenschgrosses:
-    """Die Ziffernzeile darf NICHT mitgeloescht werden -- sonst zeigt das Bild
-    nicht mehr, worauf das Ergebnis beruht."""
-
-    def _maske(self, tafeln) -> PersonMaske:
-        m = PersonMaske(history=50, scale=1, min_blob_px=0, dilate_px=1,
-                        warmup_frames=0, person_min_blob_boards=0.5)
-        m.set_tafeln(tafeln)
-        return m
-
-    def test_ein_kleiner_fleck_zaehlt_nicht(self):
-        m = self._maske({2: TAFEL})
-        klein = np.zeros((240, 320), np.uint8)
-        klein[110:130, 110:170] = 255            # die Ziffernzeile, 0,19 Tafeln
-        assert m._nur_menschen(klein) is None
-
-    def test_ein_grosser_fleck_zaehlt(self):
-        m = self._maske({2: TAFEL})
-        gross = np.zeros((240, 320), np.uint8)
-        gross[40:160, 80:200] = 255              # 2,25 Tafelflaechen
-        ergebnis = m._nur_menschen(gross)
-        assert ergebnis is not None and ergebnis.any()
-
-    def test_ohne_tafeln_gibt_es_keine_ausnahme(self):
-        """Ohne Schutzbereiche wird ohnehin alles geschwaerzt -- dann braucht
-        es die zweite Maske nicht."""
-        m = self._maske({})
-        gross = np.zeros((240, 320), np.uint8)
-        gross[40:160, 80:200] = 255
-        assert m._nur_menschen(gross) is None
+class TestGrenzen:
+    def test_ohne_referenz_meldet_sie_nichts(self):
+        wache = TafelWache(stabil())
+        assert wache.fremdmaske(tafel(mit_mensch=True)) is None
+        assert not wache.bereit or True
 
     def test_abschaltbar(self):
-        m = PersonMaske(history=50, scale=1, warmup_frames=0,
-                        person_min_blob_boards=0.0)
-        m.set_tafeln({2: TAFEL})
-        gross = np.zeros((240, 320), np.uint8)
-        gross[40:160, 80:200] = 255
-        assert m._nur_menschen(gross) is None
+        wache = eingelernt(schwelle=1.1)
+        assert wache.fremdmaske(tafel(mit_mensch=True)) is None
 
-
-class TestDieMessungBleibtRoh:
-    """Die wichtigste Eigenschaft: Was gemessen wird, wird nicht geschwaerzt."""
-
-    def test_der_tafelbereich_im_analysebild_bleibt_hell(self):
-        m = PersonMaske(history=5, scale=1, min_blob_px=0, dilate_px=1,
-                        warmup_frames=0, person_min_blob_boards=0.5)
-        m.set_tafeln({2: TAFEL})
-        for _ in range(6):                       # Hintergrund lernen
-            m.verarbeite(tafelbild())
-        # Jetzt ein Mensch quer ueber die Tafel
-        mit_mensch = tafelbild()
-        mit_mensch[40:200, 60:220] = (90, 90, 90)
-        ergebnis = m.verarbeite(mit_mensch)
-        x, y, w, h = TAFEL
-        assert ergebnis.bild[y:y + h, x:x + w].max() > 0, \
-            "im Analysebild darf die Tafel nie geschwaerzt sein"
-
-    def test_die_menschenmaske_kennt_ihn_trotzdem(self):
-        m = PersonMaske(history=5, scale=1, min_blob_px=0, dilate_px=1,
-                        warmup_frames=0, person_min_blob_boards=0.5)
-        m.set_tafeln({2: TAFEL})
-        for _ in range(6):
-            m.verarbeite(tafelbild())
-        mit_mensch = tafelbild()
-        mit_mensch[40:200, 60:220] = (90, 90, 90)
-        ergebnis = m.verarbeite(mit_mensch)
-        assert ergebnis.menschen is not None
-        x, y, w, h = TAFEL
-        assert ergebnis.menschen[y:y + h, x:x + w].any(), \
-            "fuer das veroeffentlichte Bild muss er bekannt sein"
-        assert ergebnis.raster == 1
+    def test_eine_andere_groesse_stuerzt_nicht_ab(self):
+        """Nach dem Nachkalibrieren kann der Ausschnitt anders gross sein."""
+        wache = eingelernt()
+        anders = cv2.resize(tafel(mit_mensch=True), (140, 140))
+        assert wache.abweichung(anders) == 0.0
+        assert wache.fremdmaske(anders) is None

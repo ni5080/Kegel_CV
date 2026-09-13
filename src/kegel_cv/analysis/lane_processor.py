@@ -31,6 +31,7 @@ from ..models.readings import (LampReading, LampState, PinLampReading,
 from ..video.source import Frame, FrameBuffer
 from .frame_sampler import FrameSampler, SampleEvent
 from .board_image import encode_board
+from .tafel_wache import TafelWache
 
 log = logging.getLogger(__name__)
 
@@ -214,11 +215,19 @@ class LaneProcessor:
         self._before_pins: PinLampReading | None = None
         # Wird von der Pipeline gesetzt. None heisst: keine Spur.
         self.lamp_trace = None
-        # Nachschlagefunktion Frame-Index -> (Menschenmaske, Raster). Ebenfalls
-        # von der Pipeline gesetzt; ohne sie geht der Tafelausschnitt
-        # unveraendert hinaus. Sie wird NUR fuer Bilder gebraucht, die
-        # veroeffentlicht werden -- die Messung liest den Ausschnitt roh.
-        self.menschen_von = None
+        # WACHE UEBER DEN TAFELAUSSCHNITT. Sie haelt eine Referenz der eigenen
+        # Tafel und meldet, was nicht dazugehoert -- auch einen Menschen, der
+        # STILLSTEHT und den die Bewegungsmaske deshalb nicht mehr sieht
+        # (gemessen 2026-09-13, siehe `tafel_wache`). Nur fuer Bilder, die
+        # veroeffentlicht werden; die Messung liest den Ausschnitt roh.
+        self.wache = TafelWache(
+            None,
+            abweichung_grau=cfg.detection.person_mask.wache_abweichung_grau,
+            schwelle=cfg.detection.person_mask.wache_schwelle,
+            nachlernen_unter=cfg.detection.person_mask.wache_nachlernen_unter,
+            lernrate=cfg.detection.person_mask.wache_lernrate,
+            wachstum=cfg.detection.person_mask.wache_wachstum)
+        self._wache_takt = cfg.detection.person_mask.wache_takt
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
         # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
@@ -638,7 +647,7 @@ class LaneProcessor:
                      self._wurfnummer_lesen(frame),
                      encode_board(frame.image, self.lane_box(),
                                   self.cfg.output.board_image_quality,
-                                  *self._menschen(frame.index))))
+                                  self.fremdmaske(frame.image))))
         else:
             log.info("Bahn %d: Fehlwurfzaehler faellt %d -> %d bei Frame %d "
                      "-- Spielwechsel, kein Wurf", self.display_number,
@@ -733,15 +742,13 @@ class LaneProcessor:
         """
         return self._read_pin_lamps(frame, is_result=False)
 
-    def _menschen(self, frame_index: int):
-        """(Maske, Raster) fuer diesen Frame -- oder (None, 1).
-
-        Ohne die Pipeline gibt es keine Maske; dann geht der Ausschnitt
-        unveraendert hinaus, so wie bis zum 2026-09-13 immer.
-        """
-        if self.menschen_von is None:
-            return None, 1
-        return self.menschen_von(frame_index)
+    def fremdmaske(self, bild) -> object:
+        """Was auf dem Tafelausschnitt dieses Bildes nicht hingehoert."""
+        box = self.lane_box()
+        if box is None or bild is None:
+            return None
+        aus = self._crop(bild, box)
+        return self.wache.fremdmaske(aus) if aus is not None and aus.size else None
 
     def read_digits(self, frame: Frame) -> dict[str, DigitReading]:
         """Liest alle Ziffernfelder eines Frames.
@@ -1020,7 +1027,7 @@ class LaneProcessor:
             self._board_before = encode_board(
                 frame.image, self.lane_box(),
                 self.cfg.output.board_image_quality,
-                *self._menschen(frame.index))
+                self.fremdmaske(frame.image))
             # Gruen wieder an -> das Fenster ist zu Ende. Ist der Wurf zu diesem
             # Zeitpunkt noch offen (Wartezeit 0 oder Gruen kam frueher zurueck
             # als die Wartezeit), wird er JETZT abgeschlossen.
@@ -1205,6 +1212,16 @@ class LaneProcessor:
         if (self.cfg.scoring.game_reset_by_zero_display and nulltakt > 0
                 and frame.index % nulltakt == 0):
             self._pruefe_nullzustand(frame)
+
+        # DIE WACHE MITFUEHREN. Sie braucht eine Referenz der leeren Tafel,
+        # und die entsteht nur, wenn sie regelmaessig hinsieht. Getaktet, weil
+        # die Referenz sich langsam aendert -- Licht, nicht Inhalt.
+        if self._wache_takt > 0 and frame.index % self._wache_takt == 0:
+            box = self.lane_box()
+            if box is not None:
+                aus = self._crop(frame.image, box)
+                if aus is not None and aus.size:
+                    self.wache.beobachte(aus)
 
         # Die Anzeige der gelesenen Ziffern -- nur fuers Auge, kein Einfluss
         # auf irgendeine Zaehlung.

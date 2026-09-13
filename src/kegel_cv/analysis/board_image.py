@@ -110,58 +110,50 @@ def encode_crop(ausschnitt: np.ndarray | None, quality: int = 40) -> str | None:
     return base64.b64encode(puffer.tobytes()).decode("ascii") if ok else None
 
 
-def schwaerze_menschen(ausschnitt: np.ndarray,
-                       box: tuple[int, int, int, int],
-                       menschen: np.ndarray | None,
-                       raster: int = 1) -> np.ndarray:
-    """Schwaerzt Menschen IM Tafelausschnitt -- nur fuer Bilder, die rausgehen.
+def schwaerze_fremdes(ausschnitt: np.ndarray,
+                      fremd: np.ndarray | None) -> np.ndarray:
+    """Schwaerzt im Tafelausschnitt, was nicht dazugehoert -- nur fuers Bild.
 
     WOFUER -- Befund des Nutzers am 2026-09-13: *"im Liveticker sieht man sehr
     haeufig noch Gesichter -> immer dann, wenn sie Phantomwuerfe erzeugen."*
 
     Die Personenmaske nimmt die Tafelbereiche vom Schwaerzen aus, weil dort das
-    Signal steht -- Ziffern und Lampen sind selbst bewegter Vordergrund. Genau
-    dieses Rechteck wird aber als `board_jpeg` verschickt. Wer davorsteht, war
-    im ganzen Bild geschwaerzt, nur nicht in dem Ausschnitt, den alle sehen.
+    Signal steht -- und genau dieses Rechteck wird als `board_jpeg` verschickt.
+    Wer davorsteht, war im ganzen Bild geschwaerzt, nur nicht in dem Ausschnitt,
+    den alle sehen.
 
-    Hier wird deshalb ein zweites Mal geschwaerzt, und zwar NUR im Bild, das
-    das Haus verlaesst: Die Messung hat den unveraenderten Ausschnitt laengst
-    gelesen. `menschen` traegt ausschliesslich menschgrosse Flecken, damit
-    keine wechselnde Ziffernzeile mitgeloescht wird.
+    `fremd` kommt aus `TafelWache` und liegt bereits in den Koordinaten des
+    Ausschnitts. Geschwaerzt wird eine KOPIE: Die Messung hat den
+    unveraenderten Ausschnitt laengst gelesen.
     """
-    if menschen is None or menschen.size == 0:
+    if fremd is None or fremd.size == 0 or not fremd.any():
         return ausschnitt
-    x, y, w, h = box
-    kx, ky = x // raster, y // raster
-    teil = menschen[ky:ky + max(1, h // raster), kx:kx + max(1, w // raster)]
-    if teil.size == 0 or not teil.any():
-        return ausschnitt
-    gross = cv2.resize(teil, (ausschnitt.shape[1], ausschnitt.shape[0]),
-                       interpolation=cv2.INTER_NEAREST)
+    if fremd.shape[:2] != ausschnitt.shape[:2]:
+        fremd = cv2.resize(fremd, (ausschnitt.shape[1], ausschnitt.shape[0]),
+                           interpolation=cv2.INTER_NEAREST)
     aus = ausschnitt.copy()
-    aus[gross > 0] = 0
+    aus[fremd > 0] = 0
     return aus
 
 
 def encode_board(image: np.ndarray | None,
                  box: tuple[int, int, int, int] | None,
-                 quality: int = 40, menschen: np.ndarray | None = None,
-                 raster: int = 1) -> str | None:
+                 quality: int = 40,
+                 fremd: np.ndarray | None = None) -> str | None:
     """Tafelausschnitt als Base64-JPEG -- ohne `data:`-Praefix.
 
     Gibt `None` zurueck, wenn kein Bild entsteht. Ein fehlendes Bild ist kein
     Fehler: Der Wurf ist gemessen, ob sein Bild ankommt oder nicht (P8). Diese
     Funktion wirft deshalb nie -- sie meldet und liefert `None`.
 
-    `menschen` ist die Maske aus `PersonMaske` (siehe `schwaerze_menschen`).
-    Ohne sie geht der Ausschnitt unveraendert hinaus -- so, wie es bis zum
+    `fremd` ist die Maske aus `TafelWache` (siehe `schwaerze_fremdes`). Ohne
+    sie geht der Ausschnitt unveraendert hinaus -- so, wie es bis zum
     2026-09-13 immer war.
     """
     ausschnitt = crop_board(image, box)
     if ausschnitt is None:
         return None
-    if menschen is not None and box is not None:
-        ausschnitt = schwaerze_menschen(ausschnitt, box, menschen, raster)
+    ausschnitt = schwaerze_fremdes(ausschnitt, fremd)
     try:
         ok, puffer = cv2.imencode(
             ".jpg", ausschnitt,
