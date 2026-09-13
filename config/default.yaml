@@ -426,6 +426,24 @@ detection:
     # hoch an der Rueckwand, die Spieler stehen im Vordergrund weit darunter.
     # Verdecken kann sie nur, wer am Kegelstand steht.
     occlusion_score: 0.0
+    # ... und ANTEILIG am gemessenen AUS-Niveau. Das ist der Wert, der traegt:
+    # Er misst selbst, was an DIESER Kamera "deutlich unter AUS" heisst.
+    #
+    # GEMESSEN 2026-09-13, AUS-Niveau der gruenen Lampe ueber ganze Laeufe:
+    #     Livestream (Overlay)      22,5 bis 30,6  -> Schwelle rund 7
+    #     direkte Hallenkamera       0,7 bis 11,7  -> Schwelle rund 0,2
+    #
+    # Eine feste Zahl kann beides nicht: 12 friert die Hallenkamera ein (dort
+    # liegen 94 bis 100 % aller echten AUS-Messungen darunter), 0 schaltet die
+    # Bremse ab. Genau daran entstand am 2026-09-13 ein Phantomwurf -- ein
+    # Mensch lief zehn Frames lang vor der Lampe von Bahn 2 her, der Score fiel
+    # auf exakt 0,0, und weil die Bremse aus war, wurde ein Wurf gebucht, mit
+    # seinem Gesicht als Beleg in der Datenbank.
+    #
+    # GEGENPROBE am Stream, zwei Abschnitte:
+    #     Mensch durch die Gruenphase   mit 0,0: 1 Wurf   mit Anteil: 0 Wuerfe
+    #     Streamende (keine Tafel)      mit 0,0: 3 Wuerfe mit Anteil: 0 Wuerfe
+    occlusion_off_fraction: 0.3
     occlusion_min_frames: 2
     # Erinnerung waehrend einer Verdeckung, alle n Frames (750 = 30 s).
     # Ohne sie bliebe eine dauerhaft eingefrorene Bahn nach EINER Logzeile

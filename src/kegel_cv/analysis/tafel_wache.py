@@ -48,7 +48,39 @@ import logging
 import cv2
 import numpy as np
 
+from ..calibration.geometry import norm_rect_to_frame_bbox
+
 log = logging.getLogger(__name__)
+
+# Schwelle, ab der eine Flaeche als Anzeigefenster gilt -- dieselbe wie in
+# `board_match.stabile_maske`, aus demselben Grund.
+DUNKEL = 57
+
+
+def stabile_maske_im_ausschnitt(rois, transform, box, frame_shape,
+                                rand: float = 0.02) -> np.ndarray:
+    """Was im Tafelausschnitt unveraenderlich ist: 1 = vergleichbar.
+
+    Dasselbe Prinzip wie `board_match.stabile_maske`, nur in den Koordinaten
+    des AUSSCHNITTS statt der Vorlage: Alles, was leuchtet oder Text zeigt,
+    faellt heraus -- Lampen, Ziffernfelder, Anzeigen. Uebrig bleiben Gehaeuse
+    und Fensterrahmen.
+
+    Die einzelnen Ziffernstellen werden uebergangen: Ihr Feld deckt sie ab, und
+    einzeln gerechnet fraesse der Rand die Rahmen mit weg.
+    """
+    x, y, w, h = box
+    maske = np.ones((h, w), bool)
+    r = max(2, int(rand * max(w, h)))
+    for roi in rois:
+        if roi.name.startswith("digit_"):
+            continue
+        bx, by, bw, bh = norm_rect_to_frame_bbox(transform, roi.rect, frame_shape)
+        x0, y0 = max(0, bx - x - r), max(0, by - y - r)
+        x1, y1 = min(w, bx - x + bw + r), min(h, by - y + bh + r)
+        if x1 > x0 and y1 > y0:
+            maske[y0:y1, x0:x1] = False
+    return maske
 
 
 class TafelWache:
@@ -70,10 +102,46 @@ class TafelWache:
         self.lernrate = lernrate
         self.wachstum = wachstum
         self._referenz: np.ndarray | None = None
+        self._leiste_geprueft = False
 
     @property
     def bereit(self) -> bool:
-        return self._referenz is not None
+        return self._referenz is not None and self._stabil is not None
+
+    def setze_stabil(self, stabil) -> None:
+        """Legt fest, welche Pixel vergleichbar sind.
+
+        Getrennt vom Konstruktor, weil die Maske die BILDGROESSE braucht --
+        die steht erst in `LaneProcessor.prepare` fest. Ohne sie vergleicht die
+        Wache nichts und meldet nie etwas.
+        """
+        self._stabil = stabil
+        self._leiste_geprueft = False
+        self._referenz = None
+
+    def _ohne_matrixleiste(self, ausschnitt: np.ndarray) -> None:
+        """Nimmt die obere Matrixleiste aus der stabilen Maske.
+
+        Sie ist als einzige Flaeche kein ROI und zeigt WECHSELNDEN Text -- den
+        Spielernamen. Bliebe sie drin, meldete die Wache bei jedem Namenswechsel
+        einen Fremdkoerper. Gefunden wird sie wie in `board_match`: breit,
+        flach, dunkel, ganz oben.
+        """
+        if self._stabil is None or self._leiste_geprueft:
+            return
+        self._leiste_geprueft = True
+        grau = cv2.cvtColor(ausschnitt, cv2.COLOR_BGR2GRAY)
+        hoehe, breite = grau.shape[:2]
+        _, dunkel = cv2.threshold(grau, DUNKEL, 255, cv2.THRESH_BINARY_INV)
+        anzahl, _, kennzahlen, _ = cv2.connectedComponentsWithStats(dunkel, 8)
+        for i in range(1, anzahl):
+            x = kennzahlen[i, cv2.CC_STAT_LEFT]
+            y = kennzahlen[i, cv2.CC_STAT_TOP]
+            w = kennzahlen[i, cv2.CC_STAT_WIDTH]
+            h = kennzahlen[i, cv2.CC_STAT_HEIGHT]
+            if y < 0.20 * hoehe and w > 0.7 * breite and h < 0.25 * hoehe:
+                self._stabil[max(0, y - 3):y + h + 3,
+                             max(0, x - 3):x + w + 3] = False
 
     def _passend(self, ausschnitt: np.ndarray) -> np.ndarray | None:
         """Die stabile Maske auf die Groesse dieses Ausschnitts."""
@@ -109,6 +177,12 @@ class TafelWache:
         grau = cv2.cvtColor(ausschnitt, cv2.COLOR_BGR2GRAY).astype(np.float32)
         if self._referenz is None or self._referenz.shape != grau.shape:
             self._referenz = grau.copy()
+            self._leiste_geprueft = False
+            self._ohne_matrixleiste(ausschnitt)
+            if self._stabil is not None:
+                log.info("Tafelwache eingelernt: %d von %d Pixeln vergleichbar "
+                         "(%.0f %%)", int(self._stabil.sum()),
+                         self._stabil.size, 100 * self._stabil.mean())
             return 0.0
         anteil = self.abweichung(ausschnitt)
         if anteil < self.nachlernen_unter:

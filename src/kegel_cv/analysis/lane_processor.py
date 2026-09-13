@@ -31,7 +31,7 @@ from ..models.readings import (LampReading, LampState, PinLampReading,
 from ..video.source import Frame, FrameBuffer
 from .frame_sampler import FrameSampler, SampleEvent
 from .board_image import encode_board
-from .tafel_wache import TafelWache
+from .tafel_wache import TafelWache, stabile_maske_im_ausschnitt
 
 log = logging.getLogger(__name__)
 
@@ -221,13 +221,16 @@ class LaneProcessor:
         # (gemessen 2026-09-13, siehe `tafel_wache`). Nur fuer Bilder, die
         # veroeffentlicht werden; die Messung liest den Ausschnitt roh.
         self.wache = TafelWache(
-            None,
+            None,   # wird in `prepare` gesetzt -- vorher fehlt die Bildgroesse
             abweichung_grau=cfg.detection.person_mask.wache_abweichung_grau,
             schwelle=cfg.detection.person_mask.wache_schwelle,
             nachlernen_unter=cfg.detection.person_mask.wache_nachlernen_unter,
             lernrate=cfg.detection.person_mask.wache_lernrate,
             wachstum=cfg.detection.person_mask.wache_wachstum)
         self._wache_takt = cfg.detection.person_mask.wache_takt
+        # Meldet die Wache gerade etwas Fremdes auf der Tafel? Sie ist der
+        # dritte Zeuge der Verdeckungsbremse -- siehe `process`.
+        self._wache_meldet_fremdes = False
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
         # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
@@ -315,6 +318,15 @@ class LaneProcessor:
             self._digit_boxes[name] = (
                 norm_rect_to_frame_bbox(self._transform, roi.rect, frame_shape), digits
             )
+
+        # DIE WACHE BRAUCHT IHRE STABILE MASKE. Ohne sie vergleicht sie
+        # nichts und meldet nie etwas -- genau das ist am 2026-09-13 passiert:
+        # eingebaut, verdrahtet, getestet, und im Lauf ueber 312 783 Frames
+        # kein einziges Mal ausgeloest, weil hier `None` stand.
+        box = self.lane_box()
+        if box is not None:
+            self.wache.setze_stabil(stabile_maske_im_ausschnitt(
+                self.lane.rois, self._transform, box, frame_shape))
 
         self._boxes_ready = True
         log.info("Bahn %d vorbereitet: Gruenlampe %s, %d Kegellampen, "
@@ -970,8 +982,20 @@ class LaneProcessor:
         # Genau deshalb entstand am 2026-09-08 der Phantomwurf bei Frame 13224
         # auf Bahn 2: 0 Kegel, Ziffer unlesbar, und im Tafelbereich der
         # hoechste Vordergrundanteil des ganzen Laufs (0,197).
-        if (green.score < self.cfg.detection.green.occlusion_score
-                or self._extern_verdeckt):
+        # DREI ZEUGEN, und jeder sieht etwas, das die anderen nicht sehen:
+        #
+        #   Gruen-Score      ein Mensch VOR DER LAMPE -- der Score faellt auf 0
+        #   Personenmaske    ein BEWEGTER Mensch irgendwo auf der Tafel
+        #   Tafelwache       die Tafel sieht ueberhaupt nicht mehr aus wie sie
+        #                    selbst -- auch wenn niemand sich bewegt und die
+        #                    Lampe gar nicht mehr im Bild ist
+        #
+        # GEMESSEN 2026-09-13 am Streamende: Alles schwarz, kein bewegter
+        # Vordergrund (Maske 0,000), und das gemessene AUS-Niveau selbst null
+        # -- Gruen-Score und Personenmaske sind beide blind. Die Wache meldet
+        # 61 bis 68 %. Ohne sie wurden dort drei Wuerfe gebucht.
+        if (green.score < self._verdeckungsschwelle() or self._extern_verdeckt
+                or self._wache_meldet_fremdes):
             self._occlusion_frames += 1
         else:
             if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
@@ -1221,7 +1245,9 @@ class LaneProcessor:
             if box is not None:
                 aus = self._crop(frame.image, box)
                 if aus is not None and aus.size:
-                    self.wache.beobachte(aus)
+                    abweichung = self.wache.beobachte(aus)
+                    self._wache_meldet_fremdes = (
+                        self.wache.bereit and abweichung >= self.wache.schwelle)
 
         # Die Anzeige der gelesenen Ziffern -- nur fuers Auge, kein Einfluss
         # auf irgendeine Zaehlung.
@@ -1244,6 +1270,39 @@ class LaneProcessor:
             self._pruefe_fehlwurfzaehler(frame)
 
         return self._observation(green), event, completed
+
+    def _verdeckungsschwelle(self) -> float:
+        """Ab welchem Gruen-Score die Tafel als VERDECKT gilt.
+
+        RELATIV ZUM GEMESSENEN AUS-NIVEAU, nicht als feste Zahl. Der Grund ist
+        gemessen, und er ist derselbe wie bei BUG-011: Ein absoluter Wert kann
+        nicht zwei Aufstellungen bedienen.
+
+        GEMESSEN 2026-09-13, AUS-Niveau der gruenen Lampe:
+
+            Livestream (Overlay)      22,5 bis 30,6   -- Verdeckung faellt auf 0
+            direkte Hallenkamera       0,7 bis 11,7   -- AUS liegt selbst bei 0
+
+        Eine feste 12 trennt im Stream sauber und friert an der Hallenkamera
+        alle Bahnen dauerhaft ein; eine feste 0 schaltet die Bremse ab, und
+        genau daran ist am 2026-09-13 ein Phantomwurf entstanden: Ein Mensch
+        lief durch die Gruenphase von Bahn 2, der Score fiel zehn Frames lang
+        auf exakt 0,0, und weil die Bremse aus war, wurde ein Wurf gebucht --
+        mit seinem Gesicht als Beleg in der Datenbank.
+
+        Der ANTEIL dagegen traegt beides: Im Stream ergibt er rund 7, an der
+        Hallenkamera rund 0,2 -- jeweils das, was dort "deutlich unter AUS"
+        heisst. Solange kein AUS-Niveau gemessen ist (Anlauf, eine Wolke),
+        gilt der feste Wert aus der Konfiguration.
+        """
+        fest = self.cfg.detection.green.occlusion_score
+        anteil = self.cfg.detection.green.occlusion_off_fraction
+        if anteil <= 0:
+            return fest
+        niveau = self.green_detector.aus_niveau
+        if niveau is None or niveau <= 0:
+            return fest
+        return max(fest, anteil * niveau)
 
     def _read_pin_lamps(self, frame: Frame,
                         is_result: bool = False) -> PinLampReading | None:

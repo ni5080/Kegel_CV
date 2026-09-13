@@ -373,6 +373,22 @@ class GreenDetectionConfig(BaseModel):
     # Waehrend der Verdeckung wird der Zustand eingefroren: keine Uebergaenge,
     # keine Messungen. Lieber eine Luecke im Protokoll als ein erfundener Wurf.
     occlusion_score: float = Field(default=2.0, ge=0.0)
+    # ... und derselbe Gedanke ANTEILIG am gemessenen AUS-Niveau. Er traegt,
+    # wo eine feste Zahl es nicht kann.
+    #
+    # GEMESSEN 2026-09-13, AUS-Niveau der gruenen Lampe ueber ganze Laeufe:
+    #     Livestream (Overlay)      22,5 bis 30,6
+    #     direkte Hallenkamera       0,7 bis 11,7
+    # Eine feste 12 friert die Hallenkamera ein, eine feste 0 laesst im Stream
+    # jeden Menschen durch, der vor die Lampe laeuft. 0,3 ergibt dort rund 7
+    # und hier rund 0,2 -- jeweils das, was "deutlich unter AUS" bedeutet.
+    #
+    # Gegenprobe am Stream: Ein Mensch lief 10 Frames vor der Lampe her, Score
+    # exakt 0,0. Mit dem Anteil wird der Zyklus verworfen, mit der festen 0
+    # entstand ein Wurf samt Gesicht in der Datenbank.
+    #
+    # 0 schaltet den Anteil ab; dann gilt nur der feste Wert.
+    occlusion_off_fraction: float = Field(default=0.3, ge=0.0, le=1.0)
     # Zwei Frames, damit ein einzelner Ausreisser nicht einfriert -- und
     # weniger als `min_stable_frames`, damit die Zustandsmaschine in der
     # Zwischenzeit nicht schon umschaltet.

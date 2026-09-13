@@ -54,11 +54,19 @@ class GleitendesHistogramm:
         self._schwellen = (cfg.on_threshold, cfg.off_threshold)
         self._gemessen = False
         self._seit_takt = 0
+        # Wo die AUS-Wolke liegt. Nicht die Schwelle, sondern das NIVEAU --
+        # daran misst sich, was "deutlich darunter" heisst (Verdeckung).
+        self._aus_niveau: float | None = None
 
     @property
     def gemessen(self) -> bool:
         """Stammen die Schwellen aus einem zweigipfligen Fenster?"""
         return self._gemessen
+
+    @property
+    def aus_niveau(self) -> float | None:
+        """Wo die AUS-Wolke liegt -- None, solange keine zwei Wolken da sind."""
+        return self._aus_niveau
 
     def vergiss(self) -> None:
         """Wirft das Gedaechtnis weg -- nach einer verschobenen ROI.
@@ -75,6 +83,7 @@ class GleitendesHistogramm:
         self._schwellen = (self.cfg.on_threshold, self.cfg.off_threshold)
         self._gemessen = False
         self._seit_takt = 0
+        self._aus_niveau = None
 
     def hinzufuegen(self, wert: float) -> None:
         i = min(self._anzahl_bins - 1, max(0, int(wert / self.cfg.histogram_bin)))
@@ -126,6 +135,10 @@ class GleitendesHistogramm:
 
         tal_wert = (tal + 0.5) * self.cfg.histogram_bin
         rand = self.cfg.histogram_hysteresis * (rechts - links) * self.cfg.histogram_bin
+        # Die untere Wolke ist das AUS-Niveau dieser Bahn. Es wird gebraucht,
+        # um eine VERDECKUNG von einem gewoehnlichen AUS zu unterscheiden:
+        # Verdeckt heisst deutlich unter dem, was AUS normalerweise misst.
+        self._aus_niveau = (links + 0.5) * self.cfg.histogram_bin
         return (tal_wert + rand, tal_wert - rand)
 
     def schwellen(self) -> tuple[float, float]:
@@ -165,6 +178,26 @@ class HsvGreenDetector:
         self._history: deque[float] = deque(maxlen=cfg.adaptive_window)
         self._histogramm = (GleitendesHistogramm(cfg)
                             if cfg.histogram_thresholds else None)
+
+    @property
+    def aus_niveau(self) -> float | None:
+        """Das gemessene AUS-Niveau dieser Lampe -- None, wenn unbekannt.
+
+        NUR aus dem Histogramm. Der Rueckfall auf ein Perzentil des gleitenden
+        Fensters ist bewusst NICHT eingebaut: Liegt die Bahn ueberwiegend auf
+        AN -- und das ist der Normalfall --, liefert jedes Perzentil das
+        AN-Niveau. GEMESSEN an einem Abschnitt von 1100 Frames: 73,3 statt der
+        wahren 25. Die Verdeckungsschwelle waere damit 22 statt 7 und laege
+        mitten in der AUS-Wolke.
+
+        Gebraucht wird es fuer die Verdeckungsbremse:
+        VERDECKT heisst deutlich unter dem, was AUS normalerweise misst -- und
+        was das ist, haengt an Kamera, Lampe und Ausschnitt, nicht an einer
+        Zahl in der Konfiguration.
+        """
+        if self._histogramm is not None:
+            return self._histogramm.aus_niveau
+        return None
 
     def vergiss(self) -> None:
         """Gedaechtnis leeren -- nach einer verschobenen ROI (siehe dort)."""

@@ -2185,3 +2185,58 @@ Menschen beweist nichts ueber stillstehende. Der erste Anlauf war gemessen und
 trotzdem falsch, weil die Stichprobe den Fall nicht enthielt, um den es ging.
 Wer eine Schutzmassnahme misst, muss sie an dem Fall messen, der sie ausgeloest
 hat.
+
+### Die Verdeckungsschwelle misst sich jetzt selbst (2026-09-13)
+
+Der Nutzer: *"Wir bauen ein Tool, was immer funktioniert, kein 'ja aber wenn'
+-- 1 Tool und das muss tragen."* Zu Recht: `occlusion_score` war eine feste
+Zahl, und feste Zahlen tragen hier nicht.
+
+**Der Anlass.** Ein Mensch lief durch die Gruenphase von Bahn 2. Die Gruenspur:
+
+```
+41747-42218   ON,  Score 75-82   (19 Sekunden stabil)
+42224-42233   OFF, Score  0,0    <- Lampe vollstaendig verdeckt, 0,4 s
+42235         ON,  Score 70,8
+```
+
+Score exakt 0,0 ist die Signatur einer vollstaendigen Verdeckung. Die Bremse
+stand auf 0,0 -- also aus -- und es wurde ein Wurf gebucht, mit dem Gesicht
+des Menschen als Beleg in der Datenbank.
+
+**Warum sie aus stand.** GEMESSEN, AUS-Niveau der gruenen Lampe:
+
+| | AUS-Niveau | AUS-Messungen unter 8 |
+|---|---|---|
+| Livestream (Overlay) | 22,5 bis 30,6 | 6 % |
+| direkte Hallenkamera | 0,7 bis 11,7 | 94 bis 100 % |
+
+Eine feste 12 friert die Hallenkamera dauerhaft ein, eine feste 0 schaltet die
+Bremse ab. **Derselbe Fehlertyp wie BUG-011:** eine Groesse als konstant
+angenommen, die es nicht ist.
+
+**Jetzt anteilig** (`occlusion_off_fraction: 0.3`) am Niveau, das die
+Gruenerkennung ohnehin misst -- die untere Wolke des gleitenden Histogramms.
+Kein Perzentil-Rueckfall: Liegt die Bahn ueberwiegend auf AN, liefert jedes
+Perzentil das AN-Niveau (gemessen 73,3 statt 25), und die Schwelle laege
+mitten in der AUS-Wolke.
+
+**Drei Zeugen, jeder sieht etwas Eigenes:**
+
+| Zeuge | sieht |
+|---|---|
+| Gruen-Score gegen das AUS-Niveau | einen Menschen VOR DER LAMPE |
+| Personenmaske | einen BEWEGTEN Menschen auf der Tafel |
+| Tafelwache | eine Tafel, die nicht mehr wie sie selbst aussieht |
+
+Am Streamende sind die ersten beiden blind: alles schwarz, kein bewegter
+Vordergrund, und das gemessene AUS-Niveau selbst null. Die Wache meldet 61 bis
+68 % -- ohne sie wurden dort drei Wuerfe gebucht.
+
+GEGENPROBE mit EINER Konfiguration ueber beide Quellen:
+
+| Fall | vorher | jetzt |
+|---|---|---|
+| Stream, Mensch durch die Gruenphase | 1 Wurf (0 Kegel) | **0** |
+| Stream, Streamende | 3 Wuerfe (0 Kegel) | **0** |
+| Hallenkamera, normaler Betrieb | 35 Wuerfe | **35**, kein Einfrieren |
