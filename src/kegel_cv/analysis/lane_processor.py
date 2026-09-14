@@ -243,6 +243,10 @@ class LaneProcessor:
         self._modell_alarmtakt = cfg.detection.person_model.alarm_interval
         self._modell_deckung = cfg.detection.person_model.board_coverage
         self._modell_zuletzt: int | None = None
+        # Wie lange die Wache schon meldet, OHNE dass das Modell einen
+        # Menschen sieht -- siehe `_pruefe_festhaengende_wache` (BUG-026).
+        self._neustart_frames = cfg.detection.person_mask.wache_neustart_frames
+        self._wache_daueralarm = 0
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
         # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
@@ -822,6 +826,48 @@ class LaneProcessor:
         self._modell_anteil = modell.auf_tafel(self.lane_box(), bezug)
         self._modell_meldet_person = self._modell_anteil > self._modell_deckung
 
+    def _pruefe_festhaengende_wache(self, frame: Frame) -> None:
+        """Loest eine Wache, die sich an einer echten Aenderung verhakt hat.
+
+        DER FALL (BUG-026, gemessen 2026-09-14 am Hallenmitschnitt): Bei Frame
+        215 verschiebt sich das Bild um wenige Pixel. Die Abweichung auf Bahn 5
+        springt von 3,4 auf 13 %, also ueber `wache_nachlernen_unter` -- und
+        bleibt danach 13 000 Frames bei 25,2 % stehen. Median gleich Maximum:
+        voellig unbewegt, wie es ein Mensch nie waere. Die Bahn war den ganzen
+        Mitschnitt lang eingefroren, ohne dass irgendetwas davorstand.
+
+        Die Bewachung der Referenz ist richtig -- sie verhindert, dass ein
+        Mensch hineinwandert. Sie kann nur nicht selbst unterscheiden, ob die
+        Abweichung von einem Menschen kommt oder von einer verrutschten Kamera.
+        Das Personenmodell kann es: Es sah dort auf 0,6 % der Messpunkte einen
+        Menschen, die Wache meldete auf 98,3 %.
+
+        DREI BEDINGUNGEN, alle noetig:
+          * das Modell ist geladen -- sonst fehlt der Zeuge, und es passiert
+            nichts (lieber eingefroren als ein Gesicht in der Datenbank),
+          * es hat ueber die ganze Strecke keinen Menschen auf DIESER Tafel
+            gesehen,
+          * die Strecke ist laenger als jede gemessene echte Verdeckung
+            (118 Verdeckungen: Median 30 Frames, laengste 250; die Schwelle
+            steht auf 750).
+        """
+        modell = self.personen_modell
+        if (self._neustart_frames <= 0 or modell is None or not modell.bereit
+                or not self._wache_meldet_fremdes or self._modell_meldet_person):
+            self._wache_daueralarm = 0
+            return
+        self._wache_daueralarm += 1
+        if self._wache_daueralarm < self._neustart_frames:
+            return
+        log.warning("Bahn %d: Wache meldet seit %d Frames Fremdes, das "
+                    "Personenmodell sieht dort niemanden -- Referenz war "
+                    "vermutlich vor einer Bildverschiebung gelernt. Sie wird "
+                    "ab Frame %d neu aufgebaut.", self.display_number,
+                    self._wache_daueralarm, frame.index)
+        self.wache.vergiss_referenz()
+        self._wache_meldet_fremdes = False
+        self._wache_daueralarm = 0
+
     def fremdmaske(self, bild, frame_index: int | None = None) -> object:
         """Was auf dem Tafelausschnitt dieses Bildes nicht hingehoert.
 
@@ -1091,6 +1137,9 @@ class LaneProcessor:
         # rahmt den Menschen in allen zehn Frames ein (Vertrauen 0,71 bis 0,86),
         # und auf 600 Frames ohne Menschen meldet es nichts.
         self._frage_das_modell(frame, green)
+        # Haengt die Wache an einer Bildverschiebung fest? Dann loesen, BEVOR
+        # sie in die Bremse geht -- sonst friert die Bahn dauerhaft ein.
+        self._pruefe_festhaengende_wache(frame)
         if (green.score < self._verdeckungsschwelle() or self._extern_verdeckt
                 or self._wache_meldet_fremdes or self._modell_meldet_person):
             self._occlusion_frames += 1

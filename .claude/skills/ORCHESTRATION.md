@@ -2346,9 +2346,36 @@ jeden Frame zu ziehen. Deshalb `alarm_interval: 5`, und deshalb zaehlt der
 Abstand ueber ALLE Bahnen: Das Netz sucht in einem Band ueber alle vier
 Tafeln, seine Antwort gilt fuer alle zugleich.
 
-**OFFEN geblieben:** warum die Wache auf Bahn 5 dieses Mitschnitts festhaengt.
-Das Modell koennte es beantworten -- gemessen ist es nicht, und ohne Messung
-wird an der Bremse nichts gelockert.
+**BEANTWORTET am 2026-09-14, und es war ein eigener Bug (BUG-026).** Auf die
+Frage "steht dort wirklich ein Mensch?" antwortete das Modell auf 541
+Messpunkten je Bahn:
+
+| Bahn | Wache meldet | Modell sieht einen Menschen |
+|---|---|---|
+| 2 | 1,3 % | 4,2 % |
+| 3 / 4 | 0,0 % | 0,0 % |
+| **5** | **98,3 %** | **0,6 %** |
+
+Kein Mensch -- und der Beweis steckt schon in der Verteilung: Auf den
+Alarm-Messpunkten ist die Abweichung im Median 25,2 % und im MAXIMUM 26,0 %.
+Median gleich Maximum heisst voellig unbewegt; ein Mensch schwankt. Die
+Referenz war in den ersten 215 Frames gelernt worden, waehrend hinten jemand
+die Klappe offen hatte, danach sprang die Abweichung ueber die
+Nachlernschwelle und hakte fuer 13 000 Frames fest.
+
+Der Fix (`TafelWache.vergiss_referenz` plus
+`LaneProcessor._pruefe_festhaengende_wache`) haengt NICHT am Videoanfang:
+Dieselbe Sperre schnappt bei jeder Aenderung mitten im Lauf zu -- eine
+angestossene Kamera, ein verschobenes Overlay.
+
+| | vorher | mit Erholung |
+|---|---|---|
+| Dauerwarnungen "seit N Frames verdeckt" | 17 | **0** |
+| Wuerfe | 64 | **64**, Zeile fuer Zeile gleich |
+| ms/Frame | 37,1 | **35,6** |
+
+Schneller, weil das Modell nicht mehr von der festhaengenden Wache in jeden
+Frame gezogen wird.
 
 **Noch eine Falle, die beim Bauen auffiel.** Das veroeffentlichte Tafelbild
 stammt aus einem Sample-Frame, bis zu 34 Frames zurueck -- der Ringpuffer der

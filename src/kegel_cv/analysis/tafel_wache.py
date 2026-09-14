@@ -119,6 +119,23 @@ class TafelWache:
         self._leiste_geprueft = False
         self._referenz = None
 
+    def vergiss_referenz(self) -> None:
+        """Wirft die Referenz weg; die naechste Beobachtung lernt sie neu.
+
+        DER GRUND (BUG-026, gemessen 2026-09-14): Die Bewachung der Referenz
+        schuetzt davor, dass ein Mensch hineinwandert -- nachgelernt wird nur
+        unterhalb `nachlernen_unter`. Genau das macht sie aber auch unfaehig,
+        sich von einer ECHTEN Aenderung zu erholen. Im Hallenmitschnitt
+        verschob sich das Bild bei Frame 215 um wenige Pixel, die Abweichung
+        sprang von 3,4 auf 13 %, und die Wache haengt seither bei 25 % fest --
+        13 000 Frames lang, Bahn 5 dauerhaft eingefroren.
+
+        Wer das hier ruft, uebernimmt die Verantwortung dafuer, dass gerade
+        NIEMAND vor der Tafel steht. Der einzige Aufrufer im Programm
+        (`LaneProcessor`) laesst sich das vom Personenmodell bestaetigen.
+        """
+        self._referenz = None
+
     def _ohne_matrixleiste(self, ausschnitt: np.ndarray) -> None:
         """Nimmt die obere Matrixleiste aus der stabilen Maske.
 

@@ -2713,3 +2713,50 @@ einem Band ueber alle vier Tafeln, seine Antwort gilt fuer alle zugleich.
 OFFEN: Warum die Wache auf Bahn 5 dieses Mitschnitts festhaengt. Das Modell
 koennte es beantworten (sieht es dort einen Menschen oder nicht) -- gemessen
 ist es nicht, und ohne Messung wird die Bremse nicht gelockert.
+
+### Steht auf Bahn 5 wirklich ein Mensch? (2026-09-14)
+
+Die Frage aus der Kostenmessung: Die Tafelwache meldete auf Bahn 5 des
+Hallenmitschnitts in 90 % der Frames Fremdes, bei einem Gruen-Score von 73 --
+also klar sichtbarer Lampe. Ein Mensch, oder eine falsche Referenz?
+
+Gemessen auf einem festen Raster ueber alle 13 530 Frames, 541 Messpunkte je
+Bahn, mit dem Personenmodell als unabhaengigem Zeugen:
+
+| Bahn | Wache meldet | Modell sieht einen Menschen | Wache-Abweichung Median | Ampel Median |
+|---|---|---|---|---|
+| 2 | 1,3 % | 4,2 % | 1,2 % | 58,7 |
+| 3 | 0,0 % | 0,0 % | 0,0 % | 76,2 |
+| 4 | 0,0 % | 0,0 % | 0,0 % | 66,2 |
+| **5** | **98,3 %** | **0,6 %** | **25,2 %** | 72,7 |
+
+**Kein Mensch.** Und der Beweis liegt nicht nur im Modell, sondern in der
+Verteilung selbst: Auf den 533 Messpunkten mit Wache-Alarm betraegt die
+Abweichung im Median 25,2 % und im MAXIMUM 26,0 %. Median gleich Maximum heisst
+voellig unbewegt -- ein Mensch schwankt.
+
+Der Verlauf zeigt, wann es passierte:
+
+```
+F0   bis F215    0,0 bis 3,4 %     Referenz wird gelernt
+F215 bis F220    3,4 -> 13,0 %     Sprung ueber die Nachlernschwelle (10 %)
+F220 bis F13530  25,2 %            festgehakt
+```
+
+Das Differenzbild (`debug/bahn5_referenz.png`) zeigt doppelte Kanten an jedem
+Rahmen: derselbe Ausschnitt, um wenige Pixel versetzt. Der Nutzer kannte die
+Ursache -- am Anfang dieser Aufnahme hatte jemand hinten die Klappe geoeffnet;
+die Szene war also gerade untypisch, als die Referenz gelernt wurde, und kehrte
+danach in ihren Normalzustand zurueck.
+
+Siehe BUG-026. Der Fix ist NICHT auf diesen Videoanfang gemuenzt: Dieselbe
+Sperre schnappt bei jeder Aenderung mitten im Lauf zu.
+
+| | vorher | mit Erholung |
+|---|---|---|
+| Dauerwarnungen "seit N Frames verdeckt" | 17 | **0** |
+| Wuerfe | 64 | **64**, Zeile fuer Zeile gleich |
+| ms/Frame | 37,1 | **35,6** |
+
+Schneller, weil das Personenmodell nicht mehr von der festhaengenden Wache in
+jeden Frame gezogen wird.

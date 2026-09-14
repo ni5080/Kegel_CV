@@ -794,6 +794,27 @@ class PersonMaskConfig(BaseModel):
     # Jeden n-ten Frame nachfuehren. Die Referenz aendert sich langsam (Licht,
     # nicht Inhalt), taeglich waere Verschwendung.
     wache_takt: int = Field(default=5, ge=0)
+    # NEUSTART NACH DAUERALARM (BUG-026). Die Bewachung der Referenz schuetzt
+    # davor, dass ein Mensch hineinwandert -- und macht die Wache damit
+    # unfaehig, sich von einer ECHTEN Aenderung zu erholen.
+    #
+    # GEMESSEN 2026-09-14 am Hallenmitschnitt: Bei Frame 215 verschiebt sich
+    # das Bild um wenige Pixel, die Abweichung auf Bahn 5 springt von 3,4 auf
+    # 13 % -- ueber `wache_nachlernen_unter` -- und bleibt danach 13 000 Frames
+    # bei 25,2 % stehen (Median = Maximum, also voellig unbewegt). Die Bahn war
+    # den ganzen Mitschnitt lang eingefroren. Das Personenmodell sah dort auf
+    # 0,6 % der Messpunkte einen Menschen, die Wache meldete auf 98,3 %.
+    #
+    # Verworfen wird die Referenz nur, wenn das Personenmodell ueber diese
+    # ganze Strecke KEINEN Menschen auf der Tafel gesehen hat. Ohne geladenes
+    # Modell passiert gar nichts -- dann fehlt der Zeuge, der es verantworten
+    # kann.
+    #
+    # 750 Frames: GEMESSEN ueber denselben Lauf dauerten 118 echte Verdeckungen
+    # im Median 30 Frames, im 99. Perzentil 142, die laengste 250. 750 ist das
+    # Dreifache der laengsten -- und bei 25 fps eine halbe Minute.
+    # 0 schaltet den Neustart ab.
+    wache_neustart_frames: int = Field(default=750, ge=0)
 
 
 class PersonModelConfig(BaseModel):

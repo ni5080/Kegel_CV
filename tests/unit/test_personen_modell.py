@@ -529,3 +529,97 @@ class TestEinFalschesGitterMachtKeinenLaerm:
         m._netz = Netz()
         assert m._netz_fragen(np.zeros((300, 900, 3), np.uint8)) == []
         assert m.bereit is True
+
+
+class TestDieFesthaengendeWacheWirdGeloest:
+    """BUG-026. Die Bewachung der Referenz verhindert, dass ein Mensch
+    hineinwandert -- und macht die Wache damit unfaehig, sich von einer ECHTEN
+    Aenderung zu erholen.
+
+    GEMESSEN 2026-09-14 am Hallenmitschnitt: Bei Frame 215 verschiebt sich das
+    Bild um wenige Pixel, die Abweichung auf Bahn 5 springt von 3,4 auf 13 %
+    -- ueber `wache_nachlernen_unter` -- und bleibt danach 13 000 Frames bei
+    25,2 % stehen. Median gleich Maximum: voellig unbewegt, wie es ein Mensch
+    nie waere. Die Bahn war den ganzen Mitschnitt eingefroren, ohne dass
+    irgendetwas davorstand. Das Modell sah dort auf 0,6 % der Messpunkte einen
+    Menschen, die Wache meldete auf 98,3 %.
+    """
+
+    def prozessor(self, neustart: int = 20) -> LaneProcessor:
+        cfg = load_config()
+        cfg.detection.person_mask.wache_neustart_frames = neustart
+        p = LaneProcessor(bahn(), cfg)
+        p.prepare(FORM)
+        p.wache._referenz = np.zeros((140, 140), np.float32)
+        return p
+
+    class Modell:
+        bereit = True
+
+        def __init__(self, person=False):
+            self.person = person
+
+    def treibe(self, p, n, person=False):
+        p.setze_personenmodell(self.Modell())
+        for i in range(n):
+            p._wache_meldet_fremdes = True
+            p._modell_meldet_person = person
+            p._pruefe_festhaengende_wache(TestDieBahnFragtSparsam.Frame(i))
+
+    def test_dauermeldung_ohne_mensch_verwirft_die_referenz(self):
+        p = self.prozessor(neustart=20)
+        assert p.wache._referenz is not None
+        self.treibe(p, 20)
+        assert p.wache._referenz is None
+        # Auch die Meldung selbst faellt weg -- sonst ginge die Bahn im selben
+        # Frame trotzdem noch einmal in die Bremse.
+        assert p._wache_meldet_fremdes is False
+        assert p._wache_daueralarm == 0
+
+    def test_kurze_meldung_ruehrt_nichts_an(self):
+        """Eine echte Verdeckung dauert im Median 30 Frames, die laengste
+        gemessene 250. Die Schwelle steht auf 750 -- niemand wird
+        weggeraeumt, weil er eine Weile davorsteht."""
+        p = self.prozessor(neustart=20)
+        self.treibe(p, 19)
+        assert p.wache._referenz is not None
+
+    def test_ein_gesehener_mensch_haelt_den_zaehler_bei_null(self):
+        p = self.prozessor(neustart=20)
+        self.treibe(p, 100, person=True)
+        assert p.wache._referenz is not None
+        assert p._wache_daueralarm == 0
+
+    def test_eine_unterbrechung_setzt_zurueck(self):
+        p = self.prozessor(neustart=20)
+        self.treibe(p, 15)
+        p.setze_personenmodell(self.Modell())
+        p._wache_meldet_fremdes = False
+        p._pruefe_festhaengende_wache(TestDieBahnFragtSparsam.Frame(99))
+        assert p._wache_daueralarm == 0
+        self.treibe(p, 15)
+        assert p.wache._referenz is not None
+
+    def test_ohne_modell_passiert_gar_nichts(self):
+        """Lieber eine eingefrorene Bahn als ein Gesicht in der Datenbank:
+        Ohne Zeugen wird die Referenz nie verworfen."""
+        p = self.prozessor(neustart=20)
+        for i in range(200):
+            p._wache_meldet_fremdes = True
+            p._pruefe_festhaengende_wache(TestDieBahnFragtSparsam.Frame(i))
+        assert p.wache._referenz is not None
+
+    def test_abschaltbar(self):
+        p = self.prozessor(neustart=0)
+        self.treibe(p, 500)
+        assert p.wache._referenz is not None
+
+    def test_die_wache_lernt_danach_wieder(self):
+        """Nach dem Verwerfen muss die naechste Beobachtung eine neue Referenz
+        aufbauen -- sonst haette man die Bahn nur anders kaputtgemacht."""
+        p = self.prozessor(neustart=20)
+        self.treibe(p, 20)
+        assert p.wache.bereit is False
+        p.wache.beobachte(np.full((140, 140, 3), 120, np.uint8))
+        assert p.wache.bereit is True
+        assert p.wache.abweichung(np.full((140, 140, 3), 120, np.uint8)) == 0.0
