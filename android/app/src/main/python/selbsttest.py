@@ -1,18 +1,25 @@
 """Laeuft der Erkennungskern auf diesem Telefon -- und wie schnell?
 
 Dieser Stand baut noch keine Anwendung, er beantwortet eine Frage: Traegt
-Chaquopy Python samt numpy und OpenCV auf echter Hardware, und wie teuer sind
-die Rechenschritte, auf denen alles andere aufsetzt?
+Chaquopy Python samt numpy und OpenCV auf echter Hardware, und was kosten die
+Rechenschritte, auf denen alles andere aufsetzt?
 
 Auf dem Entwicklungsrechner laeuft OpenCV 5.0, auf dem Telefon 4.5.1 -- das
 Neueste, was Chaquopys Paketquelle anbietet. Deshalb steht die Version hier
 oben in der Ausgabe: Sie gehoert zu jedem Messwert dazu.
+
+Gemessen wird der MEDIAN mehrerer Durchlaeufe, nicht der erste. Der erste
+Aufruf eines OpenCV-Verfahrens richtet Puffer ein und ist regelmaessig ein
+Vielfaches teurer als der Dauerbetrieb -- wer ihn misst, misst die falsche
+Zahl.
 """
 
 from __future__ import annotations
 
 import platform
 import time
+
+ZEILENENDE = chr(10)
 
 
 def _messe(was, wiederholungen: int = 5) -> float:
@@ -26,23 +33,24 @@ def _messe(was, wiederholungen: int = 5) -> float:
     return zeiten[len(zeiten) // 2]
 
 
-def selbsttest() -> str:
+def selbsttest(modellpfad: str = "") -> str:
     zeilen: list[str] = []
-
-    zeilen.append(f"Python   {platform.python_version()}")
-    zeilen.append(f"Maschine {platform.machine()}")
+    zeilen.append("Python   " + platform.python_version())
+    zeilen.append("Maschine " + platform.machine())
 
     try:
         import numpy as np
-    except Exception as exc:                       # pragma: no cover
-        return "\n".join(zeilen + [f"numpy fehlt: {exc}"])
-    zeilen.append(f"numpy    {np.__version__}")
+    except Exception as exc:
+        zeilen.append("numpy fehlt: " + str(exc))
+        return ZEILENENDE.join(zeilen)
+    zeilen.append("numpy    " + np.__version__)
 
     try:
         import cv2
-    except Exception as exc:                       # pragma: no cover
-        return "\n".join(zeilen + [f"OpenCV fehlt: {exc}"])
-    zeilen.append(f"OpenCV   {cv2.__version__}")
+    except Exception as exc:
+        zeilen.append("OpenCV fehlt: " + str(exc))
+        return ZEILENENDE.join(zeilen)
+    zeilen.append("OpenCV   " + cv2.__version__)
     zeilen.append("")
 
     # Ein Vollbild in der Groesse, die die Anlage liefert.
@@ -53,10 +61,9 @@ def selbsttest() -> str:
 
     def gruen():
         hsv = cv2.cvtColor(ausschnitt, cv2.COLOR_BGR2HSV)
-        maske = cv2.inRange(hsv, (35, 80, 80), (85, 255, 255))
-        return float(maske.mean())
+        return float(cv2.inRange(hsv, (35, 80, 80), (85, 255, 255)).mean())
 
-    zeilen.append(f"Gruenlampe (50x50)      {_messe(gruen, 20):6.2f} ms")
+    zeilen.append("Gruenlampe (50x50)   %8.2f ms" % _messe(gruen, 20))
 
     # 2. Die Entzerrung einer Tafel -- Grundlage jeder ROI-Messung.
     quelle = np.float32([[534, 71], [676, 71], [676, 216], [534, 216]])
@@ -66,9 +73,9 @@ def selbsttest() -> str:
     def entzerren():
         return cv2.warpPerspective(bild, matrix, (400, 400))
 
-    zeilen.append(f"Tafel entzerren         {_messe(entzerren):6.2f} ms")
+    zeilen.append("Tafel entzerren      %8.2f ms" % _messe(entzerren))
 
-    # 3. Das Hintergrundmodell der Personenmaske.
+    # 3. Das Hintergrundmodell der Personenmaske, auf dem verkleinerten Bild.
     mog = cv2.createBackgroundSubtractorMOG2(500, 32.0, False)
     klein = cv2.resize(bild, (480, 270))
     for _ in range(5):
@@ -77,29 +84,26 @@ def selbsttest() -> str:
     def maske():
         return mog.apply(klein)
 
-    zeilen.append(f"Bewegungsmaske (1/4)    {_messe(maske):6.2f} ms")
+    zeilen.append("Bewegungsmaske (1/4) %8.2f ms" % _messe(maske))
 
     # 4. Das Personenmodell -- der teuerste Schritt, und der einzige, der
     #    ueberhaupt nur laeuft, wenn ein billiger Zeuge etwas meldet.
     zeilen.append("")
+    if not modellpfad:
+        zeilen.append("Personenmodell: kein Pfad uebergeben")
+        return ZEILENENDE.join(zeilen)
     try:
-        from com.chaquo.python import Python           # type: ignore
-        from os.path import join
-
-        ordner = str(Python.getPlatform().getApplication()
-                     .getFilesDir().getAbsolutePath())
-        pfad = join(ordner, "yolox_tiny.onnx")
-        netz = cv2.dnn.readNet(pfad)
+        netz = cv2.dnn.readNet(modellpfad)
         blob = np.zeros((1, 3, 416, 416), np.float32)
         netz.setInput(blob)
-        netz.forward()
+        netz.forward()          # erster Aufruf: richtet ein, zaehlt nicht
 
         def modell():
             netz.setInput(blob)
             return netz.forward()
 
-        zeilen.append(f"Personenmodell (416)  {_messe(modell, 3):8.1f} ms")
+        zeilen.append("Personenmodell (416) %8.1f ms" % _messe(modell, 3))
     except Exception as exc:
-        zeilen.append(f"Personenmodell: {type(exc).__name__} -- {exc}")
+        zeilen.append("Personenmodell: " + type(exc).__name__ + " -- " + str(exc))
 
-    return "\n".join(zeilen)
+    return ZEILENENDE.join(zeilen)

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bewusst als XML und nicht im Code zusammengesetzt: Ein Layout ohne
+     ausdrueckliche LayoutParams wird nicht zuverlaessig gezeichnet — beim ersten
+     Versuch blieb der Bildschirm unter der Titelleiste schlicht leer. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <Button
+            android:id="@+id/knopf_selbsttest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Selbsttest wiederholen" />
+
+        <TextView
+            android:id="@+id/ausgabe"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true"
+            android:textSize="13sp"
+            android:text="startet ..." />
+    </LinearLayout>
+</ScrollView>

@@ -47,7 +47,64 @@ Nicht mit kommt `gui/` (PySide6) und `video/` — beides ersetzt die App.
 |---|---|
 | Gibt es OpenCV für Chaquopy? | Ja — 4.5.1.48 für `cp310`/`arm64`, dazu numpy 1.26 |
 | Läuft unser Kern auf OpenCV 4.5? | Ja — keine einzige echte Inkompatibilität |
-| Liest OpenCV 4.5 das Personenmodell? | Ja — findet den Menschen am Beweisframe F42228 |
+| Liest OpenCV 4.5 das Personenmodell? | **Nein.** Siehe unten. |
+
+### Auf dem Gerät gemessen (Xiaomi 2306EPN60G, Android 15, arm64)
+
+```
+Python   3.10.19      numpy 1.26.2      OpenCV 4.5.1
+
+Grünlampe (50x50)        0.02 ms
+Tafel entzerren          0.96 ms
+Bewegungsmaske (1/4)     0.98 ms
+```
+
+Alle drei Schritte, die in jedem Frame stecken, kosten zusammen rund **2 ms**.
+Das Fundament trägt.
+
+### Das Personenmodell trägt noch nicht
+
+```
+Slice layer only supports steps = 1
+```
+
+Die **Focus-Schicht** am Netzeingang zerlegt das Bild mit Schrittweite 2.
+Neuere ONNX-Importer können das, der von OpenCV 4.5.1 nicht.
+
+Und hier steckt eine Lehre, die teurer war als nötig: Der Vorabtest lief gegen
+OpenCV **4.5.5**, weil es für 4.5.1 keine Räder für Python 3.10 auf Windows
+gibt. Dabei stand in diesem README der Satz *„die API ist zwischen beiden
+unverändert"* — **er war falsch**, geraten statt geprüft. 4.5.5 lädt das
+Modell, 4.5.1 nicht. Gefunden hat es erst das Gerät.
+
+Alle Kandidaten lokal auf genau diese Operation untersucht:
+
+| Modell | Slices mit Schrittweite ≠ 1 | lädt auf 4.5.1 |
+|---|---|---|
+| YOLOX-Tiny | 8 | nein |
+| YOLOX-Nano | 8 | nein |
+| YOLOX-S (OpenCV Zoo) | 8 | nein |
+| **NanoDet-Plus** | **0** | ja |
+
+Eine andere Inferenz-Maschine gibt es in Chaquopy nicht: `onnxruntime` fehlt,
+`tflite-runtime` und `torch` gibt es nur für `cp38` — und `cp310` ist wegen
+OpenCV gesetzt.
+
+Damit bleiben drei Wege:
+
+1. **ONNX-Chirurgie.** Die acht Slices durch etwas ersetzen, das 4.5.1 liest
+   (eine gruppierte Faltung mit Schrittweite 2 leistet dasselbe). Behält das
+   Modell, das ausgiebig vermessen wurde; die Gleichwertigkeit lässt sich auf
+   dem Entwicklungsrechner gegen das Original beweisen, statt sie zu hoffen.
+2. **NanoDet-Plus.** Lädt sofort, 3,8 MB — aber die gesamte Trefferqualität
+   müsste neu gemessen werden, und seine Nachbereitung ist schon einmal an
+   OpenCV 5.0 gescheitert.
+3. **Inferenz in Kotlin** (ONNX Runtime für Android). Saubere Naht: Kotlin
+   rechnet das Netz, Python behält Ankergitter und NMS. Kostet eine Brücke und
+   eine zweite Inferenz-Maschine neben dem Entwicklungsrechner.
+
+Weg 1 zuerst — er ist der einzige, der nichts von dem verwirft, was schon
+gemessen ist.
 
 ### Der Versionstest gehört wiederholt
 
@@ -64,8 +121,13 @@ python -m venv /tmp/cv45
 ```
 
 Die ausgeschlossenen Dateien brauchen PySide6 — genau die Schicht, die auf dem
-Telefon nicht existiert. 4.5.5 statt 4.5.1, weil 4.5.1 keine Räder für Python
-3.10 auf Windows hat; die API ist zwischen beiden unverändert.
+Telefon nicht existiert.
+
+**4.5.5 statt 4.5.1**, weil es für 4.5.1 keine Räder für Python 3.10 auf
+Windows gibt. Dieser Ersatz ist *kein* vollwertiger Test: Genau zwischen diesen
+beiden Fassungen liegt der Unterschied, an dem das Personenmodell scheitert
+(siehe oben). Er prüft die Bildverarbeitung, nicht den ONNX-Importer. Was das
+Modell angeht, gilt allein die Messung auf dem Gerät.
 
 ## Der offene Punkt: pydantic
 
@@ -105,14 +167,27 @@ cp models/yolox_tiny.onnx android/app/src/main/assets/
 
 ### Xiaomi / HyperOS
 
-`adb install` scheitert dort mit `INSTALL_FAILED_USER_RESTRICTED`. Abhilfe: in
-den Entwickleroptionen **„USB-Debugging (Sicherheitseinstellungen)"**
-einschalten — das verlangt ein angemeldetes Mi-Konto. Alternativ das APK
-aufs Gerät legen und im Dateimanager antippen:
+`adb install` scheitert dort mit `INSTALL_FAILED_USER_RESTRICTED`. Was hilft,
+ohne irgendeine Einstellung am Telefon zu ändern:
 
 ```bash
-adb push app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/KegelCV.apk
+adb install -r --user 0 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Alternativ in den Entwickleroptionen **„USB-Debugging
+(Sicherheitseinstellungen)"** einschalten — das verlangt allerdings ein
+angemeldetes Mi-Konto.
+
+Eingaben lassen sich auf MIUI **nicht** über `adb shell input tap` einspielen
+(`INJECT_EVENTS`-Berechtigung fehlt). Deshalb startet der Selbsttest von
+selbst und schreibt sein Ergebnis zusätzlich ins Protokoll:
+
+```bash
+adb logcat -d -s KegelCV:I
+```
+
+Und Dateien unter `/sdcard` sieht die App seit Android 11 nicht mehr — was sie
+lesen soll, gehört ins APK oder in ihr eigenes Verzeichnis.
 
 ## Warum diese Versionen
 

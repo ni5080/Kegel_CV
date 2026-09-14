@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
     <!-- Die Kamera kommt erst mit dem naechsten Schritt; dieser Stand prueft
          nur, ob Python, numpy und OpenCV auf dem Geraet laufen. -->
 
     <application
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:label="Kegel_CV"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight">
