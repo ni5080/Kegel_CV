@@ -58,9 +58,15 @@ PIN_LAYOUT: dict[int, tuple[float, int]] = {
 # Die Ziffernfelder in der Reihenfolge, in der sie auf der TAFEL stehen --
 # oben die beiden Displays, darunter die Zeile aus Wurfnummer, Kegelzahl und
 # Gesamtsumme. Kurze Namen, weil die Zeile in ein schmales Panel muss.
+# `total_a` faehrt nicht mehr mit (Nutzer, 2026-09-14: "irgendwie Quatsch fuer
+# uns") -- es hat als einziges Feld keine Ziffernzellen kalibriert und geht in
+# keine Pruefung ein. Die vier verbliebenen sind genau die, die auch als
+# nullbare Ablesungen an die Datenbank gehen.
+# Die Reihenfolge folgt der Tafel: oben links der Fehlwurfzaehler, unten die
+# Zeile Wurfnummer / Kegel / Summe. Wer vergleicht, schaut abwechselnd auf Bild
+# und Zeile -- dann muss dieselbe Zahl an derselben Stelle stehen.
 ANZEIGEFELDER: tuple[tuple[str, str], ...] = (
     ("left_display", "Fehl"),
-    ("total_a", "SummeA"),
     ("throw_number", "Wurf"),
     ("pin_count", "Kegel"),
     ("total_b", "SummeB"),

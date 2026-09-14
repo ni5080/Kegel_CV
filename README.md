@@ -168,12 +168,34 @@ create table if not exists throws (
     video_time_s  real,                 -- Zeitpunkt im Video
     recorded_at   timestamptz not null default now(),
 
+    -- Was die Tafel im Moment des Wurfs ZEIGTE. Alle nullbar: NULL heißt
+    -- "nicht sicher gelesen", und das ist eine Aussage, keine Lücke.
+    --
+    -- Nur Beleg. Gezählt wird aus den Lampen (`pins_count`) — diese Spalten
+    -- gehen in keine Berechnung dieses Werkzeugs ein. Wer sie zum Rechnen
+    -- benutzt, tut das auf eigene Verantwortung.
+    displayed_throw_number int,         -- Wurfnummer laut Tafel
+    displayed_pin_count    int,         -- Kegelzahl laut Tafel
+    displayed_foul_count   int,         -- Fehlwurfzähler
+    displayed_total        int,         -- Summenfeld B
+
     -- Der Beleg zum Wert: die eingemessene Anzeigetafel als Base64-JPEG
     board_jpeg        text,
     board_before_jpeg text
 );
 
 create index if not exists throws_lane_time on throws (lane, recorded_at desc);
+```
+
+Eine bestehende Tabelle wird so nachgezogen — gefahrlos, die Spalten sind
+nullbar und vorhandene Zeilen bleiben unberührt:
+
+```sql
+alter table throws
+    add column if not exists displayed_throw_number int,
+    add column if not exists displayed_pin_count    int,
+    add column if not exists displayed_foul_count   int,
+    add column if not exists displayed_total        int;
 ```
 
 Damit Abonnenten sofort benachrichtigt werden (der Liveticker nutzt das):

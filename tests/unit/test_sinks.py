@@ -64,14 +64,44 @@ class TestZeile:
 
     def test_enthaelt_nichts_abgeleitetes(self):
         """Der Kern der Entscheidung: Was die Bilderkennung nicht misst,
-        sondern herleitet, gehoert nicht in die Uebertragung."""
+        sondern HERLEITET, gehoert nicht in die Uebertragung.
+
+        Die Grenze verlaeuft zwischen abgeleitet und abgelesen, nicht zwischen
+        wichtig und unwichtig. `throw_number` ist eine Zaehlung ueber viele
+        Wuerfe hinweg und faellt heraus; `displayed_throw_number` ist das, was
+        auf der Tafel STAND, und darf mit."""
         zeile = throw_to_row(wurf())
 
         for schluessel in ("throw_number", "running_total", "series_total",
-                           "game", "cycle", "displayed_total", "status"):
+                           "game", "cycle", "status"):
             assert schluessel not in zeile, (
                 f"'{schluessel}' ist abgeleitet und darf nicht gesendet werden"
             )
+
+    def test_enthaelt_die_ablesungen_der_tafel(self):
+        """ERGAENZUNG 2026-09-14 (Nutzer): *"nullable mitsenden, dann kann
+        jeder selbst entscheiden, was er macht."* Vier Ablesungen -- kein
+        Regelwissen, keine Rechnung, kein Zustand ueber Wuerfe hinweg."""
+        zeile = throw_to_row(wurf())
+
+        for schluessel in ("displayed_throw_number", "displayed_pin_count",
+                           "displayed_foul_count", "displayed_total"):
+            assert schluessel in zeile
+
+    def test_die_ablesungen_duerfen_leer_sein(self):
+        """`None` heisst "nicht sicher gelesen" und ist eine Aussage. Die
+        Spalte muss trotzdem da sein -- eine fehlende und eine leere Spalte
+        sind fuer die lesende Anwendung zweierlei."""
+        zeile = throw_to_row(wurf())
+        assert zeile["displayed_foul_count"] is None
+        json.dumps(zeile)
+
+    def test_summenfeld_a_faehrt_nicht_mit(self):
+        """Nutzer 2026-09-14: "summe_a ist irgendwie Quatsch fuer uns." Es hat
+        als einziges Feld keine Ziffernzellen kalibriert und geht in keine
+        Pruefung ein."""
+        zeile = throw_to_row(wurf())
+        assert not any("total_a" in s for s in zeile)
 
     def test_ist_flach_und_json_faehig(self):
         """Der Spielleiter schaut auf eine Tabelle, nicht auf ein Dokument."""

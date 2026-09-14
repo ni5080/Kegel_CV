@@ -673,6 +673,10 @@ class ThrowAnalyzer:
             pins=pin_numbers,
             pins_count=count,
             displayed_pin_count=displayed_count,
+            # Was die Tafel im selben Moment zeigte -- Beleg, keine Rechnung.
+            displayed_throw_number=throw_number,
+            displayed_foul_count=foul_count,
+            displayed_total=displayed_total,
             status=status,
             running_total=running_total,
             series_total=series_total,

@@ -84,7 +84,14 @@ class TestDieZeile:
         namen = [n for n, _ in ANZEIGEFELDER]
         assert namen.index("throw_number") < namen.index("pin_count")
         assert namen.index("pin_count") < namen.index("total_b")
-        assert namen.index("total_a") < namen.index("throw_number")
+        # Der Fehlwurfzaehler steht oben links, also vor der unteren Zeile.
+        assert namen.index("left_display") < namen.index("throw_number")
+
+    def test_summenfeld_a_wird_nicht_mehr_gezeigt(self):
+        """Nutzer 2026-09-14: "summe_a ist irgendwie Quatsch fuer uns." Es hat
+        als einziges Feld keine Ziffernzellen kalibriert, geht in keine
+        Pruefung ein und wird seither auch nicht mehr gelesen."""
+        assert "total_a" not in [n for n, _ in ANZEIGEFELDER]
 
     def test_ein_unbekanntes_feld_stoert_nicht(self):
         zeile = anzeige_zeile({"gibt_es_nicht": DigitReading(

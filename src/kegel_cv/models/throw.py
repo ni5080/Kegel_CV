@@ -138,6 +138,19 @@ class ThrowResult:
     displayed_pin_count: int | None   # Ziffer der Anzeigetafel (zweite Quelle)
     status: ThrowStatus
     running_total: int
+    # WEITERE ABLESUNGEN DER TAFEL, alle nullbar und alle NUR BELEG.
+    #
+    # Sie gehen in keine Zaehlung ein -- das ist keine Vorsicht, sondern eine
+    # Lehre: Die Wurfnummer aus der Anzeige hat einmal 28 % der Wuerfe
+    # geloescht (BUG-008). Gezaehlt wird aus den Lampen; diese Werte sagen nur,
+    # was auf der Tafel stand, als der Wurf gebucht wurde.
+    #
+    # `None` heisst "nicht sicher gelesen" und ist ein gueltiger Zustand --
+    # eine verdeckte oder flackernde Anzeige liefert keinen Wert, und das darf
+    # den Wurf nicht aufhalten (P8).
+    displayed_throw_number: int | None = None   # Wurfnummer laut Tafel, roh
+    displayed_foul_count: int | None = None     # Fehlwurfzaehler (left_display)
+    displayed_total: int | None = None          # Summenfeld B
     series_total: int | None = None   # nur am Ende eines 15er-Zyklus gesetzt
     cycle_number: int = 1
     # Laufende Spielnummer der Bahn. Ein Spiel umfasst 30 Wuerfe; danach setzt

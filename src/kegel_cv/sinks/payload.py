@@ -41,6 +41,25 @@ def throw_to_row(throw: ThrowResult, video_id: str = "",
     dieser Bahn sind zu diesem Zeitpunkt diese Kegel gefallen.
 
     Vom Nutzer so festgelegt (2026-08-26).
+
+    ERGAENZUNG 2026-09-14: Dazu kommen vier ABLESUNGEN DER TAFEL, alle
+    nullbar. Der Unterschied zu den oben verworfenen Groessen ist wesentlich:
+
+        verworfen  abgeleitet -- laufende Summe, Zyklus, Spielnummer.
+                   Sie setzen Regelwissen voraus und sind genau daran
+                   gescheitert.
+        neu        abgelesen -- was auf der Tafel STAND. Keine Rechnung,
+                   keine Regel, kein Zustand ueber mehrere Wuerfe hinweg.
+
+    Der Nutzer dazu: *"nullable mitsenden, dann kann jeder selbst entscheiden,
+    was er macht."* `None` heisst "nicht sicher gelesen" und ist ein gueltiger
+    Zustand -- die lesende Anwendung muss damit rechnen. Wer sie zum Rechnen
+    benutzt, tut das auf eigene Verantwortung; `pins_count` bleibt die einzige
+    gemessene Wahrheit.
+
+    `total_a` faehrt bewusst NICHT mit: Der Nutzer nennt es "irgendwie Quatsch
+    fuer uns", es hat als einziges Feld keine Ziffernzellen kalibriert, und es
+    geht in keine Pruefung ein.
     """
     row = {
         "video_id": video_id,
@@ -52,6 +71,14 @@ def throw_to_row(throw: ThrowResult, video_id: str = "",
         # nachtraeglich eine Aufzeichnung ausgewertet wird.
         "video_time_s": round(throw.timestamp, 2),
     }
+    # Was die Tafel im Moment des Wurfs zeigte. Nur Beleg -- siehe oben.
+    # Immer gesetzt, auch als None: Eine fehlende Spalte und eine leere Spalte
+    # sind fuer die lesende Anwendung zweierlei, und "nicht gelesen" ist eine
+    # Aussage.
+    row["displayed_throw_number"] = throw.displayed_throw_number
+    row["displayed_pin_count"] = throw.displayed_pin_count
+    row["displayed_foul_count"] = throw.displayed_foul_count
+    row["displayed_total"] = throw.displayed_total
     # Der Beleg zum Ergebnis: die eingemessene Anzeigetafel als Base64-JPEG.
     # Nur wenn es eines gibt -- ein fehlendes Bild darf den Wurf nicht
     # aufhalten (P8). Der Ticker holt die Spalte nur fuer den Wurf, den
