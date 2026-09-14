@@ -77,6 +77,9 @@ chaquopy {
 val assetsHolen by tasks.registering(Copy::class) {
     from("../../config/default.yaml")
     from("../../models/yolox_tiny_android.onnx")
+    // Die Tafelbibliothek: Musterbild und Bereiche einer FUNK-Anzeigetafel.
+    // Ohne sie kann die automatische Suche nichts erkennen.
+    from("../../data/boardtypes") { into("boardtypes") }
     into(layout.projectDirectory.dir("src/main/assets"))
 }
 tasks.named("preBuild") { dependsOn(assetsHolen) }
@@ -85,4 +88,13 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
+
+    // CameraX. `OUTPUT_IMAGE_FORMAT_RGBA_8888` gibt es seit 1.3 -- damit
+    // kommt jedes Bild als EINE Ebene statt als drei YUV-Ebenen mit
+    // geraeteabhaengigen Abstaenden.
+    val camerax = "1.4.1"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
 }
