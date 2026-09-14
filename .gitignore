@@ -73,3 +73,6 @@ android/build/
 android/app/build/
 android/local.properties
 android/.idea/
+
+# Konfiguration und Modell holt Gradle beim Bauen aus dem Projekt.
+android/app/src/main/assets/

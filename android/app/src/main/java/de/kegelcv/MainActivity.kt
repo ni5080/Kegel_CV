@@ -25,9 +25,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var ausgabe: TextView
 
-    /** Ablage der Modellkandidaten waehrend der Erprobung (siehe unten). */
-    private val modellordner = File("/sdcard/Download/kegelmodelle")
-
     override fun onCreate(zustand: Bundle?) {
         super.onCreate(zustand)
         setContentView(R.layout.activity_main)
@@ -49,17 +46,26 @@ class MainActivity : AppCompatActivity() {
      * Das Personenmodell liegt als Asset im APK und muss als Datei vorliegen,
      * bevor OpenCV es lesen kann: `cv2.dnn.readNet` nimmt einen Pfad, keinen
      * Datenstrom.
+     *
+     * Es ist die UMGEBAUTE Fassung (`tools/modell_fuer_android.py`): Das
+     * Original scheitert am ONNX-Leser von OpenCV 4.5.1, weil seine
+     * Focus-Schicht mit Schrittweite 2 abtastet. Der Umbau ersetzt sie durch
+     * eine gleichwertige Faltung -- bewiesen, nicht gehofft: Die Ausgaben
+     * beider Netze sind auf dem Entwicklungsrechner bitgleich.
      */
-    private fun modellBereitstellen(): String {
-        val ziel = File(filesDir, "yolox_tiny.onnx")
+    private fun modellBereitstellen(): String = auspacken("yolox_tiny_android.onnx")
+
+    /** Legt ein Asset als Datei ab und gibt seinen Pfad zurueck. */
+    private fun auspacken(name: String): String {
+        val ziel = File(filesDir, name)
         if (ziel.exists() && ziel.length() > 0) return ziel.absolutePath
         return runCatching {
-            assets.open("yolox_tiny.onnx").use { quelle ->
+            assets.open(name).use { quelle ->
                 ziel.outputStream().use { quelle.copyTo(it) }
             }
             ziel.absolutePath
         }.getOrElse {
-            Log.w("KegelCV", "Modell nicht entpackt", it)
+            Log.w("KegelCV", "Asset nicht entpackt: " + name, it)
             ""
         }
     }
@@ -72,18 +78,11 @@ class MainActivity : AppCompatActivity() {
             val text = runCatching {
                 val kern = py.getModule("selbsttest")
                     .callAttr("selbsttest", pfad).toString()
-                // Solange nicht feststeht, welches Modell das OpenCV DIESES
-                // Geraets lesen kann, wird reihum geprueft. YOLOX-Tiny laedt
-                // auf 5.0 und auf 4.5.5, scheitert aber auf dem Geraet an
-                // 4.5.1 -- die Kandidaten liegen deshalb zum Durchprobieren
-                // in `modellordner`. Faellt der Ordner weg, entfaellt der Teil.
-                if (modellordner.isDirectory) {
-                    val weitere = py.getModule("modelltest")
-                        .callAttr("pruefe", modellordner.absolutePath).toString()
-                    listOf(kern, "", weitere).joinToString(System.lineSeparator())
-                } else {
-                    kern
-                }
+                val konfig = auspacken("default.yaml")
+                val kernmodule = py.getModule("selbsttest")
+                    .callAttr("kern", konfig).toString()
+                listOf(kern, "", "Erkennungskern:", kernmodule)
+                    .joinToString(System.lineSeparator())
             }.getOrElse {
                 "Fehlgeschlagen: " + it::class.java.simpleName +
                     System.lineSeparator() + it.message

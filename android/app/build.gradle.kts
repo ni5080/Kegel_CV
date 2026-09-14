@@ -59,7 +59,27 @@ chaquopy {
             install("pyyaml==6.0.3")
         }
     }
+
+    sourceSets {
+        getByName("main") {
+            // DER ERKENNUNGSKERN SELBST -- nicht kopiert, sondern derselbe
+            // Quelltext, den auch der Entwicklungsrechner benutzt. Eine
+            // zweite Kopie waere in einem Monat ein zweites Programm.
+            srcDir("../../src")
+        }
+    }
 }
+
+// DIE ASSETS KOMMEN AUS DEM PROJEKT, nicht aus einer zweiten Kopie im
+// android-Ordner. Zwei Fassungen derselben Konfiguration waeren in einem Monat
+// zwei verschiedene Konfigurationen -- und die Abweichung faellt erst auf,
+// wenn das Telefon anders zaehlt als der Rechner.
+val assetsHolen by tasks.registering(Copy::class) {
+    from("../../config/default.yaml")
+    from("../../models/yolox_tiny_android.onnx")
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+tasks.named("preBuild") { dependsOn(assetsHolen) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")

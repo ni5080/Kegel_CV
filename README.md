@@ -428,10 +428,10 @@ Gemessene Fakten über das Material: `docs/VIDEO_ANALYSIS.md`.
 
 [MIT](LICENSE) — nimm es, benutze es, ändere es, gib es weiter.
 
-Die Abhängigkeiten stehen dem nicht im Weg: NumPy (BSD), PyYAML und pydantic
-(MIT), OpenCV (Apache-2.0). **PySide6** ist LGPL-3.0 — das ist für ein
-MIT-Projekt unproblematisch, solange Qt wie hier über pip installiert und nicht
-mit einkompiliert wird.
+Die Abhängigkeiten stehen dem nicht im Weg: NumPy (BSD), PyYAML (MIT), OpenCV
+(Apache-2.0). **PySide6** ist LGPL-3.0 — das ist für ein MIT-Projekt
+unproblematisch, solange Qt wie hier über pip installiert und nicht mit
+einkompiliert wird.
 
 Das Personenmodell wird nicht mitgeliefert, sondern nachgeladen: **YOLOX-Tiny**
 von Megvii, [Apache-2.0](https://github.com/Megvii-BaseDetection/YOLOX). Es ist

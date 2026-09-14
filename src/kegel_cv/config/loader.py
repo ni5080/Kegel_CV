@@ -24,8 +24,17 @@ def find_project_root(start: Path | None = None) -> Path:
     """
     current = (start or Path(__file__)).resolve()
     for candidate in [current, *current.parents]:
-        if (candidate / "config" / DEFAULT_CONFIG_NAME).is_file():
-            return candidate
+        try:
+            if (candidate / "config" / DEFAULT_CONFIG_NAME).is_file():
+                return candidate
+        except OSError:
+            # Nicht jedes Elternverzeichnis laesst sich befragen. Auf Android
+            # ist `/config` ein gesperrtes Kernel-Verzeichnis: Der Zugriff wirft
+            # PermissionError, statt schlicht "nein" zu sagen -- und die Suche
+            # brach damit ab, bevor sie fertig war (gemessen 2026-09-14 auf dem
+            # Geraet). Ein unlesbares Verzeichnis ist keine Projektwurzel;
+            # weitersuchen.
+            continue
     # Fallback: drei Ebenen ueber diesem Modul (src/kegel_cv/config/loader.py)
     return Path(__file__).resolve().parents[3]
 
@@ -102,19 +111,30 @@ def load_env_file(path: Path) -> int:
 def load_config(
     path: str | Path | None = None,
     overrides: dict[str, Any] | None = None,
+    root: str | Path | None = None,
 ) -> AppConfig:
     """Laedt die Konfiguration und validiert sie.
 
     Args:
         path: Pfad zur YAML-Datei. None -> config/default.yaml der Projektwurzel.
         overrides: Zusaetzliche Werte, die die Datei uebersteuern (z.B. aus CLI).
+        root: Projektwurzel. None -> wird gesucht. Ausdruecklich angeben muss
+            sie, wer keine hat: Auf dem Telefon gibt es kein Projektverzeichnis,
+            sondern nur den privaten Ordner der Anwendung -- und relativ dazu
+            werden Modelldatei und Ausgaben aufgeloest.
 
     Raises:
         FileNotFoundError: Konfigurationsdatei fehlt.
         ValueError: Konfiguration ist inhaltlich ungueltig.
     """
-    root = find_project_root()
-    load_env_file(root / ".env")
+    wurzel = Path(root) if root is not None else find_project_root()
+    try:
+        load_env_file(wurzel / ".env")
+    except OSError as exc:
+        # Zugangsdaten sind freiwillig; ein unlesbares Verzeichnis darf den
+        # Start nicht verhindern (P8).
+        log.debug("Keine .env gelesen: %s", exc)
+    root = wurzel
     config_path = Path(path) if path else root / "config" / DEFAULT_CONFIG_NAME
 
     if not config_path.is_file():

@@ -52,7 +52,7 @@ Verstoß bricht die Tests, statt nur eine Regel in einem Dokument zu verletzen.
 | Bildverarbeitung | **OpenCV** | Standard für Homographie, Decoding, ROI-Operationen | scikit-image (weniger Videounterstützung) |
 | GUI | **PySide6 (Qt)** | Native Desktop-Oberfläche, LGPL, mächtiges Zeichnen für Overlays | Tkinter (zu schwach für Video+Overlays), Web-GUI (zusätzliche Schicht ohne Gewinn) |
 | Video-Decoding | **OpenCV** (`VideoCapture`) | Genügt für lokale MP4 | PyAV — wird für Streams relevant, nicht vorher |
-| Konfiguration | **YAML + pydantic** | Lesbar für Menschen, validiert beim Laden statt beim ersten Zugriff | JSON (keine Kommentare — bei einer Datei voller begründeter Schwellwerte untragbar) |
+| Konfiguration | **YAML + eigene Feldprüfung** (`kegel_cv/schema.py`) | Lesbar für Menschen, validiert beim Laden statt beim ersten Zugriff | JSON (keine Kommentare — bei einer Datei voller begründeter Schwellwerte untragbar); pydantic (Kern in Rust, läuft nicht auf Android) |
 | Ziffernerkennung | **7-Segment-Dekodierung** geplant | Die Displays sind 7-Segment, keine Schrift. Jede Entscheidung ist auf ein Segment zurückführbar | OCR (auf Fließtext trainiert), ML (unverhältnismäßig, Stufe 5) |
 | Tests | **pytest** | Parametrisierung, Fixtures | unittest |
 
@@ -203,3 +203,36 @@ Overlay-Position → reale Bahn (`LaneCalibration.real_lane_number`).
 
 Eine geratene Annahme, die zufällig auf dem Testmaterial funktioniert, ist
 schädlicher als eine dokumentierte Lücke.
+
+---
+
+## 11. Warum die Feldprüfung selbst geschrieben ist
+
+Bis 2026-09-14 prüfte **pydantic v2** Konfiguration und Kalibrierung. Sein Kern
+`pydantic-core` ist in Rust geschrieben — und läuft damit nicht unter Chaquopy,
+das nur reine Python-Pakete plus eigene native Übersetzungen liefert. Ohne
+Ersatz hätte der Erkennungskern auf dem Telefon nicht einmal *importiert*
+werden können.
+
+Die Alternativen waren schlechter:
+
+| | warum nicht |
+|---|---|
+| pydantic v1 | reines Python, aber andere Schnittstelle — man entwickelte gegen v2 und lieferte v1 aus. Zwei Verhalten. |
+| Konfiguration als fertiges JSON ausliefern | löst die Kalibrierungen nicht, die auf dem Gerät gelesen und geschrieben werden |
+| Erkennung in Kotlin neu schreiben | jeder gemessene Schwellwert hängt an dieser Implementierung |
+
+`kegel_cv/schema.py` deckt genau die Oberfläche ab, die das Projekt benutzt:
+`BaseModel`, `Field` mit Wertebereichen, `field_validator`, `model_validator`,
+`model_dump`, `model_validate`, `model_copy`. Gemessen waren das 24 Klassen und
+acht Prüfer — klein genug, dass eine Fremdbibliothek dafür zu viel war.
+
+Zwei Verhaltensweisen sind bewusst von pydantic übernommen, weil vorhandener
+Code sich darauf verlässt: **unbekannte Schlüssel werden übergangen** (eine
+Konfiguration aus einem älteren Stand darf nicht unlesbar werden) und
+**Zuweisungen nach dem Erzeugen werden nicht geprüft** (`model_copy(update=…)`
+darf einen Bereich vorübergehend über den Tafelrand schieben — beanstandet wird
+er beim Speichern).
+
+Der Umstieg lief ohne einen einzigen roten Test der bestehenden Suite; die
+neue Prüfung hat ihre eigene in `tests/unit/test_schema.py`.

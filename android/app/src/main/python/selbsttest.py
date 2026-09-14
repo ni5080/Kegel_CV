@@ -107,3 +107,51 @@ def selbsttest(modellpfad: str = "") -> str:
         zeilen.append("Personenmodell: " + type(exc).__name__ + " -- " + str(exc))
 
     return ZEILENENDE.join(zeilen)
+
+
+def kern(konfig: str = "") -> str:
+    """Laesst sich der Erkennungskern auf diesem Geraet ueberhaupt importieren?
+
+    Das war bis zum 2026-09-14 die offene Frage: `config/schema.py` und
+    `calibration/model.py` haengen an pydantic, und dessen Kern ist in Rust
+    geschrieben -- auf Android nicht zu haben. Seit beide Dateien auf die
+    projekteigene Pruefung in `kegel_cv/schema.py` umgestellt sind, sollte es
+    gehen. Sollte.
+    """
+    zeilen = []
+    schritte = [
+        ("kegel_cv.schema", "eigene Feldpruefung"),
+        ("kegel_cv.config.schema", "Konfigurationsschema"),
+        ("kegel_cv.calibration.model", "Kalibrierungsmodell"),
+        ("kegel_cv.detection.lamp_detectors", "Lampenerkennung"),
+        ("kegel_cv.detection.personen_modell", "Personenmodell"),
+        ("kegel_cv.analysis.lane_processor", "Bahnverarbeitung"),
+        ("kegel_cv.analysis.pipeline", "Pipeline"),
+    ]
+    for modul, was in schritte:
+        try:
+            __import__(modul)
+            zeilen.append("  ok       " + was)
+        except Exception as exc:
+            zeilen.append("  FEHLER   " + was + ": "
+                          + type(exc).__name__ + " " + str(exc)[:90])
+            return ZEILENENDE.join(zeilen)
+
+    if konfig:
+        try:
+            import os
+
+            from kegel_cv.config.loader import load_config
+            # Die Wurzel AUSDRUECKLICH mitgeben: Auf dem Telefon gibt es kein
+            # Projektverzeichnis, sondern nur den privaten Ordner der
+            # Anwendung -- relativ dazu werden Modelldatei und Ausgaben
+            # aufgeloest.
+            cfg = load_config(konfig, root=os.path.dirname(konfig))
+            zeilen.append("  ok       Konfiguration gelesen, Verdeckungsanteil "
+                          + str(cfg.detection.green.occlusion_edge_fraction))
+        except Exception as exc:
+            zeilen.append("  FEHLER   Konfiguration (" + konfig + "): "
+                          + type(exc).__name__ + " " + str(exc)[:90])
+    else:
+        zeilen.append("  FEHLER   Konfiguration: kein Pfad uebergeben")
+    return ZEILENENDE.join(zeilen)

@@ -62,7 +62,7 @@ Bewegungsmaske (1/4)     0.98 ms
 Alle drei Schritte, die in jedem Frame stecken, kosten zusammen rund **2 ms**.
 Das Fundament trägt.
 
-### Das Personenmodell trägt noch nicht
+### Das Personenmodell trägt jetzt auch
 
 ```
 Slice layer only supports steps = 1
@@ -103,8 +103,18 @@ Damit bleiben drei Wege:
    rechnet das Netz, Python behält Ankergitter und NMS. Kostet eine Brücke und
    eine zweite Inferenz-Maschine neben dem Entwicklungsrechner.
 
-Weg 1 zuerst — er ist der einzige, der nichts von dem verwirft, was schon
-gemessen ist.
+**Gegangen wurde Weg 1, und er trägt.** `tools/modell_fuer_android.py` ersetzt
+die acht Slices durch eine Faltung 3→12, Kern 2×2, Schrittweite 2, mit genau
+einer Eins je Ausgangskanal. Das ist keine Näherung, sondern dieselbe Rechnung
+in anderer Schreibweise — und das Werkzeug beweist es, statt es zu behaupten:
+Es lässt beide Netze auf demselben Zufallsbild laufen und vergleicht.
+
+```
+9 Knoten ersetzt durch eine Faltung mit 12 Einsen.
+Größter Unterschied in der Ausgabe: 0.000e+00
+```
+
+**Bitgleich.** Auf dem Gerät läuft das umgebaute Netz in **133,7 ms**.
 
 ### Der Versionstest gehört wiederholt
 
@@ -129,21 +139,54 @@ beiden Fassungen liegt der Unterschied, an dem das Personenmodell scheitert
 (siehe oben). Er prüft die Bildverarbeitung, nicht den ONNX-Importer. Was das
 Modell angeht, gilt allein die Messung auf dem Gerät.
 
-## Der offene Punkt: pydantic
+## pydantic — erledigt
 
-**pydantic v2 läuft nicht auf Android.** Sein Kern (`pydantic-core`) ist in Rust
-geschrieben, und Chaquopy liefert nur reine Python-Pakete plus eigene native
-Übersetzungen. Betroffen sind genau zwei Dateien:
+**pydantic v2 läuft nicht auf Android** (Kern in Rust). Betroffen waren genau
+zwei Dateien mit zusammen 24 Klassen. Sie benutzen jetzt
+`src/kegel_cv/schema.py`, eine projekteigene Feldprüfung mit genau der
+Oberfläche, die hier gebraucht wird. Begründung und verworfene Alternativen
+stehen in `docs/ARCHITECTURE.md`, Abschnitt 11.
 
-- `src/kegel_cv/config/schema.py` — 20 Klassen
-- `src/kegel_cv/calibration/model.py` — 4 Klassen
+Der Umstieg lief ohne einen einzigen roten Test der bestehenden Suite.
 
-Die benutzte Oberfläche ist überschaubar: `BaseModel`, `Field` mit
-Wertebereichen (`ge`/`le`/`gt`/`lt`, `default_factory`), acht Validatoren,
-je einmal `model_dump` und `model_validate`.
+### Damit importiert der Kern auf dem Gerät
 
-Solange das nicht gelöst ist, kann die App den Kern **noch nicht importieren** —
-der Selbsttest prüft deshalb nur Python, numpy, OpenCV und das Modell.
+```
+Erkennungskern:
+  ok       eigene Feldprüfung
+  ok       Konfigurationsschema
+  ok       Kalibrierungsmodell
+  ok       Lampenerkennung
+  ok       Personenmodell
+  ok       Bahnverarbeitung
+  ok       Pipeline
+  ok       Konfiguration gelesen, Verdeckungsanteil 0.5
+```
+
+Zwei Dinge waren dafür nötig, beide im Hauptzweig und beide auch am Schreibtisch
+richtig:
+
+- `find_project_root` überging bisher keine unlesbaren Verzeichnisse. Auf
+  Android ist `/config` ein gesperrtes Kernel-Verzeichnis — der Zugriff wirft
+  `PermissionError`, statt schlicht „nein" zu sagen, und die Suche brach ab.
+- `load_config` nimmt jetzt eine Projektwurzel entgegen. Auf dem Telefon gibt
+  es kein Projektverzeichnis, sondern nur den privaten Ordner der Anwendung —
+  und relativ dazu werden Modelldatei und Ausgaben aufgelöst.
+
+### Beim Messen: Bildschirm an
+
+Dieselbe Messung schwankt um den Faktor neun, je nachdem ob das Gerät wach ist:
+
+| | Bildschirm an | gedrosselt |
+|---|---|---|
+| Grünlampe | 0,02 ms | 0,19 ms |
+| Tafel entzerren | 1,91 ms | 4,38 ms |
+| Bewegungsmaske | 1,08 ms | 7,62 ms |
+| Personenmodell | 133,7 ms | 1174,6 ms |
+
+Android drosselt Anwendungen im Hintergrund hart. Wer hier Zahlen erhebt, muss
+den Bildschirm anlassen und die App im Vordergrund halten — sonst misst er die
+Energieverwaltung.
 
 ## Bauen und aufspielen
 
