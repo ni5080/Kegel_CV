@@ -76,3 +76,4 @@ android/.idea/
 
 # Konfiguration und Modell holt Gradle beim Bauen aus dem Projekt.
 android/app/src/main/assets/
+android/.kotlin/
