@@ -60,6 +60,24 @@ Tests:
 Zugangsdaten braucht; fehlen sie, meldet das Werkzeug es einmal im Protokoll
 und wertet weiter aus.
 
+### Personenmodell (empfohlen, nicht mitgeliefert)
+
+Ein kleines Netz erkennt Menschen vor den Anzeigetafeln. Es schwärzt sie in
+den Bildern, die in die Datenbank gehen, und verhindert Würfe, die nur
+entstehen, weil jemand durchs Bild läuft.
+
+```bash
+.venv/Scripts/python.exe tools/hole_personenmodell.py
+```
+
+Ein reiner Download (YOLOX-Tiny, 20 MB, Apache-2.0) mit Prüfsummenkontrolle —
+keine zusätzliche Abhängigkeit. Die Datei liegt nicht im Repo, weil 20 MB
+Binärdaten, die sich nie ändern, nichts in einer Versionsverwaltung verloren
+haben.
+
+Fehlt sie, läuft alles weiter — mit etwas weniger Schutz. Abschalten lässt es
+sich über `detection.person_model.enabled: false`.
+
 ---
 
 ## Bedienung in vier Schritten
@@ -296,6 +314,21 @@ Vier Grundsätze, die den Aufbau erklären:
 Die Kegelzahl kommt aus den **Lampen**, nicht aus den Ziffern; die Ziffern sind
 Gegenprobe. Deshalb trägt ein Lesefehler nicht bis ins Ergebnis.
 
+### Wenn jemand vor der Tafel steht
+
+Ein Mensch vor der Anzeigetafel sieht für die grüne Lampe aus wie ein Wurf.
+Vier voneinander unabhängige Zeugen halten das auf:
+
+| Zeuge | sieht | Kosten |
+|---|---|---|
+| Grün-Score gegen das gemessene AUS-Niveau | jemanden **vor der Lampe** | jeder Frame, kostenlos |
+| Bewegungsmaske | einen **bewegten** Menschen auf der Tafel | jeder Frame, wenige ms |
+| Tafelwache | eine Tafel, die **nicht mehr wie sie selbst** aussieht | jeder 5. Frame |
+| Personenmodell (YOLOX-Tiny) | einen **Menschen als Menschen** | nur wenn ein anderer anschlägt, sonst jeder 10. Frame |
+
+Nur der vierte weiß, dass es ein Mensch ist — deshalb ist er der einzige, der
+ihn gezielt schwärzen kann.
+
 ---
 
 ## Ordner
@@ -334,3 +367,21 @@ liest, steht in der Oberfläche unter jeder Bahn — genau dafür.
 
 Einzelheiten zum Projektzustand: `.claude/skills/ORCHESTRATION.md`.
 Gemessene Fakten über das Material: `docs/VIDEO_ANALYSIS.md`.
+
+---
+
+## Lizenz
+
+[MIT](LICENSE) — nimm es, benutze es, ändere es, gib es weiter.
+
+Die Abhängigkeiten stehen dem nicht im Weg: NumPy (BSD), PyYAML und pydantic
+(MIT), OpenCV (Apache-2.0). **PySide6** ist LGPL-3.0 — das ist für ein
+MIT-Projekt unproblematisch, solange Qt wie hier über pip installiert und nicht
+mit einkompiliert wird.
+
+Das Personenmodell wird nicht mitgeliefert, sondern nachgeladen: **YOLOX-Tiny**
+von Megvii, [Apache-2.0](https://github.com/Megvii-BaseDetection/YOLOX). Es ist
+bewusst kein Ultralytics-Modell (YOLOv5/v8/v11) — die stehen unter AGPL-3.0 und
+vertragen sich nicht mit MIT. Gemessen war das keine Einbuße: YOLOX-Tiny ist
+mehr als doppelt so schnell wie YOLOv8n bei praktisch gleichem Trefferbild
+(Belege in `docs/VIDEO_ANALYSIS.md`).

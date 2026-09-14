@@ -2549,3 +2549,167 @@ Hand**. Je Stelle:
 | 254250 | 1,63 | 0,69 |
 | 300000 | 3,33 | 0,72 |
 | 317812 | 1,13 | 0,78 |
+
+## Personenmodell auf dem Tafelband (2026-09-13)
+
+**Material.** Livestream "Fastlane" (Overlay, 1920x1080, 25 fps), Kalibrierung
+`data/calibrations/Fastlane.json`. Tafeln 134-136 px breit, alle in einem Band
+y = 71..217, x = 534..1378. Beweisstellen aus dem Vollauf vom selben Tag:
+F42177-42246 (Mensch laeuft durch die Gruenphase von Bahn 2), F265667-265736
+(Mensch laeuft ueber die Tafeln 2 und 3), F305359-305393 (Streamende, keine
+Halle), F100000-100599 (600 Frames Normalbetrieb ohne Menschen).
+
+**Modell.** YOLOv8n, aus `yolov8n.pt` (Ultralytics, AGPL-3.0) nach ONNX
+exportiert, gelesen mit `cv2.dnn` (OpenCV 5.0, CPU). Nur Klasse 0 (person).
+
+### Der Zuschnitt entscheidet
+
+| Zuschnitt | Laeufe/Frame | F42177-42246 | F265667-265736 | Fehlalarme/600 | ms/Frame |
+|---|---|---|---|---|---|
+| Tafel allein (136x136) | 4 | 19 / 70 | 37 / 70 | 0 | 263 |
+| Tafel + 100 % Luft | 4 | 55 / 70 | 70 / 70 | 0 | 266 |
+| Tafel + 300 % Luft | 4 | 61 / 70 | 70 / 70 | 0 | 268 |
+| Band ueber alle Tafeln | 1 | 53 / 70 | 62 / 70 | 0 | 62 |
+| Band + 100 % nach unten | 1 | 57 / 70 | 69 / 70 | 0 | 68 |
+| Band + 200 % nach unten | 1 | 57 / 70 | 69 / 70 | 0 | 97 |
+
+Gewaehlt: **Band + 100 % nach unten**, ein Lauf je Frame.
+
+Gegenprobe an den 1682 Tafelbildern, die im Vollauf wirklich an die Datenbank
+gingen (`debug/fastlane_bilder/`): auf dem blanken Ausschnitt **0 von 2**
+bekannten Gesichtern gefunden, dafuer 1 Fehlalarm (F305389, Hallenboden).
+Das ist dieselbe Aussage wie Zeile 1 der Tabelle, an echtem Material.
+
+### An der Beweisstelle
+
+Die zehn Frames, in denen der Gruen-Score von Bahn 2 auf exakt 0,0 fiel:
+
+| Frame | Tafel bedeckt | Gruenlampe bedeckt | Vertrauen | Ampel |
+|---|---|---|---|---|
+| 42222 | 35 % | 100 % | 0,81 | 63,9 |
+| 42224 | 38 % | 100 % | 0,86 | **0,0** |
+| 42226 | 40 % | 100 % | 0,82 | **0,0** |
+| 42228 | 41 % | 100 % | 0,86 | **0,0** |
+| 42230 | 29 % | 100 % | 0,77 | **0,0** |
+| 42232 | 34 % | 100 % | 0,71 | **0,0** |
+| 42233 | 34 % | 100 % | 0,71 | **0,0** |
+| 42235 | 29 % | 100 % | 0,82 | 70,8 |
+
+Auf den Bahnen 3, 4 und 5 meldet das Modell in denselben Frames nichts.
+
+### Modellwahl (2026-09-14)
+
+Alle im selben Zuschnitt gemessen (Band + 100 % nach unten), conf 0,25:
+
+| Modell | Eingang | F42177-42246 | F265667-265736 | Fehlalarme/600 | Netz | Groesse | Lizenz |
+|---|---|---|---|---|---|---|---|
+| YOLOv8n | 640 | 57 / 70 | 69 / 70 | 0 | 62 ms | 12,8 MB | **AGPL-3.0** |
+| YOLOv8n | 320 | 45 / 70 | -- | 0 | 17 ms | 12,7 MB | **AGPL-3.0** |
+| YOLOX-S | 640 | 57 / 70 | 69 / 70 | 0 | 100 ms | 35,9 MB | Apache-2.0 |
+| **YOLOX-Tiny** | **416** | **55 / 70** | **68 / 70** | **0** | **28 ms** | 20,2 MB | Apache-2.0 |
+| YOLOX-Nano | 416 | 55 / 70 | 64 / 70 | 0 | 13 ms | 3,7 MB | Apache-2.0 |
+| YOLOX-S int8 | 640 | -- | -- | -- | 227 ms | 9,1 MB | Apache-2.0 |
+| NanoDet-Plus | 416 | -- | -- | -- | -- | 3,8 MB | Apache-2.0 |
+
+**GEWAEHLT: YOLOX-Tiny.** Zwei Gruende, und der Lizenzgrund ist nur der
+zweite. Das Projekt steht unter MIT, und ein Werk mit AGPL-Teilen kann nicht
+unter MIT stehen -- Ultralytics-Modelle scheiden damit aus. Der Punkt ist
+aber: Es kostet nichts. YOLOX-Tiny ist mit 28 ms **mehr als doppelt so
+schnell** wie YOLOv8n und verliert zwei von 70 Beweisframes.
+
+Gegen YOLOX-Nano (nochmals halb so teuer) entschied der Abstand zur Schwelle.
+An den zehn Frames, in denen die Ampel auf 0,0 fiel:
+
+| Frame | 42224 | 42226 | 42228 | 42230 | 42232 | 42233 |
+|---|---|---|---|---|---|---|
+| YOLOX-Tiny | 0,77 | 0,83 | 0,81 | 0,73 | 0,73 | 0,75 |
+| YOLOX-Nano | 0,54 | 0,66 | 0,72 | 0,72 | 0,63 | 0,64 |
+
+Beide finden ihn in allen zehn, Tiny mit deutlich mehr Reserve -- und auf der
+zweiten Beweisstrecke 68 statt 64 von 70 Frames. Bei einer Schutzfunktion,
+deren Versagen ein Gesicht in eine oeffentliche Datenbank traegt, zaehlt die
+Reserve mehr als 15 ms.
+
+Die int8-Fassung ist mit OpenCVs DNN-Modul LANGSAMER als das float-Original
+(227 statt 100 ms) -- es fehlen die passenden Kerne. NanoDet-Plus liess sich
+mit OpenCV 5.0 gar nicht auswerten: Die Nachbereitung des OpenCV Zoo setzt eine
+Reihenfolge der Netzausgaenge voraus, die diese Version nicht liefert
+(`IndexError` in `post_process`). Nicht weiterverfolgt.
+
+**Fallstrick bei YOLOX:** Es erwartet rohe BGR-Werte 0..255 als float --
+KEIN Teilen durch 255, keine Mittelwertkorrektur. Beides steckt im Netz. Wer
+normalisiert, bekommt ein Netz, das nichts mehr findet, ohne dass irgendwo ein
+Fehler auftaucht. Und die Kaesten kommen gegen ein Ankergitter, das aus der
+Eingangskante gerechnet wird: Passt `input_size` nicht zur Modelldatei, liegen
+die Funde plausibel aussehend an der falschen Stelle.
+
+### Wie oft das Modell ueberhaupt laufen muss
+
+GEMESSEN ueber 20 000 Frames des Livestreams: In **1,95 %** der Frames faellt
+ueberhaupt eine Bahn unter ihre Verdeckungsschwelle (alle 389 auf Bahn 4,
+keine einzige auf 2, 3 oder 5). Ohne Streife saehe das Modell also nie den
+Menschen, der auf der Tafel steht, ohne die gruene Lampe zu beruehren --
+deshalb `patrol_interval: 10`.
+
+### Schwaerzung, durch den echten Weg gemessen
+
+Nicht der Modellausgang, sondern das Ergebnis von `encode_board` -- dieselbe
+Zeichenkette, die als `board_jpeg` in die Datenbank ginge. Anteil dunkler
+Pixel (< 24 nach JPEG q40):
+
+| | F42237 (Bahn 2) | F265727 (Bahn 2) |
+|---|---|---|
+| ohne Schwaerzung | 27,6 % | 21,4 % |
+| nur Tafelwache | 27,6 % | 21,4 % |
+| Wache + Personenmodell | **47,2 %** | **34,0 %** |
+
+Beide Gesichter vollstaendig verdeckt, Beleg `debug/schwaerzung_mit_modell.png`.
+
+### Was das Modell wirklich kostet -- und was ein festhaengender Zeuge anrichtet
+
+Voller Lauf ueber den Hallenmitschnitt (13 530 Frames, 15 fps, Kalibrierung
+`debug/aktuell_mitschnitt.json`):
+
+| | Wuerfe | Frames/s | ms/Frame | Netzlaeufe |
+|---|---|---|---|---|
+| ohne Modell | 64 | 32 | 31,4 | -- |
+| YOLOv8n, ohne Mindestabstand | 64 | 11 | 88,9 | 94 % der Frames |
+| YOLOv8n, Abstand je Bahn (5) | -- | -- | -- | 33 % |
+| YOLOv8n, Abstand ueber alle Bahnen (5) | 64 | 21 | 48,0 | 20 % |
+| **YOLOX-Tiny, Abstand ueber alle Bahnen (5)** | **64** | **27** | **37,1** | **20 %** |
+
+**Keine Regression: 64 Wuerfe in allen Faellen** -- und nicht nur der Zahl
+nach: Frames, Bahnen, Kegelzahlen und Kegelnummern sind Zeile fuer Zeile
+identisch (`debug/regression_aus.csv` gegen `debug/regression_an.csv`).
+
+Der Aufschlag betraegt mit dem ausgelieferten Modell **5,7 ms je Frame** ueber
+den ganzen Lauf (YOLOv8n waeren 16,6 gewesen). Und das ist der Preis auf der
+Aufnahme mit der festhaengenden Bahn 5 -- dem schlechtesten bekannten Fall.
+Wo kein Zeuge festhaengt, traegt allein die Streife, also ein Zehntel von
+28 ms.
+
+Die 94 % waren kein Rechenfehler, sondern ein Befund. Ueber 3000 Frames:
+
+| Bahn | Gruen unter Schwelle | Personenmaske | Tafelwache | Streife |
+|---|---|---|---|---|
+| 2 | 482 | 9 | 0 | 300 |
+| 3 | 0 | 0 | 0 | 300 |
+| 4 | 0 | 0 | 0 | 300 |
+| **5** | 0 | 75 | **2704** | 300 |
+
+**Auf Bahn 5 meldet die Tafelwache in 90 % der Frames Fremdes.** Diese Bahn
+steht auf dieser Aufnahme dauerhaft in der Verdeckungsbremse -- das Protokoll
+sagt es selbst: *"Bahn 5: seit 2250 Frames (90 s) verdeckt, Gruen-Score 73,4
+-- kommt hier nichts mehr, passt womoeglich die Kalibrierung nicht zu dieser
+Tafel"*. Ein Gruen-Score von 73,4 heisst: Die Lampe ist klar AN und gut
+sichtbar. Die Wache irrt hier, oder die Kalibrierung passt nicht.
+
+**Das ist ein eigener, aelterer Befund und nicht vom Modell verursacht** --
+aber er zeigt, warum ein Ausloeser allein die Kostenrechnung nicht traegt: EIN
+festhaengender Zeuge genuegt, um teure Analyse in jeden Frame zu ziehen. Daher
+der Mindestabstand, und daher zaehlt er ueber alle Bahnen: Das Netz sucht in
+einem Band ueber alle vier Tafeln, seine Antwort gilt fuer alle zugleich.
+
+OFFEN: Warum die Wache auf Bahn 5 dieses Mitschnitts festhaengt. Das Modell
+koennte es beantworten (sieht es dort einen Menschen oder nicht) -- gemessen
+ist es nicht, und ohne Messung wird die Bremse nicht gelockert.

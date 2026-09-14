@@ -854,6 +854,62 @@ detection:
   # Gesamt-Mindestconfidence, ab der ein Wurf als bestaetigt gilt
   minimum_confidence: 0.6
 
+  # ---------------------------------------------------------------------------
+  # PERSONENMODELL -- der vierte Zeuge (siehe detection/personen_modell.py)
+  #
+  # Die drei bisherigen Zeugen erkennen einen Menschen nur an seiner WIRKUNG.
+  # Dieses Modell erkennt ihn als Menschen -- und kann ihn deshalb gezielt
+  # schwaerzen und "Mensch davor" von "Kalibrierung verrutscht" trennen.
+  #
+  # ANLASS (Nutzer, 2026-09-13): "Am einfachsten waere es, wenn du Personen
+  # zielsicher erkennen und permanent schwaerzen wuerdest."
+  #
+  # DIE GEWICHTE LIEGEN NICHT IM REPO: YOLOv8n steht unter AGPL-3.0.
+  #     .venv/Scripts/python.exe tools/hole_personenmodell.py
+  # Fehlt die Datei, laeuft alles wie vorher weiter -- mit drei Zeugen.
+  # ---------------------------------------------------------------------------
+  person_model:
+    enabled: true
+    # YOLOX-Tiny (Megvii, Apache-2.0) -- passt zur MIT-Lizenz des Projekts
+    # und ist zugleich das schnellere Modell.
+    model_path: "models/yolox_tiny.onnx"
+    model_url: "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx"
+    model_sha256: "427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7"
+    # MUSS zur Modelldatei passen -- der ONNX-Export hat eine feste
+    # Eingangsgroesse, und das Ankergitter wird daraus gerechnet.
+    # GEMESSEN 2026-09-14 auf CPU (OpenCV 5.0), Beweisstelle F42177-42246:
+    #     YOLOX-Tiny 416   28 ms je Aufruf, Mensch in 55 von 70 Frames
+    #     YOLOX-Nano 416   13 ms je Aufruf, Mensch in 55 von 70 Frames
+    #     YOLOX-S    640  100 ms je Aufruf, Mensch in 57 von 70 Frames
+    #     YOLOv8n    640   62 ms je Aufruf, Mensch in 57 von 70 (AGPL-3.0)
+    input_size: 416
+    # An den zehn Frames, in denen die Ampel auf 0,0 fiel, meldet Tiny 0,73
+    # bis 0,83 (Nano nur 0,54 bis 0,72). Auf 600 Frames ohne Menschen gab es
+    # bei 0,25 keinen einzigen Fehlalarm.
+    confidence: 0.25
+    nms: 0.45
+    # Das Suchband nach unten verlaengern -- mit Rumpf findet das Netz den
+    # Menschen sicherer: GEMESSEN 57 statt 53 von 70 Frames, Fehlalarme
+    # unveraendert null. 2,0 bringt nichts mehr und kostet 30 ms mehr.
+    band_below: 1.0
+    band_sides: 0.05
+    # 0 heisst: jede Beruehrung der Tafel zaehlt.
+    board_coverage: 0.0
+    # STREIFE: ausserhalb der billigen Ausloeser nur jeden n-ten Frame.
+    # GEMESSEN ueber 20 000 Frames des Livestreams faellt nur in 1,95 % der
+    # Frames ueberhaupt eine Bahn unter ihre Verdeckungsschwelle -- ohne
+    # Streife saehe das Modell also nie den Menschen, der auf der Tafel steht,
+    # ohne die gruene Lampe zu beruehren. 0 schaltet die Streife ab.
+    patrol_interval: 10
+    # MINDESTABSTAND IM ALARMFALL. Auch wenn ein Zeuge meldet, wird das Netz
+    # nicht in jedem Frame gefragt. GEMESSEN ueber 3000 Frames des
+    # Hallenmitschnitts: Auf Bahn 5 meldete die Tafelwache in 2704 Frames
+    # (90 %) Fremdes -- ein einziger festhaengender Zeuge trieb das Netz in
+    # 94 % aller Frames und den Durchsatz von 32 auf 11 Frames/s.
+    # 5 gewaehlt: Die kuerzeste bekannte Verdeckung dauerte 10 Frames und wird
+    # damit noch zweimal befragt.
+    alarm_interval: 5
+
 # -----------------------------------------------------------------------------
 # Frame-Sampling rund um ein Ereignis (Auftrag Paragraph 7)
 # Bewusst NICHT hartcodiert - waehrend der Entwicklung anzupassen.

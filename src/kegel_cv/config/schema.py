@@ -796,8 +796,74 @@ class PersonMaskConfig(BaseModel):
     wache_takt: int = Field(default=5, ge=0)
 
 
+class PersonModelConfig(BaseModel):
+    """Das Personenmodell auf dem Tafelband -- der vierte Zeuge.
+
+    Alle Zahlen hier sind am 2026-09-13 am Livestream gemessen; die Belege
+    stehen im Kopf von `detection/personen_modell.py`.
+    """
+
+    enabled: bool = True
+    # YOLOX-Tiny (Megvii, Apache-2.0). Die Gewichte liegen nicht im Repo, weil
+    # sie 20 MB gross sind und sich nicht aendern -- `tools/hole_personenmodell.py`
+    # holt sie. Fehlt die Datei, laeuft die Analyse mit drei Zeugen weiter.
+    #
+    # WARUM NICHT YOLOv8n: AGPL-3.0, und dieses Projekt steht unter MIT. Die
+    # beiden vertragen sich nur in eine Richtung. YOLOX ist ausserdem
+    # schneller -- die Lizenz kostet hier also gar nichts.
+    model_path: str = "models/yolox_tiny.onnx"
+    # Eingangskante. MUSS zur Modelldatei passen: Der ONNX-Export hat eine
+    # feste Eingangsgroesse, und das Ankergitter wird daraus gerechnet.
+    #     YOLOX-Tiny / -Nano   416
+    #     YOLOX-S              640
+    input_size: int = Field(default=416, ge=64, le=1280)
+    # GEMESSEN: An den zehn Frames, in denen die Ampel auf 0,0 fiel, meldet
+    # YOLOX-Tiny 0,73 bis 0,83; auf 600 Frames ohne Menschen gab es bei 0,25
+    # keinen einzigen Fehlalarm.
+    confidence: float = Field(default=0.25, gt=0.0, lt=1.0)
+    nms: float = Field(default=0.45, gt=0.0, lt=1.0)
+    # Das Suchband nach UNTEN verlaengern, im Verhaeltnis zur Tafelhoehe.
+    # Ein Mensch vor der Tafel hat dort seinen Rumpf, und mit Rumpf findet ihn
+    # das Netz sicherer: GEMESSEN 57 statt 53 von 70 Frames, Fehlalarme
+    # unveraendert null. 2,0 bringt nichts mehr und kostet 30 ms.
+    band_below: float = Field(default=1.0, ge=0.0, le=4.0)
+    band_sides: float = Field(default=0.05, ge=0.0, le=1.0)
+    # Ab diesem Anteil einer bedeckten Tafel gilt sie als von einem Menschen
+    # verdeckt. 0 heisst: jede Beruehrung zaehlt.
+    board_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    # STREIFE. Ausserhalb der billigen Ausloeser laeuft das Modell nur jeden
+    # n-ten Frame. GEMESSEN ueber 20 000 Frames: In 1,95 % der Frames faellt
+    # ueberhaupt eine Bahn unter ihre Verdeckungsschwelle -- ohne Streife saehe
+    # das Modell einen Menschen also nie, der die Lampe gar nicht beruehrt.
+    # 0 schaltet die Streife ab (nur noch Ausloeser).
+    patrol_interval: int = Field(default=10, ge=0)
+    # MINDESTABSTAND IM ALARMFALL. Auch wenn ein billiger Zeuge meldet, wird
+    # das Netz nicht in JEDEM Frame gefragt -- seine Antwort aendert sich nicht
+    # im 40-Millisekunden-Takt, ein Mensch steht rund 50 Frames im Bild.
+    #
+    # WARUM ES DIESE ZAHL BRAUCHT, gemessen 2026-09-13 ueber 3000 Frames des
+    # Hallenmitschnitts: Auf Bahn 5 meldete die Tafelwache in 2704 Frames
+    # (90 %) Fremdes -- diese Bahn steht auf dieser Aufnahme dauerhaft in der
+    # Bremse. Ohne Mindestabstand lief das Netz dadurch in 94 % aller Frames
+    # und der Durchsatz fiel von 32 auf 11 Frames/s. EIN festhaengender Zeuge
+    # genuegt, um die Kostenrechnung umzuwerfen.
+    #
+    # 5 gewaehlt: Die kuerzeste bekannte Verdeckung dauerte 10 Frames
+    # (F42224-42233), sie wird damit noch zweimal befragt.
+    alarm_interval: int = Field(default=5, ge=1)
+    # Woher `tools/hole_personenmodell.py` die Datei holt, und wie sie
+    # aussehen muss. Die Pruefsumme ist kein Zierrat: Ein stillschweigend
+    # ausgetauschtes Modell aendert das Verhalten der Schutzfunktion, ohne
+    # dass ein Test rot wird.
+    model_url: str = ("https://github.com/Megvii-BaseDetection/YOLOX/releases/"
+                      "download/0.1.1rc0/yolox_tiny.onnx")
+    model_sha256: str = ("427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb"
+                         "942bc1cc70b0f7")
+
+
 class DetectionConfig(BaseModel):
     person_mask: PersonMaskConfig = Field(default_factory=PersonMaskConfig)
+    person_model: PersonModelConfig = Field(default_factory=PersonModelConfig)
     green: GreenDetectionConfig = Field(default_factory=GreenDetectionConfig)
     lamps: LampDetectionConfig = Field(default_factory=LampDetectionConfig)
     digits: DigitDetectionConfig = Field(default_factory=DigitDetectionConfig)

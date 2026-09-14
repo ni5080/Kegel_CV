@@ -25,7 +25,7 @@ gebrochen.
 
 | Weg | Was drauf ist | Wo geschwaerzt wird |
 |---|---|---|
-| `board_jpeg` in der Datenbank / Liveticker | Tafelausschnitt | `TafelWache` ueber `board_image.schwaerze_fremdes` |
+| `board_jpeg` in der Datenbank / Liveticker | Tafelausschnitt | `TafelWache` **und** `PersonenModell`, vereinigt in `LaneProcessor.fremdmaske`, ueber `board_image.schwaerze_fremdes` |
 | `board_before_jpeg` | Tafelausschnitt vor dem Wurf | dieselbe Stelle |
 | Debugbilder je Ereignis (`FrameLogger`) | ganze Frames | `PersonMaske` (Frame ist schon maskiert) |
 | Wurfblaetter (`ThrowSheet`) | Ausschnitte | ueber die maskierten Frames |
@@ -109,3 +109,35 @@ Mensch davor     11,9 bis 14,1 %
    `LaneProcessor.fremdmaske(bild)` und `schwaerze_fremdes`.
 3. Stammt sein Frame aus dem **Ringpuffer**? Kein Problem: Die Wache vergleicht
    gegen ihre Referenz, nicht gegen den Nachbarframe.
+
+
+## Das Personenmodell (seit 2026-09-13)
+
+Die Wache erkennt einen Menschen nur daran, dass die Tafel nicht mehr wie sie
+selbst aussieht. Das Modell erkennt ihn als Menschen -- und schwaerzt ihn
+deshalb auch dann, wenn er so still steht, dass die Referenz ihn fast schon
+kennt.
+
+**Was beim Arbeiten daran zu beachten ist:**
+
+1. **Das Modell braucht das UNGESCHWAERZTE Bild.** Die Bewegungsmaske schwaerzt
+   alles ausserhalb der Tafeln -- also genau den Rumpf, an dem das Netz einen
+   Menschen erkennt. `pipeline.process` haelt `roh` fest, BEVOR maskiert wird,
+   und reicht es ueber `setze_rohbild` weiter. Wer das umdreht, macht das
+   Modell blind, ohne dass ein Test rot wird.
+2. **Der Tafelausschnitt allein genuegt nicht.** GEMESSEN: auf dem blanken
+   136x136-Ausschnitt findet das Netz 0 von 2 bekannten Gesichtern. Gesucht
+   wird im Band ueber alle vier Tafeln, nach unten verlaengert.
+3. **Fehlt die Modelldatei, wird still weniger geschwaerzt.** Sie liegt nicht
+   im Repo (20 MB, holt `tools/hole_personenmodell.py`). Beim Start steht eine
+   Warnung im Log -- wer Datenschutz prueft, muss ZUERST nachsehen, ob das
+   Modell ueberhaupt geladen wurde (`Personenmodell geladen: ...`). Ein Lauf
+   ohne Modell sieht sonst genauso aus wie einer mit.
+5. **Rohe Bildpunkte von Menschen liegen an genau EINER Stelle im Speicher:**
+   im Gedaechtnis von `PersonenModell` (Bandausschnitt der letzten 50 Frames,
+   vorskaliert). Sie werden nie geschrieben und nie versendet. Wer dort etwas
+   aendert, aendert eine Datenschutzeigenschaft.
+4. **Die Streife ist Teil des Schutzes, nicht nur der Bremse.** Ohne sie liefe
+   das Modell nur, wenn ein billiger Zeuge ohnehin schon anschlaegt -- und
+   damit gerade nicht bei dem Menschen, der auf der Tafel steht, ohne die
+   gruene Lampe zu beruehren.

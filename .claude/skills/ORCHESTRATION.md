@@ -2240,3 +2240,122 @@ GEGENPROBE mit EINER Konfiguration ueber beide Quellen:
 | Stream, Mensch durch die Gruenphase | 1 Wurf (0 Kegel) | **0** |
 | Stream, Streamende | 3 Wuerfe (0 Kegel) | **0** |
 | Hallenkamera, normaler Betrieb | 35 Wuerfe | **35**, kein Einfrieren |
+
+### Der vierte Zeuge: ein Personenmodell auf dem Tafelband (2026-09-13)
+
+Der Nutzer: *"YOLOv8n, lad das Modell und miss was es bringt. Das Modell muss
+ja auch nur auf den Bereichen der Anzeigetafel laufen."*
+
+**Die Messung, die alles entschieden hat, ist die nach dem ZUSCHNITT.** Auf dem
+blanken Tafelausschnitt -- also genau dem Bild, das an die Datenbank geht --
+findet das Netz praktisch nichts. Es braucht Umgebung.
+
+| Zuschnitt | Beweisstelle F42177-42246 | Fehlalarme / 600 ruhige Frames | Kosten |
+|---|---|---|---|
+| Tafel allein (136x136 px), 4 Laeufe | 19 von 70 Frames | 0 | 263 ms |
+| Tafel + 100 % Luft, 4 Laeufe | 55 von 70 Frames | 0 | 266 ms |
+| **Band ueber alle vier Tafeln, 1 Lauf** | 53 von 70 Frames | 0 | **62 ms** |
+| **Band, nach unten verlaengert, 1 Lauf** | **57 von 70 Frames** | **0** | **68 ms** |
+
+Gegenprobe an den 1682 Bildern, die im Vollauf wirklich an Supabase gingen:
+auf dem blanken Ausschnitt **0 von 2** bekannten Gesichtern gefunden.
+
+Der Grund ist anschaulich: Im 136x136-Ausschnitt FUELLT der Mensch das Bild,
+und ein formatfuellendes Gesicht ohne Umgebung sieht fuer das Netz nach nichts
+aus. Deshalb sucht `detection/personen_modell.py` in EINEM Band ueber alle vier
+Tafeln -- ein Lauf statt vier, und mit Kontext.
+
+**An der Beweisstelle**, genau den zehn Frames, in denen der Gruen-Score auf
+0,0 fiel (F42224 bis F42233): Das Modell rahmt den Menschen in **allen zehn**
+ein, Vertrauen 0,71 bis 0,86.
+
+**Warum das Regel 4 nicht bricht.** 68 ms je Frame waeren bei 40 ms Budget das
+Ende des Livebetriebs. Das Modell laeuft deshalb nur, wenn ein billiger Zeuge
+schon etwas meldet -- plus eine Streife alle 10 Frames fuer den Menschen, der
+auf der Tafel steht, ohne die Lampe zu beruehren. GEMESSEN ueber 20 000 Frames
+des Livestreams: nur in **1,95 %** der Frames faellt ueberhaupt eine Bahn unter
+ihre Verdeckungsschwelle.
+
+**Was er kann, was die anderen drei nicht koennen.** Die drei erkennen einen
+Menschen an seiner WIRKUNG und wissen nicht, dass es ein Mensch IST. Deshalb
+koennen sie ihn nicht gezielt schwaerzen. Durch den echten `encode_board`-Weg
+gemessen, an genau den zwei Bildern, die mit Gesicht in der Datenbank landeten:
+
+| | F42237 | F265727 |
+|---|---|---|
+| ohne Schwaerzung | 27,6 % dunkel | 21,4 % dunkel |
+| nur Tafelwache | 27,6 % | 21,4 % |
+| **Wache + Modell** | **47,2 %** | **34,0 %** |
+
+Beide Gesichter vollstaendig verdeckt (`debug/schwaerzung_mit_modell.png`).
+
+**LIZENZ -- und warum sie hier nichts gekostet hat.** Das Projekt steht seit
+2026-09-14 unter **MIT** (`LICENSE`); vorher hatte es gar keine Lizenz, war
+also trotz oeffentlichem Repo rechtlich "alle Rechte vorbehalten".
+
+YOLOv8n stammt von Ultralytics und steht unter **AGPL-3.0**. Das vertraegt sich
+nicht mit MIT: Ein Werk mit AGPL-Teilen kann nicht unter MIT stehen, die
+Richtung geht nur andersherum. Gemessen wurde deshalb die ganze Familie --
+und der Verzicht kostet nichts:
+
+| Modell | Lizenz | Netz | F42177-42246 | F265667-265736 | Fehlalarme/600 |
+|---|---|---|---|---|---|
+| YOLOv8n 640 | AGPL-3.0 | 62 ms | 57 / 70 | 69 / 70 | 0 |
+| YOLOX-S 640 | Apache-2.0 | 100 ms | 57 / 70 | 69 / 70 | 0 |
+| **YOLOX-Tiny 416** | **Apache-2.0** | **28 ms** | **55 / 70** | **68 / 70** | **0** |
+| YOLOX-Nano 416 | Apache-2.0 | 13 ms | 55 / 70 | 64 / 70 | 0 |
+
+**YOLOX-Tiny ist mehr als doppelt so schnell** wie das AGPL-Modell. Gegen Nano
+entschied der Abstand zur Schwelle: an den zehn Ampel-Null-Frames 0,73 bis 0,83
+statt 0,54 bis 0,72.
+
+Die Gewichte liegen trotzdem nicht im Repo (`.gitignore: models/`) -- nicht aus
+Lizenzgruenden, sondern weil 20 MB Binaerdaten, die sich nie aendern, nichts in
+einer Versionsverwaltung verloren haben. `tools/hole_personenmodell.py` holt
+sie mit Pruefsummenkontrolle; es braucht kein PyTorch mehr, nur einen Download.
+Fehlt die Datei, laeuft alles mit drei Zeugen weiter -- eine Warnung, kein
+Fehler.
+
+**Nebenbefund, dokumentiert im Test:** Solange kein AUS-Niveau gelernt ist,
+faellt die Verdeckungsschwelle auf den festen Wert 0 zurueck -- und ein
+Gruen-Score von exakt 0,0 ist NICHT kleiner als 0. Am Laufanfang kaeme eine
+vollstaendig verdeckte Lampe also an allen drei billigen Zeugen vorbei. Genau
+diese Luecke schliesst die Streife.
+
+**Der Preis, gemessen am vollen Hallenmitschnitt** (13 530 Frames):
+
+| | Wuerfe | ms/Frame | Netzlaeufe |
+|---|---|---|---|
+| ohne Modell | 64 | 31,4 | -- |
+| YOLOv8n ohne Mindestabstand | 64 | 88,9 | 94 % der Frames |
+| YOLOv8n, Abstand je Bahn | -- | -- | 33 % |
+| YOLOv8n, Abstand ueber alle Bahnen | 64 | 48,0 | 20 % |
+| **YOLOX-Tiny, Abstand ueber alle Bahnen** | **64** | **37,1** | **20 %** |
+
+Der Aufschlag des ausgelieferten Modells: **5,7 ms je Frame** -- und zwar auf
+der Aufnahme mit der festhaengenden Bahn 5, dem schlechtesten bekannten Fall.
+
+Die 64 Wuerfe sind nicht nur der Zahl nach gleich: Frames, Bahnen, Kegelzahlen
+und Kegelnummern stimmen Zeile fuer Zeile ueberein.
+
+Die 94 % waren ein Befund, kein Rechenfehler: Auf Bahn 5 dieses Mitschnitts
+meldet die **Tafelwache in 2704 von 3000 Frames** Fremdes -- bei einem
+Gruen-Score von 73,4, also klar sichtbarer Lampe. Diese Bahn steht dort
+dauerhaft in der Bremse. EIN festhaengender Zeuge genuegt, um teure Analyse in
+jeden Frame zu ziehen. Deshalb `alarm_interval: 5`, und deshalb zaehlt der
+Abstand ueber ALLE Bahnen: Das Netz sucht in einem Band ueber alle vier
+Tafeln, seine Antwort gilt fuer alle zugleich.
+
+**OFFEN geblieben:** warum die Wache auf Bahn 5 dieses Mitschnitts festhaengt.
+Das Modell koennte es beantworten -- gemessen ist es nicht, und ohne Messung
+wird an der Bremse nichts gelockert.
+
+**Noch eine Falle, die beim Bauen auffiel.** Das veroeffentlichte Tafelbild
+stammt aus einem Sample-Frame, bis zu 34 Frames zurueck -- der Ringpuffer der
+Pipeline haelt aber nur MASKIERTE Bilder. Auf denen verliert das Netz den
+Menschen: GEMESSEN an 12 Beweisframes in 2 davon (F265723, F265724, roh beide
+sicher gefunden). `PersonenModell` haelt deshalb den ROHEN Bandausschnitt der
+letzten 50 Frames vor, vorskaliert auf die Arbeitsaufloesung des Netzes
+(0,4 statt 1,7 MB je Frame). Das ist die einzige Stelle im Programm, an der
+rohe Bildpunkte von Menschen aufgehoben werden -- sie verlassen den
+Arbeitsspeicher nie.

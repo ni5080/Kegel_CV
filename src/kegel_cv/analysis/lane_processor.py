@@ -231,6 +231,18 @@ class LaneProcessor:
         # Meldet die Wache gerade etwas Fremdes auf der Tafel? Sie ist der
         # dritte Zeuge der Verdeckungsbremse -- siehe `process`.
         self._wache_meldet_fremdes = False
+        # DAS PERSONENMODELL, der vierte Zeuge. Es gehoert der Pipeline, nicht
+        # dieser Bahn -- alle vier Bahnen teilen sich EINEN Durchlauf je Frame
+        # (siehe `detection/personen_modell.py`). Bis es gesetzt wird, arbeitet
+        # die Bahn mit drei Zeugen weiter.
+        self.personen_modell = None
+        self._rohbild = None
+        self._modell_meldet_person = False
+        self._modell_anteil = 0.0
+        self._modell_takt = cfg.detection.person_model.patrol_interval
+        self._modell_alarmtakt = cfg.detection.person_model.alarm_interval
+        self._modell_deckung = cfg.detection.person_model.board_coverage
+        self._modell_zuletzt: int | None = None
         self._late_interval = cfg.detection.digits.late_read_interval
         self._late_keep = cfg.detection.digits.late_keep
         # Die Ziffern fuer die LIVE-ANZEIGE -- siehe `_lies_anzeige_live`.
@@ -659,7 +671,7 @@ class LaneProcessor:
                      self._wurfnummer_lesen(frame),
                      encode_board(frame.image, self.lane_box(),
                                   self.cfg.output.board_image_quality,
-                                  self.fremdmaske(frame.image))))
+                                  self.fremdmaske(frame.image, frame.index))))
         else:
             log.info("Bahn %d: Fehlwurfzaehler faellt %d -> %d bei Frame %d "
                      "-- Spielwechsel, kein Wurf", self.display_number,
@@ -754,13 +766,90 @@ class LaneProcessor:
         """
         return self._read_pin_lamps(frame, is_result=False)
 
-    def fremdmaske(self, bild) -> object:
-        """Was auf dem Tafelausschnitt dieses Bildes nicht hingehoert."""
+    def setze_personenmodell(self, modell) -> None:
+        """Das von der Pipeline geteilte Personenmodell uebernehmen."""
+        self.personen_modell = modell
+
+    def setze_rohbild(self, bild) -> None:
+        """Das UNGESCHWAERZTE Bild dieses Frames fuer das Modell.
+
+        Nicht das maskierte: Die Bewegungsmaske schwaerzt alles ausserhalb der
+        Tafeln -- also genau den Rumpf, an dem das Netz einen Menschen erkennt.
+        Auf dem maskierten Bild suchte es nach einem Kopf ueber einem
+        schwarzen Loch.
+        """
+        self._rohbild = bild
+
+    def _frage_das_modell(self, frame: Frame, green) -> None:
+        """Das Netz befragen -- aber nur, wenn es sich lohnt.
+
+        Projektregel 4: billige Trigger steuern teure Analyse. Der Aufruf
+        kostet gemessen 68 ms, das Budget je Frame sind 40 ms. Gefragt wird
+        deshalb, wenn schon ein billiger Zeuge etwas meldet, und ausserdem in
+        einem groben Takt als Streife -- fuer den Menschen, der auf der Tafel
+        steht, ohne die gruene Lampe zu beruehren.
+
+        UND IN BEIDEN FAELLEN MIT MINDESTABSTAND. Ein Zeuge kann festhaengen:
+        GEMESSEN ueber 3000 Frames des Hallenmitschnitts meldete die Tafelwache
+        auf Bahn 5 in 2704 Frames Fremdes, und das Netz lief dadurch in 94 %
+        aller Frames -- der Durchsatz fiel von 32 auf 11 Frames/s. Ein Mensch
+        steht rund 50 Frames im Bild; seine Anwesenheit aendert sich nicht im
+        40-Millisekunden-Takt.
+
+        DER ABSTAND ZAEHLT UEBER ALLE BAHNEN, nicht je Bahn. Das Netz sucht in
+        EINEM Band ueber alle vier Tafeln -- wer sieht, dass die Antwort frisch
+        genug ist, liest sie mit, statt eine zweite zu bestellen. Je Bahn
+        gerechnet fragten die vier versetzt und trieben die Quote von 20 auf
+        33 % (gemessen an denselben 3000 Frames).
+        """
+        modell = self.personen_modell
+        if modell is None or not modell.bereit or self._rohbild is None:
+            self._modell_meldet_person = False
+            self._modell_anteil = 0.0
+            return
+        verdaechtig = (green.score < self._verdeckungsschwelle()
+                       or self._extern_verdeckt or self._wache_meldet_fremdes)
+        abstand = self._modell_alarmtakt if verdaechtig else self._modell_takt
+        if abstand <= 0:
+            return                      # Streife aus und nichts Verdaechtiges
+        frisch = modell.letzter_lauf
+        if frisch is not None and 0 <= frame.index - frisch < abstand:
+            bezug = frisch              # kostenlos mitlesen
+        else:
+            modell.suche(self._rohbild, frame.index)
+            bezug = frame.index
+        self._modell_zuletzt = bezug
+        self._modell_anteil = modell.auf_tafel(self.lane_box(), bezug)
+        self._modell_meldet_person = self._modell_anteil > self._modell_deckung
+
+    def fremdmaske(self, bild, frame_index: int | None = None) -> object:
+        """Was auf dem Tafelausschnitt dieses Bildes nicht hingehoert.
+
+        Zwei Quellen, vereinigt: die Tafelwache (jede Abweichung von der
+        eigenen Referenz) und das Personenmodell (ein Mensch als Mensch).
+        Die Wache findet auch, was kein Mensch ist; das Modell findet auch den,
+        der so still steht, dass die Referenz ihn schon fast kennt.
+
+        `frame_index` ist Pflicht, sobald das Bild NICHT der laufende Frame ist
+        -- das veroeffentlichte Tafelbild stammt aus einem Sample-Frame, und
+        die Kaesten eines anderen Frames traefen daneben. Fehlt der Index oder
+        ist der Frame aus dem Gedaechtnis gefallen, bleibt allein die Wache.
+        """
         box = self.lane_box()
         if box is None or bild is None:
             return None
         aus = self._crop(bild, box)
-        return self.wache.fremdmaske(aus) if aus is not None and aus.size else None
+        if aus is None or not aus.size:
+            return None
+        von_wache = self.wache.fremdmaske(aus)
+        vom_modell = None
+        if self.personen_modell is not None and frame_index is not None:
+            vom_modell = self.personen_modell.maske_im_ausschnitt(box, frame_index)
+        if von_wache is None:
+            return vom_modell
+        if vom_modell is None:
+            return von_wache
+        return np.maximum(von_wache, vom_modell)
 
     def read_digits(self, frame: Frame) -> dict[str, DigitReading]:
         """Liest alle Ziffernfelder eines Frames.
@@ -994,8 +1083,16 @@ class LaneProcessor:
         # Vordergrund (Maske 0,000), und das gemessene AUS-Niveau selbst null
         # -- Gruen-Score und Personenmaske sind beide blind. Die Wache meldet
         # 61 bis 68 %. Ohne sie wurden dort drei Wuerfe gebucht.
+        #   Personenmodell  ein MENSCH, als Mensch erkannt -- der einzige
+        #                   Zeuge, der "Mensch davor" von "Kalibrierung
+        #                   verrutscht" unterscheiden kann
+        #
+        # GEMESSEN 2026-09-13 an der Beweisstelle F42224 bis F42233: Das Modell
+        # rahmt den Menschen in allen zehn Frames ein (Vertrauen 0,71 bis 0,86),
+        # und auf 600 Frames ohne Menschen meldet es nichts.
+        self._frage_das_modell(frame, green)
         if (green.score < self._verdeckungsschwelle() or self._extern_verdeckt
-                or self._wache_meldet_fremdes):
+                or self._wache_meldet_fremdes or self._modell_meldet_person):
             self._occlusion_frames += 1
         else:
             if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
@@ -1006,9 +1103,12 @@ class LaneProcessor:
 
         if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
             if self._occlusion_frames == self.cfg.detection.green.occlusion_min_frames:
-                log.info("Bahn %d: Tafel ab Frame %d verdeckt (Gruen-Score %.1f) "
-                         "-- Auswertung ausgesetzt", self.display_number,
-                         frame.index, green.score)
+                log.info("Bahn %d: Tafel ab Frame %d verdeckt (Gruen-Score "
+                         "%.1f, Schwelle %.1f%s) -- Auswertung ausgesetzt",
+                         self.display_number, frame.index, green.score,
+                         self._verdeckungsschwelle(),
+                         f", Personenmodell {100*self._modell_anteil:.0f} %"
+                         if self._modell_meldet_person else "")
             # BUG-017: Merken, dass DIESES Fenster durch eine Verdeckung
             # gelaufen ist -- unabhaengig davon, ob das Fenster gerade jetzt
             # oder erst spaeter (beim naechsten GREEN_ON) schliesst.
@@ -1051,7 +1151,7 @@ class LaneProcessor:
             self._board_before = encode_board(
                 frame.image, self.lane_box(),
                 self.cfg.output.board_image_quality,
-                self.fremdmaske(frame.image))
+                self.fremdmaske(frame.image, frame.index))
             # Gruen wieder an -> das Fenster ist zu Ende. Ist der Wurf zu diesem
             # Zeitpunkt noch offen (Wartezeit 0 oder Gruen kam frueher zurueck
             # als die Wartezeit), wird er JETZT abgeschlossen.

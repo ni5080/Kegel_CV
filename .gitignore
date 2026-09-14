@@ -59,3 +59,7 @@ desktop.ini
 .DS_Store
 .idea/
 .vscode/
+
+# Personenmodell: AGPL-3.0 (Ultralytics), gehoert nicht ins Repo.
+# Holen mit tools/hole_personenmodell.py
+models/

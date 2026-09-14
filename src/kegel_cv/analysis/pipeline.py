@@ -21,6 +21,7 @@ from ..debug.cycle_sheet import CycleSheet
 from ..debug.throw_log import ThrowLog
 from ..debug.throw_sheet import ThrowSheet
 from ..detection.person_maske import PersonMaske
+from ..detection.personen_modell import PersonenModell
 from ..detection.state_machine import LaneEvent
 from ..video.source import Frame, FrameBuffer
 from ..models.readings import (LampReading, LampState, PinLampReading,
@@ -103,6 +104,20 @@ class AnalysisPipeline:
             occlusion_fraction=m.occlusion_fraction,
             warmup_frames=m.warmup_frames, enabled=m.enabled)
         self._verdeckt_gemeldet: set[int] = set()
+
+        # DAS PERSONENMODELL. Es gehoert der Pipeline und nicht den Bahnen,
+        # weil alle vier sich EINEN Netzdurchlauf je Frame teilen: Gesucht wird
+        # in einem Band ueber alle Tafeln, nicht viermal einzeln. Auf dem
+        # einzelnen Tafelausschnitt findet das Netz gemessen NICHTS -- siehe
+        # `detection/personen_modell.py`.
+        pm = cfg.detection.person_model
+        self.personen_modell = PersonenModell(
+            (cfg.project_root / pm.model_path) if pm.model_path else None,
+            eingang=pm.input_size, vertrauen=pm.confidence, nms=pm.nms,
+            luft_unten=pm.band_below, luft_seitlich=pm.band_sides,
+            gedaechtnis=cfg.processing.frame_buffer_size, aktiv=pm.enabled)
+        for processor in self.processors:
+            processor.setze_personenmodell(self.personen_modell)
         self.buffer = FrameBuffer(cfg.processing.frame_buffer_size)
         self.performance = PerformanceMonitor()
         self.frame_logger = FrameLogger(cfg.debug, cfg.project_root, video_id)
@@ -168,6 +183,11 @@ class AnalysisPipeline:
         # selbst bewegter Vordergrund -- wer sie schwaerzt, loescht das Signal.
         self.person_maske.set_tafeln(
             {p.display_number: p.lane_box() for p in self.processors})
+        for processor in self.processors:
+            processor.setze_personenmodell(self.personen_modell)
+        self.personen_modell.setze_tafeln(
+            {p.display_number: p.lane_box() for p in self.processors},
+            frame_shape)
         if self.person_maske.enabled:
             log.info("Personenmaske aktiv: %d Tafeln geschuetzt, Verdeckung ab "
                      "Vordergrundanteil %.2f", len(self.processors),
@@ -203,6 +223,10 @@ class AnalysisPipeline:
         # muessen mitwandern -- sonst schwaerzt sie in die Tafel hinein.
         self.person_maske.set_tafeln(
             {p.display_number: p.lane_box() for p in self.processors})
+        # Das Suchband haengt genauso an den Tafelecken wie die Schutzzonen.
+        self.personen_modell.setze_tafeln(
+            {p.display_number: p.lane_box() for p in self.processors},
+            frame_shape)
         return betroffen
 
     def process(self, frame: Frame) -> FrameResult:
@@ -214,6 +238,14 @@ class AnalysisPipeline:
         # Ziffern, Tafelbilder, Ringpuffer -- sieht nur noch das geschwaerzte
         # Bild. So kann kein Gesicht in ein Debugbild oder in die Datenbank
         # geraten, und keine durchlaufende Person einen Wurf erfinden.
+        # Das UNGESCHWAERZTE Bild fuer das Personenmodell festhalten, BEVOR
+        # maskiert wird. Die Maske schwaerzt alles ausserhalb der Tafeln --
+        # also genau den Rumpf, an dem das Netz einen Menschen erkennt.
+        roh = frame.image
+        self.personen_modell.merke(roh, frame.index)
+        for processor in self.processors:
+            processor.setze_rohbild(roh)
+
         maskiert = self.person_maske.verarbeite(frame.image)
         if maskiert.bild is not frame.image:
             frame = replace(frame, image=maskiert.bild)
@@ -332,7 +364,7 @@ class AnalysisPipeline:
         # 2026-09-13).
         return encode_board(gewaehlt.image, processor.lane_box(),
                             self.cfg.output.board_image_quality,
-                            processor.fremdmaske(gewaehlt.image))
+                            processor.fremdmaske(gewaehlt.image, gewaehlt.index))
 
     def _aggregate_pins(self, processor: LaneProcessor,
                         sample: SampleEvent) -> PinLampReading | None:
