@@ -1423,35 +1423,48 @@ class LaneProcessor:
     def _verdeckungsschwelle(self) -> float:
         """Ab welchem Gruen-Score die Tafel als VERDECKT gilt.
 
-        RELATIV ZUM GEMESSENEN AUS-NIVEAU, nicht als feste Zahl. Der Grund ist
-        gemessen, und er ist derselbe wie bei BUG-011: Ein absoluter Wert kann
+        RELATIV ZUM UNTEREN RAND DER GEMESSENEN AUS-WOLKE, nicht als feste
+        Zahl. Der Grund ist derselbe wie bei BUG-011: Ein absoluter Wert kann
         nicht zwei Aufstellungen bedienen.
 
-        GEMESSEN 2026-09-13, AUS-Niveau der gruenen Lampe:
+        WARUM DER RAND UND NICHT DER GIPFEL (2026-09-14). Bis dahin bezog sich
+        der Anteil auf das AUS-NIVEAU, also den Gipfel der Wolke. Der sagt, wo
+        AUS ueblicherweise liegt -- aber nichts darueber, wie weit die Wolke
+        nach unten reicht, und genau dort entscheidet es sich.
 
-            Livestream (Overlay)      22,5 bis 30,6   -- Verdeckung faellt auf 0
-            direkte Hallenkamera       0,7 bis 11,7   -- AUS liegt selbst bei 0
+        GEMESSEN an der Hallenkamera, echte AUS-Wolke (Frames, in denen
+        Tafelwache UND Personenmodell schweigen):
 
-        Eine feste 12 trennt im Stream sauber und friert an der Hallenkamera
-        alle Bahnen dauerhaft ein; eine feste 0 schaltet die Bremse ab, und
-        genau daran ist am 2026-09-13 ein Phantomwurf entstanden: Ein Mensch
-        lief durch die Gruenphase von Bahn 2, der Score fiel zehn Frames lang
-        auf exakt 0,0, und weil die Bremse aus war, wurde ein Wurf gebucht --
-        mit seinem Gesicht als Beleg in der Datenbank.
+            Bahn   Wolke        Gipfel   Rand   Schwelle alt   bremste alt
+              2    0,0 .. 0,7      0,7    0,0           0,90       28,4 %
+              3    1,4 .. 3,5      3,5    1,0           1,50        0,2 %
+              4    7,1 .. 11,7    11,7    7,0           3,30        0,0 %
 
-        Der ANTEIL dagegen traegt beides: Im Stream ergibt er rund 7, an der
-        Hallenkamera rund 0,2 -- jeweils das, was dort "deutlich unter AUS"
-        heisst. Solange kein AUS-Niveau gemessen ist (Anlauf, eine Wolke),
-        gilt der feste Wert aus der Konfiguration.
+        Gleiche Halle, gleiches Licht, gleicher Frame -- drei voellig
+        verschiedene Lampen. Bahn 2 bremste in 28 % ALLER Frames auf voellig
+        freier Tafel, weil ihr echtes AUS selbst 0,0 liest. Am Rand gemessen
+        bekommt sie 0,0: Dort kann der Gruen-Score nichts trennen, und die
+        Bremse schweigt statt zu raten.
+
+        Im Livestream wirkt dieselbe Regel umgekehrt -- die Wolken liegen bei
+        14 bis 31, der Rand bei 20 bis 30, und die Schwelle steigt von rund 8
+        auf 10 bis 15. Schaerfer also, bei praktisch gleicher Bremsrate.
+
+        Solange keine zwei Wolken gemessen sind (Anlauf), gilt der feste Wert
+        aus der Konfiguration.
         """
         fest = self.cfg.detection.green.occlusion_score
-        anteil = self.cfg.detection.green.occlusion_off_fraction
+        anteil = self.cfg.detection.green.occlusion_edge_fraction
         if anteil <= 0:
             return fest
-        niveau = self.green_detector.aus_niveau
-        if niveau is None or niveau <= 0:
+        rand = self.green_detector.aus_rand
+        if rand is None or rand <= 0:
+            # Rand 0 heisst: Die AUS-Wolke reicht selbst bis null. Dort kann
+            # der Gruen-Score ein AUS nicht von einer Verdeckung trennen --
+            # dann schweigt er, statt zu raten. Die drei anderen Zeugen
+            # bleiben davon unberuehrt.
             return fest
-        return max(fest, anteil * niveau)
+        return max(fest, anteil * rand)
 
     def _read_pin_lamps(self, frame: Frame,
                         is_result: bool = False) -> PinLampReading | None:

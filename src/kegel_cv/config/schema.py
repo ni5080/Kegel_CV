@@ -330,6 +330,13 @@ class GreenDetectionConfig(BaseModel):
     # dass beide Zustaende vorkommen koennen. Bis dahin gelten die festen.
     histogram_min_samples: int = Field(default=1500, ge=100)
     histogram_bin: float = Field(default=2.0, gt=0.0, le=10.0)
+    # Ab welchem Bruchteil der Gipfelhoehe die AUS-Wolke als "zu Ende" gilt.
+    # Der Abstieg vom Gipfel nach unten haelt an, sobald das Histogramm
+    # darunter faellt -- das ist der untere Rand der Wolke.
+    # GEMESSEN 2026-09-14 ueber beide Quellen: 0,05 und 0,10 liefern dasselbe
+    # Ergebnis auf allen acht Bahnen. 0,05 gewaehlt, weil es weiter absteigt
+    # und damit die konservativere Kante findet.
+    histogram_edge_fraction: float = Field(default=0.05, gt=0.0, le=0.5)
     # Ueber so viele Bins wird geglaettet. Ein einzelner leerer Bin ist
     # Rauschen, kein Tal.
     histogram_smoothing: int = Field(default=3, ge=1)
@@ -373,22 +380,40 @@ class GreenDetectionConfig(BaseModel):
     # Waehrend der Verdeckung wird der Zustand eingefroren: keine Uebergaenge,
     # keine Messungen. Lieber eine Luecke im Protokoll als ein erfundener Wurf.
     occlusion_score: float = Field(default=2.0, ge=0.0)
-    # ... und derselbe Gedanke ANTEILIG am gemessenen AUS-Niveau. Er traegt,
-    # wo eine feste Zahl es nicht kann.
+    # ... und derselbe Gedanke ANTEILIG am UNTEREN RAND der AUS-Wolke. Er
+    # traegt, wo eine feste Zahl es nicht kann.
     #
-    # GEMESSEN 2026-09-13, AUS-Niveau der gruenen Lampe ueber ganze Laeufe:
-    #     Livestream (Overlay)      22,5 bis 30,6
-    #     direkte Hallenkamera       0,7 bis 11,7
-    # Eine feste 12 friert die Hallenkamera ein, eine feste 0 laesst im Stream
-    # jeden Menschen durch, der vor die Lampe laeuft. 0,3 ergibt dort rund 7
-    # und hier rund 0,2 -- jeweils das, was "deutlich unter AUS" bedeutet.
+    # WARUM AM RAND UND NICHT AM GIPFEL (Aenderung 2026-09-14). Bis dahin
+    # bezog sich der Anteil auf das AUS-NIVEAU, also den Gipfel der Wolke. Der
+    # sagt, wo AUS ueblicherweise liegt -- aber nichts darueber, wie weit die
+    # Wolke nach unten reicht, und genau dort entscheidet es sich.
     #
-    # Gegenprobe am Stream: Ein Mensch lief 10 Frames vor der Lampe her, Score
-    # exakt 0,0. Mit dem Anteil wird der Zyklus verworfen, mit der festen 0
-    # entstand ein Wurf samt Gesicht in der Datenbank.
+    # GEMESSEN 2026-09-14 an der Hallenkamera, echte AUS-Wolke (Frames, in
+    # denen Tafelwache UND Personenmodell schweigen):
+    #
+    #     Bahn   Wolke von .. bis   Gipfel   unterer Rand
+    #       2        0,0 .. 0,7        0,7        0,0
+    #       3        1,4 .. 3,5        3,5        1,0
+    #       4        7,1 .. 11,7      11,7        7,0
+    #
+    # Gleiche Halle, gleiches Licht, gleicher Frame -- und drei voellig
+    # verschiedene Lampen. Am Gipfel gemessen bekam Bahn 2 eine Schwelle von
+    # 0,9 und bremste in 28 % ALLER Frames auf voellig freier Tafel: Ihr
+    # echtes AUS liest selbst 0,0. Am Rand gemessen bekommt sie 0,0 -- die
+    # Bremse schweigt dort, weil der Gruen-Score dort nichts trennen kann.
+    #
+    # Im Livestream wirkt dieselbe Regel umgekehrt: Die Wolken liegen bei 14
+    # bis 31, der Rand bei 20 bis 30, und die Schwelle steigt von rund 8 auf
+    # 10 bis 15 -- also SCHAERFER, bei praktisch gleicher Bremsrate
+    # (0,03/0,46/0,92/0,16 % gegen 0,03/0,44/0,92/0,15 %).
+    #
+    # 0,5 gewaehlt: Auf allen acht gemessenen Bahn/Quelle-Paaren bleibt die
+    # Schwelle unter dem 1. Perzentil der gereinigten AUS-Wolke, faengt aber
+    # eine Verdeckung (liest 0,0) mit grossem Abstand. 0,4 und 0,6 wurden
+    # mitgemessen und erfuellen das auch; 0,6 laesst weniger Luft.
     #
     # 0 schaltet den Anteil ab; dann gilt nur der feste Wert.
-    occlusion_off_fraction: float = Field(default=0.3, ge=0.0, le=1.0)
+    occlusion_edge_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
     # Zwei Frames, damit ein einzelner Ausreisser nicht einfriert -- und
     # weniger als `min_stable_frames`, damit die Zustandsmaschine in der
     # Zwischenzeit nicht schon umschaltet.

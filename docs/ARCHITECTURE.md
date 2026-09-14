@@ -56,12 +56,12 @@ Verstoß bricht die Tests, statt nur eine Regel in einem Dokument zu verletzen.
 | Ziffernerkennung | **7-Segment-Dekodierung** geplant | Die Displays sind 7-Segment, keine Schrift. Jede Entscheidung ist auf ein Segment zurückführbar | OCR (auf Fließtext trainiert), ML (unverhältnismäßig, Stufe 5) |
 | Tests | **pytest** | Parametrisierung, Fixtures | unittest |
 
-### Warum kein ML (jetzt)
+### Warum kein ML für die Messung — und wo trotzdem eines steht
 
-Der Auftrag ist eindeutig (§8, §27): Erst klassische Verfahren. Die Messungen
+Der Auftrag ist eindeutig (§8, §27): erst klassische Verfahren. Die Messungen
 stützen das — die grüne Lampe trennt mit Score 17–24 (aus) gegen 60–74 (an)
-völlig eindeutig. Ein Modell würde hier nichts verbessern, aber Nachvollziehbarkeit,
-Geschwindigkeit und Debugbarkeit kosten.
+völlig eindeutig. Ein Modell würde hier nichts verbessern, aber
+Nachvollziehbarkeit, Geschwindigkeit und Debugbarkeit kosten.
 
 Eskalationsstufen (jede erst, wenn die vorige **gemessen** versagt):
 ```
@@ -72,6 +72,29 @@ Eskalationsstufen (jede erst, wenn die vorige **gemessen** versagt):
 Die Architektur hält den Wechsel offen: Jeder Detektor steckt hinter einem
 Protocol, die Auswahl erfolgt über eine Konfigzeile (`implementation: "hsv"`),
 nicht über einen Codeumbau.
+
+**Die eine Ausnahme (seit 2026-09-14): `detection/personen_modell.py`.** Ein
+YOLOX-Tiny erkennt Menschen vor den Anzeigetafeln. Es misst *nichts* am Spiel
+— kein Kegel, keine Ziffer, keine Lampe geht durch dieses Netz. Es beantwortet
+genau eine Frage, die kein klassisches Verfahren beantworten kann: *Ist das da
+ein Mensch?*
+
+Warum das die Regel nicht bricht:
+
+- **Stufe 5 wurde erreicht, nicht übersprungen.** Die drei billigen Zeugen
+  (Grün-Score, Bewegungsmaske, Tafelwache) erkennen einen Menschen nur an
+  seiner *Wirkung*. Belegt: Auf dem veröffentlichten Tafelbild waren zwei
+  Gesichter, und keiner der drei konnte sie gezielt schwärzen.
+- **Kein Frame-für-Frame-ML.** Das Netz läuft nur, wenn ein billiger Zeuge
+  schon meldet, plus eine Streife alle 10 Frames — gemessen in rund 20 % der
+  Frames im ungünstigsten Fall, Aufschlag 5,7 ms je Frame.
+- **Es entscheidet nichts allein.** Es kann eine Bremse *setzen* und eine
+  festhängende Tafelwache *lösen* (BUG-026), aber kein Wurfergebnis ändern.
+- **Es darf fehlen.** Ohne Modelldatei läuft die Analyse mit drei Zeugen
+  weiter — eine Warnung im Protokoll, kein Fehler.
+
+Belege in `docs/VIDEO_ANALYSIS.md`, Abschnitt *Personenmodell auf dem
+Tafelband*.
 
 ---
 

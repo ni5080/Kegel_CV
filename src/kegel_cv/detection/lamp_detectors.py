@@ -57,6 +57,10 @@ class GleitendesHistogramm:
         # Wo die AUS-Wolke liegt. Nicht die Schwelle, sondern das NIVEAU --
         # daran misst sich, was "deutlich darunter" heisst (Verdeckung).
         self._aus_niveau: float | None = None
+        # Der UNTERE RAND derselben Wolke -- die Stelle, an der sie duenn wird.
+        # Er ist die bessere Bezugsgroesse fuer eine Verdeckung als der Gipfel;
+        # warum, steht bei `_untere_flanke`.
+        self._aus_rand: float | None = None
 
     @property
     def gemessen(self) -> bool:
@@ -67,6 +71,11 @@ class GleitendesHistogramm:
     def aus_niveau(self) -> float | None:
         """Wo die AUS-Wolke liegt -- None, solange keine zwei Wolken da sind."""
         return self._aus_niveau
+
+    @property
+    def aus_rand(self) -> float | None:
+        """Der untere Rand der AUS-Wolke -- None ohne zwei Wolken."""
+        return self._aus_rand
 
     def vergiss(self) -> None:
         """Wirft das Gedaechtnis weg -- nach einer verschobenen ROI.
@@ -84,6 +93,7 @@ class GleitendesHistogramm:
         self._gemessen = False
         self._seit_takt = 0
         self._aus_niveau = None
+        self._aus_rand = None
 
     def hinzufuegen(self, wert: float) -> None:
         i = min(self._anzahl_bins - 1, max(0, int(wert / self.cfg.histogram_bin)))
@@ -139,7 +149,45 @@ class GleitendesHistogramm:
         # um eine VERDECKUNG von einem gewoehnlichen AUS zu unterscheiden:
         # Verdeckt heisst deutlich unter dem, was AUS normalerweise misst.
         self._aus_niveau = (links + 0.5) * self.cfg.histogram_bin
+        self._aus_rand = self._untere_flanke(h, links)
         return (tal_wert + rand, tal_wert - rand)
+
+    def _untere_flanke(self, h: np.ndarray, gipfel: int) -> float:
+        """Wo die AUS-Wolke nach unten hin duenn wird.
+
+        WARUM NICHT EIN QUANTIL. Das naheliegende Mass fuer "unterer Rand der
+        Wolke" waere ihr 1. Perzentil. Es ist unbrauchbar, weil die Wolke
+        VERSCHMUTZT ist: Jeder Frame, in dem ein Mensch vor der Lampe stand,
+        liegt als 0,0 mit darin, und ein Quantil zaehlt ihn mit.
+
+        GEMESSEN 2026-09-14 ueber 42 400 Frames des Livestreams -- Wahrheit ist
+        das 1. Perzentil der mit Wache und Personenmodell GEREINIGTEN Wolke:
+
+            Bahn   Wahrheit   Quantil roh   Flanke roh
+              2       20,8         20,8         25,0
+              3       18,5          0,0         22,0
+              4       25,0          0,0         30,0
+              5       16,2         16,2         20,0
+
+        Auf den Bahnen 3 und 4 zieht ein Bruchteil verdeckter Frames das
+        Quantil auf null -- und damit haette die Verdeckungsbremse sich selbst
+        abgeschaltet, ausgerechnet dort, wo sie am besten arbeitet. Kein Test
+        waere rot geworden.
+
+        Der Abstieg vom Gipfel sieht den Schmutz nicht, solange zwischen ihm
+        und der Wolke eine Luecke liegt. Mittlerer Abstand zur Wahrheit ueber
+        beide Quellen und alle acht Bahnen: 2,1 statt 5,4, groesster Fehler
+        5,0 statt 25,0.
+
+        Wo Wolke und Schmutz VERSCHMELZEN -- an der Hallenkamera liest ein
+        echtes AUS auf Bahn 2 selbst 0,0 -- liefert der Abstieg richtigerweise
+        0. Dort kann der Gruen-Score nichts trennen, und die Bremse schweigt.
+        """
+        grenze = self.cfg.histogram_edge_fraction * float(h[gipfel])
+        i = gipfel
+        while i > 0 and h[i - 1] >= grenze:
+            i -= 1
+        return i * self.cfg.histogram_bin
 
     def schwellen(self) -> tuple[float, float]:
         """Aktuelle (AN, AUS). Die Talsuche laeuft nur getaktet."""
@@ -197,6 +245,26 @@ class HsvGreenDetector:
         """
         if self._histogramm is not None:
             return self._histogramm.aus_niveau
+        return None
+
+    @property
+    def aus_rand(self) -> float | None:
+        """Der UNTERE RAND der AUS-Wolke -- None, wenn unbekannt.
+
+        Die Bezugsgroesse der Verdeckungsbremse. Der Gipfel der Wolke taugt
+        dafuer nicht: Er sagt, wo AUS ueblicherweise liegt, aber nichts
+        darueber, wie weit die Wolke nach unten reicht -- und genau dort
+        entscheidet sich, ob ein niedriger Wert noch ein AUS ist oder schon
+        eine Verdeckung.
+
+        GEMESSEN 2026-09-14, Hallenkamera: Bahn 4 hat eine AUS-Wolke von 7,1
+        bis 11,7, Bahn 2 eine von 0,0 bis 0,7. Gleiche Halle, gleiches Licht,
+        gleicher Frame -- der Gipfel liegt bei 11,7 gegen 0,7, der untere Rand
+        bei 7,0 gegen 0,0. Am Gipfel gemessen bekam Bahn 2 eine Schwelle von
+        0,9 und bremste in 28 % aller Frames auf voellig freier Tafel.
+        """
+        if self._histogramm is not None:
+            return self._histogramm.aus_rand
         return None
 
     def vergiss(self) -> None:

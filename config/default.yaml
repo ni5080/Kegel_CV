@@ -443,7 +443,12 @@ detection:
     # GEGENPROBE am Stream, zwei Abschnitte:
     #     Mensch durch die Gruenphase   mit 0,0: 1 Wurf   mit Anteil: 0 Wuerfe
     #     Streamende (keine Tafel)      mit 0,0: 3 Wuerfe mit Anteil: 0 Wuerfe
-    occlusion_off_fraction: 0.3
+    # Anteil am UNTEREN RAND der AUS-Wolke (nicht an ihrem Gipfel -- siehe
+    # schema.py). GEMESSEN 2026-09-14 ueber beide Quellen: In der Halle
+    # verstummt die Bremse damit auf den Bahnen, deren echtes AUS selbst 0,0
+    # liest (Bahn 2 bremste vorher in 28 % aller Frames auf freier Tafel), im
+    # Stream wird sie schaerfer (10-15 statt 8) bei gleicher Bremsrate.
+    occlusion_edge_fraction: 0.5
     occlusion_min_frames: 2
     # Erinnerung waehrend einer Verdeckung, alle n Frames (750 = 30 s).
     # Ohne sie bliebe eine dauerhaft eingefrorene Bahn nach EINER Logzeile

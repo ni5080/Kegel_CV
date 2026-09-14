@@ -2386,3 +2386,69 @@ letzten 50 Frames vor, vorskaliert auf die Arbeitsaufloesung des Netzes
 (0,4 statt 1,7 MB je Frame). Das ist die einzige Stelle im Programm, an der
 rohe Bildpunkte von Menschen aufgehoben werden -- sie verlassen den
 Arbeitsspeicher nie.
+
+### Die Verdeckungsschwelle misst sich am RAND, nicht am Gipfel (2026-09-14)
+
+Nachtrag zum Eintrag vom 2026-09-13: Der Anteil am AUS-**Niveau** war besser
+als eine feste Zahl und trotzdem die falsche Bezugsgroesse.
+
+**Der Befund.** Bahn 2 des Hallenmitschnitts galt in 26,7 % aller Frames als
+verdeckt. Von drei Stichproben zeigten zwei eine **voellig freie Tafel mit
+echt ausgeschalteter Lampe**. Kosten: keine verlorenen Wuerfe (64 gegen 64,
+alle Ergebnisse identisch), aber bis zu **139 Frames = 9,3 s Verzoegerung** je
+Wurf -- fuer einen Liveticker der Unterschied zwischen live und hinterher.
+
+**Die Ursache.** Die echte AUS-Wolke, sauber definiert ueber die unabhaengigen
+Zeugen (Wache und Modell schweigen):
+
+| | Bahn 2 | Bahn 3 | Bahn 4 | Bahn 5 |
+|---|---|---|---|---|
+| Halle, Wolke | 0,0 .. 0,7 | 1,4 .. 3,5 | 7,1 .. 11,7 | 0,0 .. 0,0 |
+| Stream, p1 | 20,8 | 18,5 | 25,0 | 16,2 |
+
+Gleiche Halle, gleiches Licht, derselbe Frame -- und drei voellig verschiedene
+Lampen. Der Gipfel sagt, wo AUS ueblicherweise liegt; er sagt nichts darueber,
+wie weit die Wolke nach unten reicht, und genau dort entscheidet es sich.
+
+**Die Falle, die dabei fast zugeschnappt waere.** Der naheliegende Schaetzer
+fuer den unteren Rand ist ein Quantil. Er ist unbrauchbar, weil die Wolke im
+Betrieb verschmutzt ist -- jeder Frame mit einem Menschen vor der Lampe liegt
+als 0,0 darin. GEMESSEN: Auf Bahn 3 und 4 des Streams zieht das das 1.
+Perzentil von 18,5 bzw. 25,0 auf **null**, und die Bremse haette sich selbst
+abgeschaltet, ausgerechnet dort, wo sie am besten arbeitet. Kein Test waere rot
+geworden -- dasselbe Muster wie BUG-026.
+
+Gewaehlt wurde stattdessen der **Abstieg vom Gipfel der Wolke**, bis das
+Histogramm unter 5 % der Gipfelhoehe faellt. Er sieht den Schmutz nicht,
+solange dazwischen eine Luecke liegt; verschmelzen Wolke und Schmutz (Halle,
+Bahn 2), liefert er richtigerweise 0 -- und der Zeuge schweigt, statt zu raten.
+Mittlerer Abstand zur Wahrheit 2,1 statt 5,4, groesster Fehler 5,0 statt 25,0.
+
+Damit **entfaellt die zunaechst geplante Lernsperre** fuers Histogramm: Der
+Schaetzer traegt die Verschmutzung von allein, und die Kopplung zwischen
+Lampendetektor und den anderen Zeugen bleibt aus.
+
+`occlusion_off_fraction: 0.3` (am Gipfel) wird zu
+`occlusion_edge_fraction: 0.5` (am Rand).
+
+**Gegenprobe am ganzen Hallenmitschnitt:**
+
+| | Gipfel-Regel | Rand-Regel |
+|---|---|---|
+| Verdeckungen begonnen | 121 (Bahn 2: 117) | **8** (Bahn 2: 5) |
+| Wuerfe | 64 | **64**, Zeile fuer Zeile gleich |
+| ms/Frame | 35,6 | **29,8** |
+
+**Gegenprobe am Livestream** (F0 bis F42400, volle Pipeline): Schwellen 7,0 bis
+11,0 aus Raendern von 14 bis 22 -- schaerfer als die alten 6,9 bis 9,3 und weit
+unter der jeweiligen Wolke. **Kein Wurf auf Bahn 2 zwischen F42150 und F42350**:
+Der Phantomwurf, an dem die ganze Kette begann, wird weiterhin aufgehalten.
+
+Eine Konfiguration, beide Quellen, keine Fallunterscheidung:
+
+| | Halle: Fehlbremsen | Stream: Phantomwurf |
+|---|---|---|
+| feste Zahl 12 | alle Bahnen eingefroren | gefangen |
+| feste Zahl 0 | keine | **entsteht** |
+| Anteil am Gipfel (0,3) | Bahn 2 in 26,7 % der Frames | gefangen |
+| **Anteil am Rand (0,5)** | **keine** | **gefangen** |

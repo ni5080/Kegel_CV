@@ -251,15 +251,32 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST \
 
 ### Was in der Tabelle steht — und was nicht
 
-**Übertragen wird nur, was gemessen ist:** Bahn, Anzahl Kegel, Kegelnummern,
-Zeitstempel. Wurfnummer, laufende Summe, Zyklus, Spielnummer und
-Zwischensummen werden zwar berechnet und angezeigt, aber **nicht gesendet**.
+Die Grenze verläuft zwischen **abgeleitet** und **abgelesen** — nicht zwischen
+wichtig und unwichtig.
 
-Der Grund ist Erfahrung: Genau diese abgeleiteten Größen sind schiefgegangen.
-Die aus der Anzeige gelesene Wurfnummer löschte einmal 28 % der Würfe. Alle
-setzen Regelwissen voraus — wann ein Bahnwechsel ansteht, wann ein Spiel endet,
-wie gewertet wird —, das die auswertende Anwendung besser kennt als eine
-Bilderkennung.
+**Gesendet wird, was gemessen oder abgelesen ist:**
+
+| Spalte | was drin steht |
+|---|---|
+| `lane`, `pins_count`, `pins` | das Ergebnis, aus den **Lampen** gezählt |
+| `video_time_s`, `recorded_at` | wann |
+| `displayed_throw_number` | Wurfnummer **laut Tafel** |
+| `displayed_pin_count` | Kegelzahl laut Tafel |
+| `displayed_foul_count` | Fehlwurfzähler |
+| `displayed_total` | Summenfeld B |
+| `board_jpeg` | die Anzeigetafel als Beleg |
+
+Die vier `displayed_*`-Spalten sind **nullbar und reines Beiwerk.** `null`
+heißt „nicht sicher gelesen" — das ist eine Aussage, keine Lücke. Sie gehen in
+keine Berechnung dieses Werkzeugs ein; gezählt wird aus den Lampen. Wer sie
+zum Rechnen benutzt, tut das auf eigene Verantwortung.
+
+**Nicht gesendet wird, was hergeleitet ist:** laufende Summe, Zyklus,
+Spielnummer, die aufgelöste Wurfnummer. Der Grund ist Erfahrung — genau diese
+Größen sind schiefgegangen; die aus der Anzeige abgeleitete Wurfnummer löschte
+einmal 28 % der Würfe. Alle setzen Regelwissen voraus (wann ein Bahnwechsel
+ansteht, wann ein Spiel endet, wie gewertet wird), das die auswertende
+Anwendung besser kennt als eine Bilderkennung.
 
 Die Spalten `throw_number`, `running_total`, `status`, `cycle` und `game`
 existieren aus der Frühzeit noch und sind bei neuen Zeilen **`null`**. Wer
@@ -343,13 +360,28 @@ Vier voneinander unabhängige Zeugen halten das auf:
 
 | Zeuge | sieht | Kosten |
 |---|---|---|
-| Grün-Score gegen das gemessene AUS-Niveau | jemanden **vor der Lampe** | jeder Frame, kostenlos |
+| Grün-Score gegen den unteren Rand der AUS-Wolke | jemanden **vor der Lampe** | jeder Frame, kostenlos |
 | Bewegungsmaske | einen **bewegten** Menschen auf der Tafel | jeder Frame, wenige ms |
 | Tafelwache | eine Tafel, die **nicht mehr wie sie selbst** aussieht | jeder 5. Frame |
 | Personenmodell (YOLOX-Tiny) | einen **Menschen als Menschen** | nur wenn ein anderer anschlägt, sonst jeder 10. Frame |
 
 Nur der vierte weiß, dass es ein Mensch ist — deshalb ist er der einzige, der
 ihn gezielt schwärzen kann.
+
+**Kein Schwellwert in der Konfiguration.** Wann ein niedriger Grün-Wert „aus"
+heißt und wann „jemand steht davor", hängt an Kamera, Lampe und ROI-Sitz — und
+zwar von Bahn zu Bahn. Gemessen an *einer* Aufnahme in *einer* Halle:
+
+| Bahn | AUS-Wolke der grünen Lampe |
+|---|---|
+| 2 | 0,0 … 0,7 |
+| 3 | 1,4 … 3,5 |
+| 4 | 7,1 … 11,7 |
+
+Das Werkzeug misst diese Wolke deshalb im Betrieb selbst und legt die Schwelle
+unter ihren **unteren Rand**. Reicht die Wolke bis null — Bahn 2 oben —, kann
+dieser Zeuge nichts trennen und **schweigt**, statt zu raten; die anderen drei
+bleiben zuständig. Es gibt keine Einstellung „Halle" oder „Stream".
 
 ---
 

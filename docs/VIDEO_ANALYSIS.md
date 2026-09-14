@@ -2760,3 +2760,150 @@ Sperre schnappt bei jeder Aenderung mitten im Lauf zu.
 
 Schneller, weil das Personenmodell nicht mehr von der festhaengenden Wache in
 jeden Frame gezogen wird.
+
+## Die Verdeckungsschwelle: unterer Rand statt Gipfel (2026-09-14)
+
+**Der Anlass.** Bahn 2 des Hallenmitschnitts galt in **26,7 %** aller Frames
+als verdeckt. Drei Stichproben aus diesen 3617 Frames zeigten: In zweien lag
+die Tafel voellig frei und die gruene Lampe war **echt aus**; nur in der
+dritten stand tatsaechlich ein Mensch davor.
+
+Folgenlos war das nicht, aber auch kein Wurfverlust. Gegenprobe mit
+abgeschaltetem Gruen-Zeugen ueber den ganzen Mitschnitt:
+
+| | mit | ohne |
+|---|---|---|
+| Wuerfe gesamt | 64 | 64 |
+| je Bahn (2/3/4) | 29/12/23 | 29/12/23 |
+| Kegelzahl, Kegelnummern, Status | -- | **64 von 64 identisch** |
+
+Die Bremse kostete keine Wuerfe, sie **verzoegerte** sie: 21 der 29 Wuerfe auf
+Bahn 2 wurden spaeter gebucht, im Extremfall **139 Frames = 9,3 Sekunden**.
+Fuer die Zaehlung folgenlos, fuer einen Liveticker der Unterschied zwischen
+live und hinterher.
+
+### Warum der Gipfel die falsche Bezugsgroesse war
+
+Die AUS-Wolke, sauber definiert: nur Frames, in denen Tafelwache UND
+Personenmodell schweigen -- also unabhaengig vom Gruen-Score selbst, sonst
+waere die Messung zirkulaer.
+
+**Hallenmitschnitt**, 13 530 Frames:
+
+| Bahn | saubere AUS-Messungen | Minimum | p1 | p5 | Median | Schwelle alt |
+|---|---|---|---|---|---|---|
+| 2 | 6344 | 0,0 | 0,0 | 0,0 | 0,7 | 0,90 |
+| 3 | 956 | 1,4 | 1,4 | 2,1 | 3,5 | 1,50 |
+| 4 | 3489 | **7,1** | 7,1 | 8,4 | 11,7 | 3,30 |
+| 5 | 216 | 0,0 | 0,0 | 0,0 | 0,0 | 0,90 |
+
+**Livestream Fastlane**, 42 400 Frames:
+
+| Bahn | saubere AUS-Messungen | Minimum | p1 | p5 | Median | Schwelle alt |
+|---|---|---|---|---|---|---|
+| 2 | 10 875 | 13,9 | 20,8 | 23,6 | 29,2 | 8,70 |
+| 3 | 10 475 | 17,3 | 18,5 | 21,0 | 25,9 | 7,50 |
+| 4 | 11 990 | 21,2 | 25,0 | 25,0 | 31,2 | 9,30 |
+| 5 | 7 956 | 15,0 | 16,2 | 18,8 | 23,8 | 6,90 |
+
+Der Stream liegt durchweg hoeher -- die Vermutung "abends im Training dunkel,
+am Spieltag hell" ist also nicht falsch. Sie erklaert aber nicht das
+Entscheidende: In DERSELBEN dunklen Halle, im selben Frame, hat Bahn 4 eine
+AUS-Wolke von 7,1 bis 11,7 und Bahn 2 eine von 0,0 bis 0,7. Das ist eine
+Eigenschaft der einzelnen Lampe und ihres ROI-Sitzes, keine der Beleuchtung.
+Ein Anteil am GIPFEL kann das nicht abbilden: Er sagt, wo AUS ueblicherweise
+liegt, nicht wie weit die Wolke nach unten reicht.
+
+### Der Schaetzer -- und warum ein Quantil nicht geht
+
+Naheliegend waere das 1. Perzentil der AUS-Wolke. Es ist unbrauchbar, weil die
+Wolke im Betrieb VERSCHMUTZT ist: Jeder Frame mit einem Menschen vor der Lampe
+liegt als 0,0 mit darin.
+
+Wahrheit = p1 der gereinigten Wolke, gerechnet wird auf der rohen:
+
+| Quelle | Bahn | Wahrheit | Quantil roh | Gipfelabstieg roh |
+|---|---|---|---|---|
+| Halle | 2 | 0,0 | 0,0 | 0,0 |
+| Halle | 3 | 1,4 | 1,4 | 1,0 |
+| Halle | 4 | 7,1 | 7,1 | 7,0 |
+| Stream | 2 | 20,8 | 20,8 | 25,0 |
+| Stream | 3 | 18,5 | **0,0** | 22,0 |
+| Stream | 4 | 25,0 | **0,0** | 30,0 |
+| Stream | 5 | 16,2 | 16,2 | 20,0 |
+
+| Schaetzer | mittlerer Abstand | groesster Fehler |
+|---|---|---|
+| Quantil p1 | 5,44 | **25,0** |
+| Gipfelabstieg 10 % | 2,23 | 5,0 |
+| Gipfelabstieg 5 % | **2,12** | **5,0** |
+| Median − 3·MAD | 2,38 | 4,9 |
+
+Auf Bahn 3 und 4 des Streams zieht ein Bruchteil verdeckter Frames das Quantil
+auf **null** -- die Bremse haette sich selbst abgeschaltet, ausgerechnet dort,
+wo sie am besten arbeitet, und kein Test waere rot geworden. Der Abstieg vom
+Gipfel sieht den Schmutz nicht, solange dazwischen eine Luecke liegt.
+Verschmelzen Wolke und Schmutz (Halle, Bahn 2), liefert er richtigerweise 0.
+
+**Damit braucht das Histogramm keine Lernsperre.** Die zunaechst geplante
+Loesung -- nur "saubere" Frames ins Histogramm lassen -- entfaellt; der
+Schaetzer traegt die Verschmutzung von allein.
+
+### Der Sicherheitsfaktor
+
+Der Abstieg landet im Stream ueber der Wahrheit (25,0 gegen 20,8) -- die
+falsche Richtung, denn eine zu hohe Schwelle bremst auf echtem AUS. Weil eine
+Verdeckung 0,0 liest und die Wolke im Stream bei 14 anfaengt, ist die Luecke
+riesig; man darf also konservativ sein.
+
+Schwelle = Faktor x Rand. Geprueft auf allen acht Bahn/Quelle-Paaren, ob sie
+unter dem p1 der gereinigten Wolke bleibt:
+
+| Faktor | bleibt ueberall unter der Wolke | Bremsrate Stream | Bremsrate Halle |
+|---|---|---|---|
+| 0,4 | ja | 0,03 / 0,45 / 0,92 / 0,16 % | 0 % |
+| **0,5** | **ja** | 0,03 / 0,46 / 0,92 / 0,16 % | **0 %** |
+| 0,6 | ja | 0,04 / 0,52 / 0,95 / 0,16 % | 0 % |
+
+0,5 gewaehlt. Zum Vergleich die alte Regel: Halle Bahn 2 **18,7 %**, Bahn 5
+2,2 %; Stream 0,03 / 0,44 / 0,92 / 0,15 %.
+
+### Gegenprobe am ganzen Hallenmitschnitt
+
+| | Gipfel-Regel | Rand-Regel |
+|---|---|---|
+| Verdeckungen begonnen | 121 (davon Bahn 2: 117) | **8** (davon Bahn 2: 5) |
+| Wuerfe | 64 | **64** |
+| ms/Frame | 35,6 | **29,8** |
+
+Schneller, weil die Bremse nicht mehr staendig zuschnappt und das
+Personenmodell nicht staendig mitzieht.
+
+### Gegenprobe am Livestream
+
+Volle Pipeline ueber F0 bis F42400 der Fastlane-Uebertragung, also bis ueber
+die Beweisstelle hinaus. Gemessene Schwellen am Ende des Laufs:
+
+| Bahn | Rand der AUS-Wolke | Gipfel | Schwelle |
+|---|---|---|---|
+| 2 | 20,0 | 29,0 | 10,00 |
+| 3 | 16,0 | 25,0 | 8,00 |
+| 4 | 22,0 | 31,0 | 11,00 |
+| 5 | 14,0 | 23,0 | 7,00 |
+
+Die Schwellen liegen damit ueber den alten (6,9 bis 9,3) und weit unter dem
+unteren Rand der jeweiligen Wolke -- schaerfer, ohne in echtes AUS zu ragen.
+
+**Wuerfe auf Bahn 2 zwischen F42150 und F42350: keiner.** Der Phantomwurf, an
+dem diese ganze Kette begann -- Mensch laeuft durch die Gruenphase, Score
+faellt zehn Frames auf 0,0, Wurf mit 0 Kegeln und Gesicht in der Datenbank --
+wird weiterhin aufgehalten. 148 Wuerfe im Abschnitt insgesamt.
+
+Damit traegt EINE Konfiguration beide Quellen, ohne Fallunterscheidung:
+
+| | Halle: Fehlbremsen | Stream: Phantomwurf |
+|---|---|---|
+| feste Zahl 12 | alle Bahnen dauerhaft eingefroren | gefangen |
+| feste Zahl 0 | keine | **entsteht** |
+| Anteil am Gipfel (0,3) | Bahn 2 in 26,7 % der Frames | gefangen |
+| **Anteil am Rand (0,5)** | **keine** | **gefangen** |
