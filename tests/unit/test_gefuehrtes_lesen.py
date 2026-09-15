@@ -207,3 +207,53 @@ class TestDerNotausgang:
             assert s.deute(lesung("0999")).art == UNMOEGLICH
             assert s.deute(lesung("0100")).art == EINDEUTIG
         assert s.stand == 100
+
+
+class TestKeineFalscheZuversicht:
+    """GEMESSEN auf Bahn 4, F5695-6070 (`debug/summe_bahn4.gif`): Die Tafel
+    zeigte nachweislich `0133`. Der Stand der Spur stand noch auf 116, das
+    Fenster reichte bis 125 -- aus `01?3` passte dort nur 123, und genau das
+    wurde als "eindeutig" gebucht.
+
+    Der Nutzer dazu: *"das kann eigentlich nicht sein, wirklich nicht!"* -- er
+    hatte recht. Der Befund "die Tafel hängt zwei Würfe zurück" war ein
+    Artefakt der Spur, kein Verhalten der Anlage.
+    """
+
+    def test_eine_lesung_ausserhalb_des_fensters_wird_verworfen(self):
+        """`0133` bei Stand 116: nichts im Fenster 116..125 passt. Das ist
+        UNMÖGLICH -- und damit ein Signal, dass der Stand veraltet ist."""
+        s = Summenspur(stand=116, wuerfe=30)
+        d = s.deute(lesung("0133"))
+        assert d.art == UNMOEGLICH
+        assert d.wert is None
+        assert s.stand == 116
+
+    def test_nach_drei_solchen_lesungen_gibt_die_spur_den_stand_auf(self):
+        """Der Notausgang greift genau hier: Drei unmögliche Lesungen in Folge
+        heißen, dass nicht die Anzeige irrt, sondern der Anker."""
+        s = Summenspur(stand=116, wuerfe=30, geduld=3)
+        for _ in range(3):
+            s.deute(lesung("0133"))
+        assert s.stand is None
+        assert s.deute(lesung("0133")).art == VERANKERT
+        assert s.stand == 133
+
+    def test_eine_definite_lesung_wird_nicht_auf_einen_nachbarn_gebogen(self):
+        """Steht in der Anzeige ein lesbarer Wert, darf das Fenster ihn nicht
+        durch einen Nebenkandidaten ersetzen -- auch nicht, wenn nur dieser
+        hineinpasst. Genau das war der Fehler auf Bahn 4."""
+        s = Summenspur(stand=176, wuerfe=30)
+        # Gelesen wird 175; die letzte Stelle könnte auch eine 9 sein. Im
+        # Fenster 176..185 liegt nur 179 -- aber die Anzeige sagt 175.
+        d = s.deute(lesung("0175", ((0,), (1,), (7,), (5, 9))))
+        assert d.art == WIDERSPRUCH
+        assert d.wert is None
+        assert "175" in d.bemerkung and "179" in d.bemerkung
+
+    def test_eine_unlesbare_stelle_darf_weiterhin_aufgeloest_werden(self):
+        """Der Fall, für den die Spur gebaut ist, bleibt erhalten: Die Anzeige
+        behauptet selbst nichts Gegenteiliges."""
+        s = Summenspur(stand=170, wuerfe=30)
+        d = s.deute(lesung("01?5", ((0,), (1,), (7, 8), (5,))))
+        assert d.art == EINDEUTIG and d.wert == 175

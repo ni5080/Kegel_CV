@@ -267,11 +267,38 @@ class Summenspur:
         self._irrtuemer = 0
 
         if len(moeglich) == 1:
+            # ACHTUNG, HIER LAG EIN FEHLER (2026-09-15, vom Nutzer bemerkt).
+            #
+            # "Genau ein Wert passt ins Fenster" heisst NICHT "die Anzeige ist
+            # eindeutig". Es heisst nur: von den Werten, die das Fenster
+            # zulaesst, passt einer. Ist das Fenster falsch -- weil der Stand
+            # veraltet ist --, dann wird ein NEBENKANDIDAT der Lesung
+            # hineingezwungen und als sicher gemeldet.
+            #
+            # GEMESSEN auf Bahn 4, F5695-6070: Die Tafel zeigte nachweislich
+            # `0133` (siehe `debug/summe_bahn4.gif`). Der Stand stand noch auf
+            # 116, das Fenster reichte bis 125. Aus der Lesung `01?3` passte
+            # dort nur 123 -- und genau das wurde als "eindeutig" gebucht.
+            # Daraus entstand der falsche Befund, die Tafel haenge zwei Wuerfe
+            # zurueck.
+            #
+            # Eindeutig ist eine Lesung nur, wenn ihre EIGENE beste Lesart im
+            # Fenster liegt. Tut sie das nicht, ist das ein Widerspruch
+            # zwischen Anzeige und Spur -- und der gehoert gemeldet, nicht
+            # stillschweigend aufgeloest.
+            eigene = lesung.value
+            if eigene is not None and eigene != moeglich[0]:
+                self._zaehle(WIDERSPRUCH)
+                return Deutung(
+                    None, WIDERSPRUCH,
+                    f"Anzeige liest {eigene}, das Fenster "
+                    f"{self.stand}..{self.stand + spielraum} laesst nur "
+                    f"{moeglich[0]} zu -- nicht entscheidbar")
+
             vorher, self.stand = self.stand, moeglich[0]
             self._zaehle(EINDEUTIG)
-            hinweis = ("" if moeglich[0] == lesung.value
-                       else f"rohe Lesung {lesung.value} passte nicht, "
-                            f"moeglich war nur {moeglich[0]}")
+            hinweis = ("" if moeglich[0] == eigene
+                       else f"unlesbare Stelle aufgeloest zu {moeglich[0]}")
             if gefallen is not None and moeglich[0] != vorher + gefallen:
                 hinweis = (f"erwartet war {vorher + gefallen}, die Anzeige "
                            f"laesst nur {moeglich[0]} zu")

@@ -3175,3 +3175,89 @@ Das Nachlaufmodell "die Tafel zeigt den Stand vor genau diesem Wurf" ist zu
 einfach: Manchmal hängt sie zwei Würfe zurück. Vorher war das unsichtbar, weil
 die Summe fast nie gelesen wurde. **Offen** — ein eigener Schritt, kein
 Nebenbei-Fix.
+
+## 2026-09-15 — Wahrscheinlichkeiten je Ziffer statt einer Liste ohne Rangfolge
+
+Nutzerwunsch: *"wie wäre es, wenn wir die Wahrscheinlichkeit beim auslesen
+haben? Also jede Ziffer gibt an, zu 0,1% eine 1, zu 5,2% eine 2 usw. und zu 85%
+eine 9 -> dann könnten wir uns immer die top Kandidaten anschauen."*
+
+Anlass war eine Frage, auf die es keine gute Antwort gab: *"Warum kann ich die
+Ziffern in dem GIF so sauber erkennen aber unser Modell nicht?"*
+
+### Die Antwort: Das Modell sieht die Ziffer. Es entscheidet falsch.
+
+GEMESSEN, Bahn 4, F5400, letzte Stelle — im Bild zweifelsfrei eine **9**
+(`debug/warum_falsch.png`):
+
+    a=0,885 an   b=0,668 an   c=0,853 an   g=0,853 an
+    d=0,000 aus  e=0,007 aus  f=0,182 aus      Schwelle 0,310
+
+Das Muster `abcg` steht in keiner Tabelle. Im Hamming-Abstand 1 liegen **zwei**
+Ziffern: die 3 (d müsste an, liegt 0,31 daneben) und die 9 (f müsste an, liegt
+0,13 daneben). Der Hamming-Abstand sieht da keinen Unterschied — also gewann
+die, die in `SEGMENT_PATTERNS` früher steht. **Die Ziffer wurde von einer
+Dictionary-Reihenfolge entschieden.**
+
+### Die Skala der Wahrscheinlichkeit ist gemessen, nicht gesetzt
+
+Rauschen eines Füllgrades bei UNVERÄNDERTER Anzeige, Bahn 3 und 4, vier
+Fenster, 1329 Frames: Median 0,003 bis 0,016, 90. Perzentil **0,040**,
+Maximum 0,119. Genommen wird das 90. Perzentil
+(`segment_probability_scale: 0.04`).
+
+### Was der Umbau bringt
+
+Verglichen auf DENSELBEN Frames, gegen ein von beiden Verfahren unabhängiges
+Kriterium (die Summe darf nicht fallen und je Wurf höchstens um 9 steigen):
+
+| Bahn | hart | Wahrscheinlichkeit |
+|---|---|---|
+| 2 | 49,6 % | **56,7 %** |
+| 3 | 98,5 % | 98,5 % |
+| 4 | 94,8 % | 94,8 % |
+| 5 | 98,6 % | **99,1 %** |
+
+Im Vollauf (64 Würfe, 29,0 statt 30,9 ms/Frame):
+
+| | vorher | jetzt |
+|---|---|---|
+| Bahn 4, Summenverlauf | 2, 3, 32, 72, 73, 82, 116, 123, 123, 132 | **3, 9, 16, 22, 59, 61, 93, 129, 133, 139** |
+| Differenz trifft die Lampen | 2 von 8 | 3 von 7 |
+| „unklar" | 6 | 4 |
+
+Vorher stieg die Summe von 2 auf 3, während neun Kegel fielen. Jetzt läuft sie
+mit rund sieben Punkten je Wurf durch.
+
+### Ein Rückschritt auf dem Weg, und was ihn verursachte
+
+Der erste Anlauf gab die Wahrscheinlichkeit auch als **Confidence** zurück.
+Damit flossen Lesungen aus dem Notfallpfad plötzlich in die harten Feldwerte
+ein: **61 statt 64 gültige Würfe**, 11 statt 3 Meldungen „Wurf fehlt". Ein
+ungültiges Segmentmuster bleibt ein Warnzeichen, ganz gleich wie klar der
+wahrscheinlichste Kandidat führt. Die Confidence bleibt deshalb bei 0,35 —
+geändert wird nur, WELCHE Ziffer gewählt wird.
+
+### Offen: Die Messflächen sitzen schief
+
+Füllgrad je Segment im aktiven Zustand, 49.000 Messungen über den ganzen
+Mitschnitt:
+
+| Segment | Mittel aktiv | Abstand zur Schwelle | 10. Perzentil |
+|---|---|---|---|
+| a (oben) | 0,867 | 0,542 | 0,353 |
+| c (unten rechts) | 0,748 | 0,428 | 0,208 |
+| **f (oben links)** | **0,617** | **0,292** | **0,051** |
+
+Links (f, e) liest 0,664, rechts (b, c) 0,735. Segment f liegt in jedem
+zehnten Fall nur 0,05 über der Schwelle — bei a sind es 0,35. Es fällt deshalb
+als erstes aus, und genau daraus entstehen die ungültigen Muster.
+
+Sichtbar in `debug/segmentlage.png`: Eine klar lesbare `0` auf Bahn 3 kommt als
+**8 zu 52,4 % gegen 0 zu 47,4 %** heraus, weil die Fläche g in der absoluten
+Mitte Striche erwischt, die nicht zu ihr gehören. Der Nutzer beim Blick auf
+dasselbe Bild: *"dann sitzen die Flächen der linken Seite oben und in der
+absoluten Mitte falsch"*.
+
+Die Behebung (Messflächen an die Schräglage der Ziffern anpassen) ist ein
+eigener Schritt mit eigener Messung — **noch nicht gemacht**.

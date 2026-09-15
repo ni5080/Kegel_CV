@@ -724,6 +724,26 @@ class DigitDetectionConfig(BaseModel):
     segment_relative_ratio: float = Field(default=0.35, gt=0.0, lt=1.0)
     # Untergrenze, damit bei dunkler Anzeige kein Rauschen als Segment zaehlt.
     segment_floor: float = Field(default=0.12, ge=0.0, lt=1.0)
+    # Wie schnell die Sicherheit eines Segments mit dem Abstand zur Schwelle
+    # waechst (Skala der Logistik in `segment_probabilities`).
+    #
+    # GEMESSEN am 2026-09-15 als Rauschen eines Fuellgrades bei UNVERAENDERTER
+    # Anzeige -- Bahn 3 und Bahn 4, vier Fenster, 1329 Frames:
+    #     Median 0,003 bis 0,016   |   90. Perzentil 0,040   |   Maximum 0,119
+    # Genommen wird das 90. Perzentil: Bei diesem Abstand zur Schwelle ist eine
+    # Ziffer zu 73 % sicher, beim Doppelten zu 88 %, beim Dreifachen zu 95 %.
+    # Der Median waere zu selbstsicher -- er gilt fuer die ruhigsten Segmente,
+    # nicht fuer die, an denen Entscheidungen haengen.
+    segment_probability_scale: float = Field(default=0.04, gt=0.0, lt=1.0)
+    # Wie wahrscheinlich die beste Ziffer sein muss, damit ein UNGUELTIGES
+    # Segmentmuster trotzdem gelesen wird. Darunter bleibt es bei "?".
+    #
+    # GEMESSEN an den vier von Hand nachgeprueften Faellen (Bahn 4, F5400,
+    # F6100, F6400, F6650): Die im Bild eindeutige Ziffer kam dort auf 74 %
+    # bis 100 %. Der naechstschwaechere Kandidat lag bei 26 %. Die Schwelle
+    # liegt darunter, damit diese Faelle gelesen werden, und ueber dem
+    # Muenzwurf, damit ein echtes Patt schweigt.
+    segment_probability_min: float = Field(default=0.5, gt=0.0, le=1.0)
     # Mindesthelligkeit im Ziffern-ROI (95. Perzentil Rotkanal), damit ueberhaupt
     # gelesen wird. Ohne diese Schranke macht Otsu aus Rauschen eine Ziffer --
     # gemessen bevorzugt eine "8". Klare Anzeige = 255, verblassend <= 212.

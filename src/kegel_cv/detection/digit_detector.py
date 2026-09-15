@@ -86,6 +86,37 @@ class DigitReading:
     # Liegt der Wert der anderen Quelle nicht unter den Kandidaten, ist es ein
     # echter Widerspruch.
     candidates: tuple[tuple[int, ...], ...] = ()
+    # Wahrscheinlichkeitsverteilung je Stelle, absteigend sortiert:
+    # ((9, 0.85), (4, 0.12), (8, 0.02), ...)
+    #
+    # DIE IDEE (Nutzer, 2026-09-15): *"jede Ziffer gibt an, zu 0,1% eine 1, zu
+    # 5,2% eine 2 usw. und zu 85% eine 9 -- dann koennten wir uns immer die
+    # top Kandidaten anschauen und daraus Rueckschluesse ziehen."*
+    #
+    # `candidates` sagt WELCHE Werte moeglich sind, diese Verteilung sagt WIE
+    # WAHRSCHEINLICH jeder ist. Der Unterschied entscheidet: {4, 9} kann ein
+    # klarer Fall mit einem Zweifel sein oder ein echter Muenzwurf -- und nur
+    # im zweiten Fall darf eine andere Quelle die Lesung ueberstimmen.
+    verteilung: tuple[tuple[tuple[int, float], ...], ...] = ()
+
+    def wahrscheinlichkeit(self, stelle: int, wert: int) -> float:
+        """Wie wahrscheinlich ist dieser Wert an dieser Stelle?
+
+        Ohne Verteilung wird auf das Gemeldete zurueckgefallen: die gelesene
+        Ziffer gilt als sicher, ein Kandidat als gleichverteilt moeglich. So
+        bleibt der Aufrufer von der Frage verschont, ob es eine Verteilung gibt.
+        """
+        if stelle < len(self.verteilung) and self.verteilung[stelle]:
+            for w, p in self.verteilung[stelle]:
+                if w == wert:
+                    return p
+            return 0.0
+        if stelle < len(self.digits) and self.digits[stelle].isdigit():
+            return 1.0 if int(self.digits[stelle]) == wert else 0.0
+        if stelle < len(self.candidates) and self.candidates[stelle]:
+            return (1.0 / len(self.candidates[stelle])
+                    if wert in self.candidates[stelle] else 0.0)
+        return 0.1        # nichts bekannt: zehn Ziffern, gleichverteilt
 
     @property
     def is_readable(self) -> bool:
@@ -99,7 +130,9 @@ class DigitReading:
         return {"text": self.text, "value": self.value,
                 "confidence": round(self.confidence, 3),
                 "digits": list(self.digits),
-                "candidates": [list(k) for k in self.candidates]}
+                "candidates": [list(k) for k in self.candidates],
+                "verteilung": [[[w, round(p, 4)] for w, p in stelle]
+                               for stelle in self.verteilung]}
 
 
 class SevenSegmentDetector:

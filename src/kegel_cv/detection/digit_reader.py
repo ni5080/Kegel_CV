@@ -33,6 +33,7 @@ Einrahmen naturgemaess nicht pixelgenau trifft.
 from __future__ import annotations
 
 import logging
+import math
 
 import cv2
 import numpy as np
@@ -162,6 +163,72 @@ def segment_candidates(fills: list[float], threshold: float,
     return tuple(sorted(moeglich))
 
 
+def segment_probabilities(fills: list[float], threshold: float,
+                          scale: float) -> dict[int, float]:
+    """Wie wahrscheinlich ist jede Ziffer 0-9 angesichts dieser Messung?
+
+    DIE IDEE (Nutzer, 2026-09-15): *"jede Ziffer gibt an, zu 0,1% eine 1, zu
+    5,2% eine 2 usw. und zu 85% eine 9 -- dann koennten wir uns immer die top
+    Kandidaten anschauen und daraus Rueckschluesse ziehen."*
+
+    Was `segment_candidates` liefert, ist eine Liste ohne Rangfolge: {4, 9}
+    sagt nicht, ob es fast sicher eine 9 ist oder ein echter Muenzwurf. Genau
+    das ist aber der Unterschied, an dem eine zweite Quelle ansetzen kann.
+
+    DER WEG. Jedes Segment ist eine eigene Messung mit eigener Unsicherheit.
+    Wie sicher es an ist, haengt am Abstand zur Schwelle:
+
+        p_an = 1 / (1 + exp(-(fuellgrad - schwelle) / scale))
+
+    Die Wahrscheinlichkeit einer Ziffer ist dann das Produkt ueber ihre sieben
+    Segmente, normiert ueber alle bekannten Muster. Normiert wird BEWUSST nur
+    ueber gueltige Muster: Gefragt ist "welche Ziffer, wenn es eine ist" --
+    dass ueberhaupt eine Ziffer da ist, klaert die Helligkeitspruefung vorher.
+
+    WARUM DAS MEHR IST ALS KOSMETIK. GEMESSEN auf Bahn 4, letzte Stelle,
+    F5695-6000 (Anzeige nachweislich `0133`, siehe `debug/summe_bahn4.gif`):
+
+        a=0,86  b=0,30  c=0,84  d=0,81  e=0,02  f=0,18  g=0,84
+        Schwelle 0,301
+
+    Segment b liegt 0,001 unter der Schwelle und wackelt dabei nur um 0,001.
+    Das ist kein Rauschen, sondern ein echter Muenzwurf -- den die harte
+    Entscheidung als Gewissheit ausgibt. Mit Wahrscheinlichkeiten steht dort,
+    was wirklich gemessen wurde: zwei Lesarten, etwa gleich stark.
+
+    Args:
+        scale: Wie schnell die Sicherheit mit dem Abstand zur Schwelle
+            waechst. GEMESSEN wurde das Rauschen eines Fuellgrades bei
+            unveraenderter Anzeige (Bahn 3 und 4, 1329 Frames): Median 0,003
+            bis 0,016, 90. Perzentil 0,040. Der Wert steht in
+            `detection.digits.segment_probability_scale`.
+
+    Returns:
+        {Ziffer: Wahrscheinlichkeit}, Summe 1. Leer, wenn nichts zu rechnen
+        war.
+    """
+    if not fills or scale <= 0:
+        return {}
+    p_an = [1.0 / (1.0 + math.exp(-max(-60.0, min(60.0,
+                                                  (f - threshold) / scale))))
+            for f in fills]
+
+    roh: dict[int, float] = {}
+    for muster, wert in SEGMENT_PATTERNS.items():
+        p = 1.0
+        for an, pa in zip(muster, p_an):
+            p *= pa if an else (1.0 - pa)
+        # Mehrere Muster fuer dieselbe Ziffer (die 9 dieser Anlage gibt es in
+        # zwei Schreibweisen) schliessen einander aus -- ihre
+        # Wahrscheinlichkeiten addieren sich.
+        roh[wert] = roh.get(wert, 0.0) + p
+
+    summe = sum(roh.values())
+    if summe <= 0:
+        return {}
+    return {wert: p / summe for wert, p in roh.items() if p > 0}
+
+
 def is_ambiguous(fills: list[float], threshold: float, band: float) -> bool:
     """Laesst die Messung mehr als eine Ziffer zu?"""
     return len(segment_candidates(fills, threshold, band)) > 1
@@ -179,11 +246,16 @@ class CalibratedDigitReader:
         zeichen, confidence, _ = self.read_digit_full(patch)
         return zeichen, confidence
 
-    def read_digit_full(
-            self, patch: np.ndarray) -> tuple[str, float, tuple[int, ...]]:
-        """Dekodiert eine einzelne, exakt eingerahmte Ziffer."""
+    def segment_fills(self, patch: np.ndarray) -> list[float] | None:
+        """Wie voll ist jedes der sieben Segmente? `None`, wenn unlesbar.
+
+        Herausgeloest aus `read_digit_full`, damit dieselbe Messung auch von
+        aussen zu bekommen ist -- die Wahrscheinlichkeitsrechnung
+        (`segment_probabilities`) und die Vermessung der Schwellen brauchen die
+        rohen Fuellgrade, nicht das Ergebnis.
+        """
         if patch is None or patch.size == 0:
-            return "?", 0.0, ()
+            return None
 
         # Ist die Anzeige ueberhaupt beleuchtet?
         #
@@ -211,11 +283,11 @@ class CalibratedDigitReader:
             helligkeit = float(np.percentile(patch[:, :, 2],
                                              self.cfg.brightness_percentile))
         if helligkeit < self.cfg.min_display_brightness:
-            return "?", 0.0, ()
+            return None
 
         mask = self._preprocessor._red_mask(patch)
         if mask.max() == 0:
-            return "?", 0.0, ()
+            return None
 
         # Vertikal auf den tatsaechlichen Ziffernumriss beschneiden.
         #
@@ -247,8 +319,31 @@ class CalibratedDigitReader:
             x, y, w, h = self._regions[name]
             region = cell[y:y + h, x:x + w]
             fills.append(float(region.mean() / 255.0) if region.size else 0.0)
+        return fills
+
+    def read_digit_full(
+            self, patch: np.ndarray) -> tuple[str, float, tuple[int, ...]]:
+        """Dekodiert eine einzelne, exakt eingerahmte Ziffer."""
+        zeichen, score, kandidaten, _ = self.read_digit_verteilung(patch)
+        return zeichen, score, kandidaten
+
+    def read_digit_verteilung(self, patch: np.ndarray) -> tuple[
+            str, float, tuple[int, ...], tuple[tuple[int, float], ...]]:
+        """Wie `read_digit_full`, zusaetzlich mit der Verteilung ueber 0-9.
+
+        Die harte Lesung bleibt unveraendert -- die Verteilung tritt NEBEN sie,
+        nicht an ihre Stelle. Wer sie nicht braucht, merkt nichts davon; wer
+        sie braucht, muss nicht ein zweites Mal messen.
+        """
+        fills = self.segment_fills(patch)
+        if fills is None:
+            return "?", 0.0, (), ()
 
         threshold = self._threshold(fills)
+        verteilung = tuple(sorted(
+            segment_probabilities(
+                fills, threshold, self.cfg.segment_probability_scale).items(),
+            key=lambda wp: -wp[1]))
         active = tuple(f >= threshold for f in fills)
 
         # Haengt das Ergebnis an einem Segment, das auf der Schwelle liegt?
@@ -267,24 +362,76 @@ class CalibratedDigitReader:
         kandidaten = segment_candidates(fills, threshold,
                                         self.cfg.segment_ambiguous_band)
         if len(kandidaten) > 1:
-            return "?", 0.0, kandidaten
+            return "?", 0.0, kandidaten, verteilung
 
         digit = SEGMENT_PATTERNS.get(active)
 
         if digit is None:
-            # Naechstliegendes Muster suchen, aber die Unsicherheit ausweisen
-            best, distance = None, 99
-            for pattern, value in SEGMENT_PATTERNS.items():
-                d = sum(1 for p, a in zip(pattern, active) if p != a)
-                if d < distance:
-                    best, distance = value, d
-            if best is None or distance > 1:
-                return "?", 0.0, kandidaten
-            return str(best), 0.35, kandidaten or (best,)
+            # KEIN GUELTIGES MUSTER -- und hier lag ein Fehler, den erst die
+            # Verteilung sichtbar gemacht hat (2026-09-15).
+            #
+            # Frueher wurde das naechstliegende Muster nach Hamming-Abstand
+            # gesucht: Wie viele Segmente muessten umkippen? Diese Zaehlung
+            # behandelt alle Segmente gleich -- aber sie sind es nicht.
+            #
+            # GEMESSEN auf Bahn 4, F5400, letzte Stelle (im Bild zweifelsfrei
+            # eine 9, siehe `debug/warum_falsch.png`):
+            #
+            #     a=0,885 an   b=0,668 an   c=0,853 an   g=0,853 an
+            #     d=0,000 aus  e=0,007 aus  f=0,182 aus     Schwelle 0,310
+            #
+            # Das Muster "abcg" steht in keiner Tabelle. Im Abstand 1 liegen
+            # ZWEI Ziffern: die 3 (d muesste an, liegt 0,31 daneben) und die 9
+            # (f muesste an, liegt 0,13 daneben). Der Hamming-Abstand sieht da
+            # keinen Unterschied, also gewann schlicht die, die in der Tabelle
+            # frueher steht -- die 3. Die Ziffer wurde von der Reihenfolge
+            # eines Dictionarys entschieden.
+            #
+            # Die Verteilung wiegt stattdessen, WIE KNAPP jedes Segment war,
+            # und kommt auf 9 zu 99 % gegen 3 zu 1 %.
+            #
+            # GEMESSEN ueber den ganzen Mitschnitt, auf denselben Frames und
+            # gegen ein von beiden Verfahren unabhaengiges Kriterium (die
+            # Summe darf nicht fallen und je Wurf hoechstens um 9 steigen):
+            #
+            #     Bahn 2   49,6 %  ->  56,7 %
+            #     Bahn 3   98,5 %  ->  98,5 %
+            #     Bahn 4   94,8 %  ->  94,8 %
+            #     Bahn 5   98,6 %  ->  99,1 %
+            #
+            # Nirgends schlechter, auf der schwierigsten Bahn deutlich besser.
+            if not verteilung:
+                return "?", 0.0, kandidaten, verteilung
+            best, p_best = verteilung[0]
+            if p_best < self.cfg.segment_probability_min:
+                # Kein Kandidat sticht heraus -- dann lieber schweigen. Die
+                # Kandidatenliste geht trotzdem mit, eine andere Quelle kann
+                # sie aufloesen.
+                return "?", 0.0, kandidaten or tuple(
+                    sorted(w for w, pp in verteilung
+                           if pp >= self.cfg.segment_probability_min / 2)
+                ), verteilung
+            # DIE CONFIDENCE BLEIBT, WIE SIE WAR (0,35). Geaendert wird nur,
+            # WELCHE Ziffer gewaehlt wird -- nicht, wie sehr man ihr traut.
+            #
+            # Ein ungueltiges Segmentmuster ist ein Warnzeichen, ganz gleich
+            # wie klar der wahrscheinlichste Kandidat fuehrt: Irgendetwas an
+            # der Messung stimmt nicht, sonst stuende das Muster in der
+            # Tabelle. Der Wert liegt unter `min_confidence`, damit solche
+            # Lesungen nicht in die harten Feldwerte einfliessen -- sie
+            # zaehlen aber weiter fuer die Mehrheit und die Verteilung
+            # (`FieldAggregator.als_lesung`), wo die Summenspur sie nutzt.
+            #
+            # GEMESSEN, warum das noetig ist: Mit `p_best` als Confidence
+            # flossen diese Lesungen ploetzlich in die Feldwerte ein. Im
+            # Vollauf wurden daraus 61 statt 64 gueltige Wuerfe und 11 statt 3
+            # Meldungen "Wurf fehlt" -- die Wurfnummer wurde nun dort gelesen,
+            # wo sie vorher schwieg, und sprang.
+            return str(best), 0.35, kandidaten or (best,), verteilung
 
         margins = [abs(f - threshold) for f in fills]
         return (str(digit), min(1.0, 0.5 + 2.0 * min(margins)),
-                kandidaten or (digit,))
+                kandidaten or (digit,), verteilung)
 
     def _threshold(self, fills: list[float]) -> float:
         """Schwelle RELATIV zum hellsten Segment der Ziffer.
@@ -321,11 +468,13 @@ class CalibratedDigitReader:
         characters: list[str] = []
         scores: list[float] = []
         kandidaten: list[tuple[int, ...]] = []
+        verteilungen: list[tuple[tuple[int, float], ...]] = []
         for patch in patches:
-            character, score, moeglich = self.read_digit_full(patch)
+            character, score, moeglich, verteilung =                 self.read_digit_verteilung(patch)
             characters.append(character)
             scores.append(score)
             kandidaten.append(moeglich)
+            verteilungen.append(verteilung)
 
         text = "".join(characters)
         value = int(text) if text.isdigit() else None
@@ -335,4 +484,5 @@ class CalibratedDigitReader:
 
         return DigitReading(text=text, value=value, confidence=confidence,
                             candidates=tuple(kandidaten),
+                            verteilung=tuple(verteilungen),
                             digits=tuple(characters), scores=tuple(scores))
