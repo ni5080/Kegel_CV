@@ -74,6 +74,13 @@ class Feld:
         return copy.deepcopy(self.default)
 
     def pruefe(self, name: str, wert: Any) -> None:
+        if wert is None:
+            # Ein nicht gesetztes Feld hat keinen Wertebereich zu verletzen.
+            # `int | None = Field(default=None, ge=0)` heisst: WENN eine Zahl
+            # dasteht, dann keine negative -- nicht, dass eine dastehen muss.
+            # (pydantic haelt es genauso; gefunden am 2026-09-15 durch das
+            # erste optionale Feld mit Grenzen, `AnlagenProfil.hue_min`.)
+            return
         for grenze, zeichen, erfuellt in (
             (self.ge, ">=", lambda w, g: w >= g),
             (self.gt, ">", lambda w, g: w > g),

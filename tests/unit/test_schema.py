@@ -151,6 +151,27 @@ class TestWertebereiche:
             MitLaenge(ecken=[[0, 0]] * 5)
 
 
+class TestOptionaleFelderMitGrenzen:
+    """GEFUNDEN 2026-09-15 am ersten solchen Feld (`AnlagenProfil.hue_min`):
+    Der Wertebereich wurde auch auf `None` angewandt und warf einen
+    TypeError. `int | None = Field(default=None, ge=0)` heisst: WENN eine Zahl
+    dasteht, dann keine negative -- nicht, dass eine dastehen muss."""
+
+    class MitGrenze(BaseModel):
+        zahl: int | None = Field(default=None, ge=0, le=179)
+
+    def test_none_verletzt_keine_grenze(self):
+        assert self.MitGrenze().zahl is None
+        assert self.MitGrenze(zahl=None).zahl is None
+
+    def test_die_grenze_gilt_weiterhin_fuer_werte(self):
+        assert self.MitGrenze(zahl=5).zahl == 5
+        with pytest.raises(ValueError, match=">="):
+            self.MitGrenze(zahl=-1)
+        with pytest.raises(ValueError, match="<="):
+            self.MitGrenze(zahl=200)
+
+
 class TestPruefmethoden:
     def test_feldpruefer_laeuft_und_darf_ersetzen(self):
         class MitFeldpruefer(BaseModel):

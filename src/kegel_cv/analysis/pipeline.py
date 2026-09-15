@@ -12,6 +12,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field, replace
 
+from ..calibration.anlage import wende_an
 from ..calibration.model import Calibration
 from ..config.schema import AppConfig
 from ..debug.frame_logger import FrameLogger
@@ -87,6 +88,11 @@ class AnalysisPipeline:
 
     def __init__(self, calibration: Calibration, cfg: AppConfig,
                  video_id: str = "unbenannt") -> None:
+        # DAS ANLAGENPROFIL ZUERST. Was die Kalibrierung ueber ihre Anlage
+        # weiss -- Lampenfarbe, Kegelzahl, Zyklus -- gilt fuer diesen Lauf und
+        # nichts anderes. Ohne Profil bleibt `cfg` unveraendert; eine
+        # Kalibrierung aus der Zeit davor verhaelt sich damit genau wie bisher.
+        cfg = wende_an(cfg, calibration.anlage)
         self.cfg = cfg
         self.calibration = calibration
         self.processors: list[LaneProcessor] = [
@@ -210,6 +216,15 @@ class AnalysisPipeline:
         stehen: Eine laufende Analyse darf an einer Nachjustierung nicht
         stillschweigend Bahnen verlieren (P8).
         """
+        # Ein ANDERES Anlagenprofil wird NICHT uebernommen. Die Schwellen der
+        # Lampenerkennung sind zur Laufzeit eingelernt; sie mitten im Spiel zu
+        # tauschen hiesse, mit halb gelernten Wolken weiterzumessen. Wer die
+        # Anlage wechselt, startet die Analyse neu.
+        if neue.anlage.gesetzt != self.calibration.anlage.gesetzt:
+            log.warning("Die neue Kalibrierung bringt ein anderes "
+                        "Anlagenprofil mit (%s) -- es gilt weiter das alte. "
+                        "Fuer einen Wechsel die Analyse neu starten.",
+                        neue.anlage.gesetzt)
         neue_bahnen = {bahn.lane_id: bahn for bahn in neue.lanes}
         betroffen: list[int] = []
         for processor in self.processors:

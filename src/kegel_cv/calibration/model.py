@@ -16,6 +16,7 @@ from typing import Any
 
 from ..schema import BaseModel, Field, field_validator
 
+from .anlage import AnlagenProfil
 from .geometry import PerspectiveTransform, Quad
 
 log = logging.getLogger(__name__)
@@ -182,6 +183,10 @@ class Calibration(BaseModel):
     name: str = "unbenannt"
     created: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     source_hint: SourceHint = Field(default_factory=SourceHint)
+    # Was DIESE Anlage ausmacht -- Lampenfarbe, Kegelzahl, Zyklus. Leer heisst:
+    # Es gilt, was in `config/default.yaml` steht. Siehe `anlage.py` fuer die
+    # Trennlinie zwischen Anlage und Verfahren.
+    anlage: AnlagenProfil = Field(default_factory=AnlagenProfil)
     lanes: list[LaneCalibration] = Field(default_factory=list)
 
     def get_lane(self, lane_id: int) -> LaneCalibration | None:

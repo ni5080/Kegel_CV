@@ -593,3 +593,31 @@ allein auf einer gelesenen 0 aufbauen.
 
 **Verwandt:** BUG-009 (9 ohne unteren Balken → 4), BUG-020 (Einigkeit statt
 Bildgüte), Q15.
+
+## Skalierung auf weitere Anlagen (offen seit 2026-09-15)
+
+Das Anlagenprofil (`calibration/anlage.py`) trennt jetzt, was beim
+Hallenwechsel mitreist. Drei Fragen bleiben unbeantwortet, weil es **kein
+Material einer zweiten Anlage** gibt:
+
+**1. Polarität der Kegellampen.** Leuchtet eine Lampe, weil der Kegel gefallen
+ist, oder weil er steht? Heute ist „leuchtet = gefallen" fest angenommen. Ein
+Schalter dafür wäre schnell gebaut und ungetestet — schlimmer als diese Lücke.
+Die Ziffern könnten es beantworten: Zeigt die Kegelzahl 5, während 5 Lampen
+leuchten, ist die Sache klar. Über 50 Würfe wäre das eindeutig.
+
+**2. Die gefährliche Art zu scheitern.** Eine gespiegelte
+Kegelnummern-Zuordnung liefert die richtige *Anzahl* und die falschen
+*Nummern*. Jede Prüfung im Werkzeug vergleicht heute Anzahlen; das fiele
+niemandem auf. Ein möglicher Wächter: Über viele Würfe muss jede Kegelnummer
+ungefähr gleich oft fallen, und Kegel 1 deutlich öfter als Kegel 9. Eine
+Verteilung, die das verletzt, wäre ein Alarm. Ungemessen.
+
+**3. Woher weiß man, dass eine neue Halle trägt?** Die Bausteine sind da
+(`PlausibilityCheck`, `evidence`, die Confidence), die Zusammenfassung fehlt:
+*„Über 120 Würfe stimmten Lampen und Ziffern in 96 % überein, die Summe in
+99 %, die Wurfnummer lief lückenlos."* Ohne so einen Einmessbericht merkt
+niemand, dass eine neue Halle nur *fast* funktioniert.
+
+Alle drei brauchen eine zweite Anlage. Sie jetzt zu bauen hieße, gegen eine
+Halle zu entwickeln, die das Werkzeug schon kennt — und das beweist nichts.

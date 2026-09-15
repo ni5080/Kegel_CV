@@ -236,3 +236,56 @@ er beim Speichern).
 
 Der Umstieg lief ohne einen einzigen roten Test der bestehenden Suite; die
 neue Prüfung hat ihre eigene in `tests/unit/test_schema.py`.
+
+---
+
+## 12. Anlage gegen Verfahren: was mitreist, wenn die Halle wechselt
+
+Bis 2026-09-15 stand jeder Wert in einer einzigen `config/default.yaml`. Zwei
+Hallen hießen damit zwei Konfigurationsdateien — und man konnte die zweite
+nicht einmal ausprobieren, ohne die erste umzustellen.
+
+Die Trennlinie ist mit einer Frage zu prüfen:
+
+> **Ändert sich der Wert, wenn ich in eine andere Halle fahre?**
+
+| | Beispiele | wo er steht |
+|---|---|---|
+| **Anlage** | Farbe der Bereitschaftslampe, Kegelzahl, Kegelnummern, Zykluslänge, Bedeutung der Ziffernfelder | im Tafeltyp (`Calibration.anlage`) |
+| **Verfahren** | Fenstergrößen, Hysterese, Mindest-Merkmale, Abtastversätze, Verdeckungsanteil | in `config/default.yaml` |
+
+`calibration/anlage.py` hält beides zusammen: `AnlagenProfil` trägt die
+Anlagenwerte, `wende_an` legt sie über die Konfiguration und gibt eine
+**Kopie** zurück. Die geladene Konfiguration soll auch nach einem Lauf noch
+beschreiben, wie das Werkzeug eingestellt ist.
+
+**Alle Felder sind optional.** `None` heißt: es gilt die Konfiguration. Eine
+Kalibrierung aus der Zeit davor verhält sich exakt wie vorher — das ist keine
+Bequemlichkeit, sondern die Bedingung dafür, dass der Umbau keine gemessene
+Zahl verstellt.
+
+### Was das Werkzeug sich selbst beibringt
+
+Ein großer Teil dessen, was nach „muss man einstellen" aussieht, misst sich im
+Betrieb selbst: die Schwellen der grünen Lampe (gleitendes Histogramm, Tal
+zwischen zwei Wolken), die der Kegellampen (zwei Wolken je Lampe), der untere
+Rand der AUS-Wolke für die Verdeckungsbremse. Eine neue Halle muss man das
+**nicht** lehren.
+
+Auch die Lampenfarbe ist gutmütiger als erwartet: Kegellampen werden über
+**Helligkeit** erkannt, nicht über Farbe (gemessen: Trennschärfe 7,66 gegen
+3,35). Eine rote Lampe leuchtet so hell wie eine gelbe. Nur die Sperre gegen
+farblose Reflexe (`warmth_min`) müsste bei kalt leuchtenden Lampen herunter —
+deshalb steht sie im Profil.
+
+### Was noch offen ist
+
+Ob eine Kegellampe leuchtet, **weil** der Kegel gefallen ist oder weil er
+steht, ist ebenfalls eine Anlageneigenschaft. Es gibt bisher kein Material
+einer Anlage, die es andersherum macht, und ein ungetesteter Schalter ist
+schlimmer als eine dokumentierte Lücke.
+
+Die gefährlichste Art zu scheitern wäre hier nicht „es geht nicht", sondern
+**„es geht plausibel falsch"**: Eine gespiegelte Kegelnummern-Zuordnung
+liefert die richtige *Anzahl* und die falschen *Nummern*. Jede Prüfung im
+Werkzeug vergleicht heute Anzahlen — das fiele niemandem auf.

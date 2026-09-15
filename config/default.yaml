@@ -257,6 +257,11 @@ calibration:
   # am 2026-09-01 und gestuetzt durch Bahn 2, Frame 180238: Dort blieb unsere
   # L2 stehen, und der Nutzer sagte unabhaengig "hinten links" voraus -- seine
   # 7. Die Seitenzuordnung ist dabei Annahme, nicht Messung.
+  #
+  # ANLAGENEIGENSCHAFT. Dieser Wert gehoert zu EINER Anlage, nicht zum
+  # Verfahren -- eine andere Halle nummeriert womoeglich anders. Er laesst
+  # sich deshalb im Tafeltyp ueberschreiben (`anlage.pin_number_mapping`,
+  # siehe `calibration/anlage.py`). Was hier steht, ist die Vorgabe.
   pin_number_mapping: [9, 7, 8, 4, 5, 6, 2, 3, 1]
 
 # -----------------------------------------------------------------------------
@@ -267,6 +272,13 @@ detection:
     # Austauschbare Implementierung (Auftrag Paragraph 8 / Prinzip P4)
     implementation: "hsv"
     # HSV-Bereich fuer "gruen". Gemessen am Material 2026-08-22.
+    #
+    # ANLAGENEIGENSCHAFT, und die folgenreichste: Eine Anlage, deren
+    # Bereitschaftslampe anders leuchtet, faellt damit nicht schlechter aus,
+    # sondern GAR NICHT. Ueberschreibbar im Tafeltyp (`anlage.hue_min` usw.).
+    #
+    # Die SCHWELLEN darunter muessen nicht mitreisen -- die Gruenerkennung
+    # misst sie im Betrieb selbst aus dem gleitenden Histogramm.
     hue_min: 40
     hue_max: 90
     saturation_min: 80
@@ -1044,6 +1056,8 @@ state_machine:
 # -----------------------------------------------------------------------------
 scoring:
   # Wuerfe pro Zyklus/Satz. Zwischensumme nach jedem Zyklus.
+  # ANLAGENEIGENSCHAFT -- ueberschreibbar im Tafeltyp
+  # (`anlage.throws_per_cycle`).
   throws_per_cycle: 15
 
   # ENTFERNT: `throws_per_game`. Der Wert stand auf 30 und wurde nirgends
