@@ -1307,6 +1307,11 @@ class DebugConfig(BaseModel):
     # Frage haette beantworten koennen. Gespeichert wurden nur Gruenlampe und
     # Kegellampen. Wer eine Ziffernfrage untersucht, schaltet das hier ein.
     save_digit_rois: bool = False
+    # GEGENPROBE: Lampen gegen Kegelziffer gegen Summendifferenz, Wurf fuer
+    # Wurf mitgeschrieben (siehe `analysis/gegenprobe.py`). Sie korrigiert
+    # NICHTS -- sie zaehlt aus, wer wem widerspricht. Kostet je Wurf ein paar
+    # Vergleiche, also nichts.
+    gegenprobe: bool = True
     max_events_per_lane: int = Field(default=200, ge=0)
     jpeg_quality: int = Field(default=92, ge=1, le=100)
     event_log: bool = True

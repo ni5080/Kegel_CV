@@ -12,6 +12,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field, replace
 
+from .gegenprobe import MELDENSWERT, Gegenprobe
 from ..calibration.anlage import wende_an
 from ..calibration.model import Calibration
 from ..config.schema import AppConfig
@@ -139,6 +140,10 @@ class AnalysisPipeline:
         # Jeder erkannte Wurf sofort als CSV-Zeile. Ohne sie gibt es die
         # Ergebnisse eines Laufs nur ueber einen ZWEITEN Durchlauf mit den
         # Werkzeugen -- an einem Spieltag laeuft die Analyse aber genau einmal.
+        # ZWEI MESSSYSTEME, die einander befragen -- beobachtend, nicht
+        # korrigierend. Siehe `gegenprobe.py`.
+        self.gegenprobe = (Gegenprobe(pin_count=cfg.scoring.pin_count)
+                           if cfg.debug.gegenprobe else None)
         self.throw_log = ThrowLog(self.frame_logger.root / "wuerfe.csv",
                                   aktiv=cfg.debug.throw_log)
         self.throw_sheet = ThrowSheet(
@@ -336,6 +341,15 @@ class AnalysisPipeline:
                         board_image_before=processor.board_before)
                     result.throws.append(throw)
                     self.throw_log.add(throw)
+                    if self.gegenprobe is not None:
+                        befund = self.gegenprobe.nimm(throw)
+                        if befund is not None and befund.urteil in MELDENSWERT:
+                            # Nur die Faelle melden, die etwas ueber das
+                            # ERGEBNIS sagen. "Ziffer falsch" ist haeufig und
+                            # folgenlos -- im Protokoll waere es Rauschen.
+                            log.warning("Bahn %d Wurf %d: %s (%s)",
+                                        befund.bahn, befund.wurf,
+                                        befund.urteil, befund.bemerkung)
                     self.cycle_sheet.add(throw)
                     self.lamp_watchdog.observe_and_log(throw)
                     # Anzeigewerte des Prozessors nachziehen -- gebucht wird
@@ -475,6 +489,35 @@ class AnalysisPipeline:
         self.lamp_trace.close()
         self.throw_log.close()
         self.cycle_sheet.close()
+        self._schreibe_gegenprobe()
+
+    def _schreibe_gegenprobe(self) -> None:
+        """Legt die Gegenprobe als Tabelle ab und meldet die Bilanz.
+
+        Ins PROTOKOLL kommt die Zusammenfassung, nicht jede Zeile: Die
+        interessante Zahl ist, wie oft zwei unabhaengige Quellen gemeinsam
+        einem gebuchten Ergebnis widersprochen haben.
+        """
+        if self.gegenprobe is None or not self.gegenprobe.befunde:
+            return
+        import csv
+
+        ziel = self.frame_logger.root / "gegenprobe.csv"
+        try:
+            zeilen = [b.als_zeile() for b in self.gegenprobe.befunde]
+            with ziel.open("w", newline="", encoding="utf-8") as datei:
+                schreiber = csv.DictWriter(datei, fieldnames=list(zeilen[0]),
+                                           delimiter=";")
+                schreiber.writeheader()
+                schreiber.writerows(zeilen)
+        except OSError as exc:
+            # Eine nicht schreibbare Debug-Datei darf einen fertigen Lauf
+            # nicht nachtraeglich zum Fehlschlag machen (P8).
+            log.warning("Gegenprobe nicht geschrieben: %s", exc)
+        else:
+            log.info("Gegenprobe: %s", ziel)
+        for zeile in self.gegenprobe.bericht().splitlines():
+            log.info("%s", zeile)
 
     def _plausible_digits(self, haeufigkeit: "Counter[int]",
                           frames: int) -> tuple[int, ...]:

@@ -3037,3 +3037,78 @@ Merkmale einer Handykamera zu einem Muster aus einer Hallenkamera passen.
 Faellt das vor Ort durch, steht die Antwort schon bereit: `speichere_typ` legt
 einen Tafeltyp aus dem Handybild selbst an. Dann vermisst man einmal eine
 Tafel von Hand, und die Suche findet die uebrigen.
+
+## Die Gegenprobe: vier Messungen, die einander befragen (2026-09-15)
+
+Der Nutzer: *"ich moechte erreichen, dass wir 2 Messsysteme parallel laufen
+haben, die sich am Ende gegenseitig korrigieren."* Vorerst beobachtend --
+`analysis/gegenprobe.py` aendert kein Ergebnis, es zaehlt aus.
+
+### Wer ueberhaupt etwas sagen kann
+
+GEMESSEN ueber 57 Wuerfe des Hallenmitschnitts, wie oft jede Quelle beim Wurf
+vorlag:
+
+| Quelle | vorhanden |
+|---|---|
+| Lampen | 57 von 57 |
+| Kegelziffer | 56 von 57 |
+| Wurfnummer | 40 von 57 |
+| **Summe** | **2 von 57** |
+
+Der erste Entwurf stuetzte sich auf die Summendifferenz und schwieg damit in
+95 % der Faelle. Die Summe ist der **Schiedsrichter**, nicht die Grundlage:
+Verglichen wird Lampen gegen Kegelziffer, die Summe tritt hinzu, wenn die
+beiden sich uneinig sind.
+
+### Das Ergebnis
+
+| Urteil | Anteil |
+|---|---|
+| Lampen und Ziffer einig | **86,0 %** (49) |
+| Lampen gegen Ziffer, kein Schiedsrichter | 7,0 % (4) |
+| Wurfnummer springt -- Wurf fehlt | 5,3 % (3) |
+| nur die Lampen, nichts zu vergleichen | 1,8 % (1) |
+| Lampen verdaechtig / Ziffer falsch / unklar | 0 |
+| Fehlwurfzaehler passt zum Ergebnis | 94,7 % der lesbaren |
+
+Die vier strittigen Faelle sind dieselben, die eine Handzaehlung zuvor gefunden
+hatte (F3278, F6891, F7743, F8759) -- drei davon trugen bereits eine Confidence
+von 0,45. Das Werkzeug wusste also in drei von vier Faellen selbst, dass es
+wackelt.
+
+### Warum die Summe fehlt -- und es NICHT an der Ziffernerkennung liegt
+
+Vermutung des Nutzers: *"zu wenig gelesen koennte ja stimmen => Weil der Wurf
+ja erst relativ spaet angerechnet wird."* Geprueft, indem alle Ziffernfelder
+UNABHAENGIG vom Auswertefenster gelesen wurden, jeder 10. Frame ueber den
+ganzen Mitschnitt:
+
+| Bahn | total_b | pin_count | throw_number | left_display |
+|---|---|---|---|---|
+| 2 | 18,7 % | 57,9 % | 63,9 % | 99,2 % |
+| 3 | 19,6 % | 12,8 % | 96,9 % | 99,6 % |
+| 4 | **77,0 %** | 36,1 % | 96,6 % | 100 % |
+| 5 | 32,7 % | 0,2 % | 97,9 % | 98,2 % |
+
+**Die Vermutung stimmt.** Auf Bahn 4 ist das Summenfeld in 77 % aller Frames
+lesbar, im Auswertefenster aber fast nie. Es ist ein Zeitpunktproblem, kein
+Erkennungsproblem -- und damit billig zu beheben.
+
+### Nebenbefund: Bahn 2 liest ihre Summe systematisch falsch
+
+| Bahn | Lesungen | davon plausibel (0..600) | Spanne |
+|---|---|---|---|
+| 2 | 253 | **0 (0 %)** | -- |
+| 3 | 265 | 265 (100 %) | 0..93 |
+| 4 | 1042 | 980 (94 %) | 2..176 |
+| 5 | 442 | 439 (99 %) | 203..209 |
+
+Bahn 2 liefert Werte wie 2237, 3813, 3213 -- fuer eine laufende Summe, die
+zwischen 0 und rund 600 liegen muss. Die hinteren drei Stellen sind meist
+plausibel (237, 213, 233): **die fuehrende Stelle wird falsch gelesen**, wo
+eigentlich eine Null oder nichts steht. Derselbe Fall, fuer den es bei der
+Wurfnummer schon `throw_number_ignore_leading` gibt.
+
+Gefallen ist das nie auf, weil die Summe bisher nirgends gegengeprueft wurde.
+Die Gegenprobe hat es in ihrem ersten Lauf gefunden.
