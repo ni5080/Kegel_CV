@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
                                QVBoxLayout, QWidget)
 
 from ..calibration.geometry import GeometryError, PerspectiveTransform, Quad
-from ..calibration.model import Roi
+from ..calibration.model import DIGIT_PREFIX, Roi
 from ..calibration.roi_preview import quadmasse, roi_farbe
 from ..calibration.session import CalibrationSession
 
@@ -273,6 +273,12 @@ class TafelLeinwand(QWidget):
             return
         name, kante = self._zieht
         nx, ny = self._nach_norm(event.position())
+        # AUCH BEIM ZIEHEN MELDEN. Frueher schwieg das Signal, solange die
+        # Maus gedrueckt war -- also genau dann, wenn sich der Bereich
+        # aendert. Fuer die Ziffernlupe ist das der einzige Moment, der
+        # zaehlt: Sie soll zeigen, was das Verschieben BEWIRKT, nicht was
+        # vorher war.
+        self.zeiger.emit(name)
         if kante != "move":
             self._aendere(name, kante, nx, ny)
             return
@@ -458,6 +464,25 @@ class TafelEditorDialog(QDialog):
         self.info.setWordWrap(True)
         spalte.addWidget(self.info)
 
+        # --- Ziffernlupe ---
+        #
+        # WOFUER (Nutzer, 2026-09-15): *"dass er wenn er eine Ziffer einrahmt
+        # die Mittelpunkte der einzelnen Felder angezeigt bekommt und dadurch
+        # dann sieht wie er die Ziffer zu platzieren hat"*.
+        #
+        # Sie zeigt fuer den gerade beruehrten Ziffernrahmen, was der Leser
+        # daraus macht: Rotmaske, die sieben Messflaechen mit ihren
+        # Fuellgraden, und die wahrscheinlichsten Ziffern. Begruendung und die
+        # Messung, die dazu fuehrte, stehen in `detection/ziffern_lupe.py`.
+        self._original = bild
+        self._leser = None
+        self.lupe = QLabel()
+        self.lupe.setMinimumHeight(120)
+        self.lupe.setStyleSheet("background:#111;")
+        self.lupe.setText("Ziffernrahmen beruehren, um die Messflaechen zu "
+                          "sehen")
+        spalte.addWidget(self.lupe)
+
         # --- Auswahl und gemeinsamer Versatz ---
         #
         # WOFUER (Nutzer, 2026-09-11): "je Tafel die Moeglichkeit, ein Offset
@@ -620,6 +645,46 @@ class TafelEditorDialog(QDialog):
         x, y, w, h = roi.rect
         self.info.setText(f"{name} -- Lage {x:.3f}/{y:.3f}, "
                           f"Groesse {w:.3f}x{h:.3f}")
+        if name.startswith(DIGIT_PREFIX):
+            self._zeige_lupe(roi)
+
+    def _zeige_lupe(self, roi: Roi) -> None:
+        """Zeichnet die Messflaechen dieses Ziffernrahmens.
+
+        DER AUSSCHNITT KOMMT AUS DEM ORIGINALBILD, nicht aus der entzerrten
+        Tafel. Der Leser arbeitet auf einem achsparallelen Rechteck im Frame
+        (`norm_rect_to_frame_bbox`); eine Lupe, die etwas anderes zeigt als
+        die Messung, waere schlimmer als keine.
+        """
+        if self._original is None:
+            return
+        try:
+            from ..calibration.geometry import norm_rect_to_frame_bbox
+            from ..config import load_config
+            from ..detection.digit_reader import CalibratedDigitReader
+            from ..detection.ziffern_lupe import zeichne_lupe
+
+            if self._leser is None:
+                cfg = load_config()
+                self._leser = CalibratedDigitReader(cfg.detection.digits)
+                self._umrechnung = self._lane.transform(
+                    cfg.calibration.warped_width,
+                    cfg.calibration.warped_height)
+
+            x, y, w, h = norm_rect_to_frame_bbox(
+                self._umrechnung, roi.rect, self._original.shape)
+            bild = zeichne_lupe(self._original[y:y + h, x:x + w], self._leser)
+        except Exception as exc:  # noqa: BLE001
+            # Die Lupe ist Hilfe, nicht Voraussetzung -- ein Fehler hier darf
+            # das Nachkalibrieren nicht verhindern (P8).
+            log.warning("Ziffernlupe nicht darstellbar: %s", exc)
+            self.lupe.setText(f"Lupe nicht darstellbar: {exc}")
+            return
+
+        h_, w_, _ = bild.shape
+        qimg = QImage(bild.data, w_, h_, 3 * w_,
+                      QImage.Format_BGR888).copy()
+        self.lupe.setPixmap(QPixmap.fromImage(qimg))
 
     def _bild_erneuern(self) -> None:
         """Neues Bild unter die Rahmen legen -- die Rahmen bleiben stehen."""
