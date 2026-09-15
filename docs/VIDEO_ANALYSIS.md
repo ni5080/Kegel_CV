@@ -3112,3 +3112,66 @@ Wurfnummer schon `throw_number_ignore_leading` gibt.
 
 Gefallen ist das nie auf, weil die Summe bisher nirgends gegengeprueft wurde.
 Die Gegenprobe hat es in ihrem ersten Lauf gefunden.
+
+## 2026-09-15 — Geführtes Lesen der Summe und die Systematik dahinter
+
+Nutzerwunsch: *"gerade standen wir bei 0172 -> jetzt melden Ziffer und Lampen
+eine 3 -> sicher dass du hier eine 8176 melden willst und nicht eher eine
+0175?"* — und, zur harten Grenze von 9 × 30 = 270 Punkten: *"es ist nur der
+Regelfall, wer weiß was manche Leute im Training oder so machen, also bitte
+keine harte Grenze einbauen.... eher das systematische fördern, es muss
+eigentlich immer mit 0 losgehen und dann steigen."*
+
+Gebaut: `analysis/gefuehrtes_lesen.py`. Keine feste Obergrenze, sondern eine
+**mitwachsende**: Nach N Würfen kann höchstens `N * pin_count` auf der Tafel
+stehen; N liefert die Wurfnummer der Tafel selbst. Nach dreißig Würfen sind das
+270, nach hundert 900.
+
+### Was die Systematik allein trägt
+
+13.530 Frames, jeder zehnte gelesen, 1.353 Summenlesungen je Bahn. "Eindeutig"
+heißt: Die Systematik ließ genau **einen** Wert zu — die Lesung war aufgelöst,
+**ohne** die Lampen zu befragen.
+
+| Bahn | eindeutig | Widerspruch | unmöglich |
+|---|---|---|---|
+| 2 | 35 | 36 | **1250 (92 %)** |
+| 3 | 1332 (98 %) | 4 | 12 |
+| 4 | 1202 (89 %) | 21 | 107 |
+| 5 | 391 | 922 | 36 |
+
+Bahn 2 fällt fast vollständig durch — dasselbe Feld, das schon am 2026-09-14
+als systematisch falsch gelesen auffiel. Die Regel repariert es nicht, sie
+macht es sichtbar. Bahn 5 zeigt den dritten Fall: 922 Widersprüche heißt nicht
+"falsch", sondern "mehrere Werte wären möglich" — dort hilft erst die Führung.
+
+### Im vollen Lauf (64 Würfe, 57 Befunde)
+
+| | vorher | nachher |
+|---|---|---|
+| Summe auf beiden Seiten lesbar | 2 von 57 | **8 von 57** |
+| Summe überhaupt gelesen | — | 19 von 57 |
+| Bahn 2: gelesene Summen | 2237, 3813, 3213 … | 133, 132, 133 |
+| Würfe insgesamt | 64 | 64 (unverändert) |
+
+Die Laufzeit blieb bei 30,9 ms/Frame.
+
+### Zwei ehrliche Einschränkungen
+
+**Die Führung selbst hat auf diesem Material nie gegriffen** (0 von 19). Die
+zusammengefassten Lesungen sind fast immer eindeutig oder gar nicht vorhanden —
+der Fall "die Anzeige schwankt zwischen 3 und 9" ist bei der Summe selten.
+Gearbeitet hat die Systematik, nicht die Erwartung. Der geführte Pfad bleibt
+richtig gebaut und getestet, aber er ist hier kein Hebel.
+
+**Von den 8 Fällen mit Summe auf beiden Seiten stimmten nur 2.** Die übrigen 6
+sind fast alle Zeitversatz, nicht Lesefehler:
+
+    B4 W20  Summe 123 -> 132 (Diff 9), Lampen 8
+    B4 W18  Summe 123, B4 W20 Summe 123 -- zwei Würfe ohne Bewegung
+    B4 W1   Summe   2 ->   3 (Diff 1), Lampen 9
+
+Das Nachlaufmodell "die Tafel zeigt den Stand vor genau diesem Wurf" ist zu
+einfach: Manchmal hängt sie zwei Würfe zurück. Vorher war das unsichtbar, weil
+die Summe fast nie gelesen wurde. **Offen** — ein eigener Schritt, kein
+Nebenbei-Fix.

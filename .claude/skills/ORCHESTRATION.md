@@ -2452,3 +2452,42 @@ Eine Konfiguration, beide Quellen, keine Fallunterscheidung:
 | feste Zahl 0 | keine | **entsteht** |
 | Anteil am Gipfel (0,3) | Bahn 2 in 26,7 % der Frames | gefangen |
 | **Anteil am Rand (0,5)** | **keine** | **gefangen** |
+
+---
+
+## Geführtes Lesen der Summe (2026-09-15) — gebaut, beobachtend
+
+`src/kegel_cv/analysis/gefuehrtes_lesen.py`, eingehängt in die Gegenprobe.
+
+Der Nutzer wollte zweierlei: die Summe im Licht des Erwarteten lesen
+(*"gerade standen wir bei 0172 … nicht eher eine 0175?"*) und dabei **keine
+harte Obergrenze** (*"wer weiß was manche Leute im Training machen … eher das
+systematische fördern, es muss eigentlich immer mit 0 losgehen und dann
+steigen"*).
+
+**Die Reihenfolge ist der ganze Trick.** Gefragt wird erst, welche Werte die
+Anzeige **ohne** die Lampen zulässt:
+
+* keiner → verworfen (`unmöglich`),
+* genau einer → die Anzeige hat sich selbst erklärt, die Summe bleibt ein
+  **eigener Zeuge** — auch wenn sie den Lampen widerspricht,
+* mehrere → erst jetzt darf die Erwartung wählen. Der Wert wird gebucht, gilt
+  aber **nicht** mehr als Zeuge (`Deutung.unabhaengig`).
+
+Andernfalls verlöre jede Summe ihren Beweiswert, sobald sie zufällig passt.
+
+**Gemessen** (Zahlen in `docs/VIDEO_ANALYSIS.md`): Summe auf beiden Seiten
+lesbar 2 → **8** von 57; Bahn 2 liefert statt 2237/3813 jetzt 133/132/133;
+64 Würfe unverändert, 30,9 ms/Frame.
+
+### Was daraus offen bleibt
+
+1. **Das Nachlaufmodell ist zu einfach.** Die Tafel hängt manchmal *zwei*
+   Würfe zurück, nicht einen. Sichtbar wurde das erst, seit die Summe
+   überhaupt gelesen wird: 6 der 8 prüfbaren Fälle sind Zeitversatz.
+   Nächster Schritt an dieser Ecke.
+2. **Bahn 2s Summenfeld** wird weiterhin in 92 % der Frames als unmöglich
+   verworfen. Die Systematik zeigt den Defekt, behebt ihn nicht.
+3. Die Führung selbst griff auf diesem Material **nie** (0 von 19) — die
+   Summenlesungen sind eindeutig oder fehlen ganz. Der Pfad ist gebaut und
+   getestet, aber hier kein Hebel.

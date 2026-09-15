@@ -138,6 +138,23 @@ class TemporalAggregator(Generic[T]):
         best = max(counts, key=lambda v: counts[v])
         return best, counts[best] / len(self._alle)
 
+    def anteile(self) -> dict[T, float]:
+        """Welcher Wert kam mit welchem Anteil vor?
+
+        `mehrheit()` behaelt nur den Sieger; hier bleibt das ganze Feld
+        stehen. Gebraucht wird das vom gefuehrten Lesen: Eine Stelle, die in
+        60 % der Frames als '4' und in 40 % als '9' gelesen wurde, ist nicht
+        einfach eine '4' -- sie ist eine Stelle mit zwei Kandidaten, und eine
+        andere Quelle darf zwischen ihnen waehlen.
+        """
+        if not self._alle:
+            return {}
+        counts: dict[T, int] = defaultdict(int)
+        for vote in self._alle:
+            counts[vote.value] += 1
+        gesamt = len(self._alle)
+        return {wert: anzahl / gesamt for wert, anzahl in counts.items()}
+
     def result(self) -> AggregationResult[T]:
         """Wertet die gesammelten Messungen aus."""
         if len(self._votes) < self.min_votes or not self._votes:
@@ -258,6 +275,59 @@ class FieldAggregator:
             return None, 0.0
         # Die schwaechste Stelle bestimmt die Sicherheit des Ganzen
         return int(text), min(confidences) if confidences else 0.0
+
+    def als_lesung(self, mindestanteil: float = 0.10):
+        """Das Feld als Lesung MIT Kandidaten je Stelle.
+
+        `result()` und `mehrheit()` liefern eine Zahl -- eine Stelle, die
+        zwischen zwei Ziffern schwankte, ist darin auf ihren Sieger
+        eingedampft. Fuer das gefuehrte Lesen (`analysis.gefuehrtes_lesen`)
+        ist gerade die Schwankung die Information: Nur wer weiss, WORUEBER
+        die Frames uneinig waren, kann die Erwartung ehrlich dagegenhalten.
+
+        Args:
+            mindestanteil: Ab welchem Stimmenanteil eine Ziffer als Kandidat
+                zaehlt. Zu klein, und ein einzelner Ausreisser unter fuenfzig
+                Frames macht jede Stelle beliebig; zu gross, und die zweite
+                Lesart verschwindet. GEMESSEN auf Bahn 3 (40 Frames einer
+                unveraenderten `0040`): Die schwankende Stelle stand 35:5 fuer
+                '4' gegen '9' -- der Unterlegene kam auf 12,5 %. Die Schwelle liegt knapp
+                darunter, damit genau so ein Fall beide Lesarten behaelt; ein
+                einzelner Ausreisser unter fuenfzig Frames (2 %) faellt
+                weiterhin durch.
+
+        Returns:
+            Eine `DigitReading`, deren `digits` die Mehrheitsziffern sind
+            ('?' wo gar nichts gelesen wurde) und deren `candidates` je Stelle
+            alle hinreichend oft gesehenen Ziffern enthalten.
+        """
+        from kegel_cv.detection.digit_detector import DigitReading
+
+        zeichen: list[str] = []
+        kandidaten: list[tuple[int, ...]] = []
+        anteile_je_stelle: list[float] = []
+        for aggregator in self._per_digit:
+            anteile = aggregator.anteile()
+            gueltig = {z: a for z, a in anteile.items()
+                       if isinstance(z, str) and z.isdigit()}
+            if not gueltig:
+                zeichen.append("?")
+                kandidaten.append(())
+                continue
+            sieger = max(gueltig, key=lambda z: gueltig[z])
+            zeichen.append(sieger)
+            anteile_je_stelle.append(gueltig[sieger])
+            kandidaten.append(tuple(sorted(
+                int(z) for z, a in gueltig.items() if a >= mindestanteil)))
+
+        text = "".join(zeichen)
+        return DigitReading(
+            text=text,
+            value=int(text) if text.isdigit() else None,
+            confidence=min(anteile_je_stelle) if anteile_je_stelle else 0.0,
+            digits=tuple(zeichen),
+            candidates=tuple(kandidaten),
+            scores=tuple(anteile_je_stelle))
 
     def mehrheit(self, ignoriere_fuehrende: int = 0) -> tuple[int | None, float]:
         """Der zeitliche Mehrheitswert des Feldes und die Einigkeit darueber.

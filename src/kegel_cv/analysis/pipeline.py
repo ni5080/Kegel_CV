@@ -144,6 +144,11 @@ class AnalysisPipeline:
         # korrigierend. Siehe `gegenprobe.py`.
         self.gegenprobe = (Gegenprobe(pin_count=cfg.scoring.pin_count)
                            if cfg.debug.gegenprobe else None)
+        # Die Summe des zuletzt ausgewerteten Wurfs je Bahn -- als Lesung MIT
+        # Kandidaten je Stelle, nicht als Zahl. Nur so kann die Gegenprobe
+        # gefuehrt lesen (`gefuehrtes_lesen`): Sie muss wissen, worueber die
+        # Frames uneinig waren, nicht nur, wer gewonnen hat.
+        self._summenlesung: dict[int, object] = {}
         self.throw_log = ThrowLog(self.frame_logger.root / "wuerfe.csv",
                                   aktiv=cfg.debug.throw_log)
         self.throw_sheet = ThrowSheet(
@@ -342,7 +347,9 @@ class AnalysisPipeline:
                     result.throws.append(throw)
                     self.throw_log.add(throw)
                     if self.gegenprobe is not None:
-                        befund = self.gegenprobe.nimm(throw)
+                        befund = self.gegenprobe.nimm(
+                            throw,
+                            self._summenlesung.get(processor.display_number))
                         if befund is not None and befund.urteil in MELDENSWERT:
                             # Nur die Faelle melden, die etwas ueber das
                             # ERGEBNIS sagen. "Ziffer falsch" ist haeufig und
@@ -632,6 +639,11 @@ class AnalysisPipeline:
             if aggregator is None:
                 return None, 0.0
             return aggregator.mehrheit(ignoriere_fuehrende)
+
+        if self.gegenprobe is not None:
+            summenfeld = felder.get("total_b")
+            self._summenlesung[processor.display_number] = (
+                summenfeld.als_lesung() if summenfeld is not None else None)
 
         try:
             return analyzer.analyze(

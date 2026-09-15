@@ -295,3 +295,80 @@ class TestSieAendertNichts:
         g.nimm(Wurf(throw_number=2, pins_count=3, displayed_total=9,
                     displayed_throw_number=2))
         assert w.pins_count == 5
+
+
+class TestGefuehrtGeleseneSumme:
+    """Eine Summe, die aus den Lampen gewonnen wurde, darf die Lampen nicht
+    bestätigen -- sonst zählte eine Messung zweimal.
+
+    Siehe `analysis/gefuehrtes_lesen.py`, "Die Richtung entscheidet über die
+    Ehrlichkeit".
+    """
+
+    @staticmethod
+    def lesung(text, kandidaten=()):
+        from kegel_cv.detection.digit_detector import DigitReading
+        ziffern = tuple(text)
+        if not kandidaten:
+            kandidaten = tuple((int(z),) if z.isdigit() else ()
+                               for z in ziffern)
+        return DigitReading(
+            text=text, value=int(text) if text.isdigit() else None,
+            confidence=0.9, digits=ziffern, candidates=kandidaten,
+            scores=(0.9,) * len(ziffern))
+
+    def test_eine_gefuehrte_summe_ist_kein_schiedsrichter(self):
+        """Die Führung hat die Summe aus den Lampen abgeleitet. Sie stimmt
+        deshalb zwangsläufig mit ihnen überein -- und sagt nichts."""
+        g = Gegenprobe()
+        g.spur(2).kennt_wurfnummer(20)
+        g.nimm(Wurf(throw_number=1, pins_count=5, displayed_pin_count=5,
+                    displayed_throw_number=20),
+               self.lesung("0100"))
+        # Zweite Lesung schwankt an der letzten Stelle zwischen 5 und 9 --
+        # die Erwartung (100 + 5) löst sie auf.
+        g.nimm(Wurf(throw_number=2, pins_count=3, displayed_throw_number=21),
+               self.lesung("010?", ((0,), (1,), (0,), (5, 9))))
+        assert g.befunde[0].urteil == EINIG_OHNE_SUMME
+        assert "gefuehrt" in g.befunde[0].bemerkung
+
+    def test_eine_eindeutig_aufgeloeste_summe_zaehlt_dagegen_schon(self):
+        """Ließ die Systematik allein nur einen Wert zu, wurden die Lampen
+        nicht befragt -- dann bleibt die Summe ein eigener Zeuge."""
+        g = Gegenprobe()
+        g.spur(2).kennt_wurfnummer(20)
+        g.nimm(Wurf(throw_number=1, pins_count=5, displayed_pin_count=5,
+                    displayed_throw_number=20),
+               self.lesung("0100"))
+        g.nimm(Wurf(throw_number=2, pins_count=3, displayed_throw_number=21),
+               self.lesung("0105"))
+        assert g.befunde[0].urteil == EINIG
+
+    def test_eine_unmoegliche_summe_erreicht_das_urteil_gar_nicht(self):
+        """GEMESSEN: Bahn 2 meldete Werte wie 2823 und 3813. Die Systematik
+        verwirft sie, bevor sie als Schiedsrichter auftreten können."""
+        g = Gegenprobe()
+        g.spur(2).kennt_wurfnummer(20)
+        g.nimm(Wurf(throw_number=1, pins_count=5, displayed_pin_count=5,
+                    displayed_throw_number=20),
+               self.lesung("2823"))
+        g.nimm(Wurf(throw_number=2, pins_count=3, displayed_throw_number=21),
+               self.lesung("3813"))
+        assert g.befunde[0].summe_vorher is None
+        assert g.befunde[0].urteil == EINIG_OHNE_SUMME
+
+    def test_ohne_lesung_bleibt_alles_beim_alten(self):
+        """Wer keine Lesung mitgibt, bekommt das bisherige Verhalten."""
+        g = folge(
+            Wurf(throw_number=1, pins_count=5, displayed_total=0,
+                 displayed_throw_number=1),
+            Wurf(throw_number=2, pins_count=3, displayed_total=5,
+                 displayed_throw_number=2))
+        assert g.befunde[0].urteil == EINIG
+
+    def test_jede_bahn_hat_ihre_eigene_spur(self):
+        """Regel 3: Die Bahnen sind unabhängig."""
+        g = Gegenprobe()
+        g.spur(2).kennt_wurfnummer(20)
+        assert g.spur(3).wuerfe == 0
+        assert g.spur(2) is not g.spur(3)

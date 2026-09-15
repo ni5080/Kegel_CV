@@ -54,6 +54,20 @@ DIE URTEILE
                          Wurf gezaehlt, wir aber schon
     nur_lampen           weder Ziffer noch Summe gelesen: nichts zu vergleichen
 
+GEFUEHRTES LESEN DER SUMME (Nutzer, 2026-09-15): *"gerade standen wir bei
+0172 -> jetzt melden Ziffer und Lampen eine 3 -> sicher dass du hier eine 8176
+melden willst und nicht eher eine 0175?"* Die Summe wird deshalb nicht mehr als
+blosse Zahl uebernommen, sondern durch `gefuehrtes_lesen.Summenspur` gereicht.
+Die Spur kennt die Systematik -- die Summe beginnt bei null, faellt nie, steigt
+je Wurf um hoechstens `pin_count` -- und loest damit unlesbare Stellen auf,
+ohne die Lampen zu fragen.
+
+Fuer die Gegenprobe zaehlt dabei nur eines: ob die Lampen GEBRAUCHT wurden.
+War die Lesung aus sich heraus eindeutig, bleibt die Summe ein eigener Zeuge.
+Musste die Erwartung waehlen, ist sie eine Buchung und kein Zeuge mehr -- ihre
+Differenz stimmt dann zwangslaeufig mit den Lampen ueberein und beweist nichts.
+`_Offen.summe_unabhaengig` haelt das auseinander.
+
 DIE SUMME IST DER SCHIEDSRICHTER, NICHT DIE GRUNDLAGE. GEMESSEN ueber 57
 Wuerfe des Hallenmitschnitts, wie oft jede Quelle ueberhaupt vorlag:
 
@@ -77,6 +91,10 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
+
+from kegel_cv.analysis.gefuehrtes_lesen import (EINDEUTIG, GEFUEHRT, STUMM,
+                                                UNMOEGLICH, VERANKERT,
+                                                WIDERSPRUCH, Summenspur)
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +173,11 @@ class _Offen:
     summe: int | None
     nummer: int | None
     fehlwurf: int | None
+    # Wie die Summe zustande kam (`gefuehrtes_lesen`) und ob sie als eigener
+    # Zeuge auftreten darf. Eine aus den Lampen gefuehrte Summe darf die
+    # Lampen nicht bestaetigen -- sonst zaehlte eine Messung doppelt.
+    summe_art: str = "roh"
+    summe_unabhaengig: bool = True
 
 
 @dataclass
@@ -163,23 +186,42 @@ class Gegenprobe:
 
     pin_count: int = 9
     _offen: dict[int, _Offen] = field(default_factory=dict)
+    _spuren: dict[int, Summenspur] = field(default_factory=dict)
     befunde: list[Befund] = field(default_factory=list)
 
-    def nimm(self, wurf) -> Befund | None:
+    def spur(self, bahn: int) -> Summenspur:
+        """Die Summenspur einer Bahn -- je Bahn eine eigene (Regel 3)."""
+        if bahn not in self._spuren:
+            self._spuren[bahn] = Summenspur(pin_count=self.pin_count)
+        return self._spuren[bahn]
+
+    def nimm(self, wurf, summen_lesung=None) -> Befund | None:
         """Nimmt einen Wurf entgegen und schliesst den vorherigen ab.
+
+        Args:
+            wurf: das gebuchte Ergebnis.
+            summen_lesung: die Summe als `DigitReading` MIT Kandidaten je
+                Stelle. Liegt sie vor, wird gefuehrt gelesen
+                (`gefuehrtes_lesen`) statt den rohen Wert zu nehmen: Die
+                Systematik -- beginnt bei null, faellt nie, steigt je Wurf um
+                hoechstens `pin_count` -- loest unlesbare Stellen auf und
+                verwirft Lesungen, die es nicht gegeben haben kann.
 
         Rueckgabe ist der Befund ueber den VORHERIGEN Wurf derselben Bahn --
         oder None, wenn es keinen gab.
         """
         vorher = self._offen.get(wurf.lane)
+        summe, art, unabhaengig = self._summe(wurf, vorher, summen_lesung)
         jetzt = _Offen(
             wurf=wurf.throw_number,
             frame=wurf.source_frame,
             lampen=wurf.pins_count,
             ziffer=wurf.displayed_pin_count,
-            summe=wurf.displayed_total,
+            summe=summe,
             nummer=wurf.displayed_throw_number,
             fehlwurf=wurf.displayed_foul_count,
+            summe_art=art,
+            summe_unabhaengig=unabhaengig,
         )
         self._offen[wurf.lane] = jetzt
         if vorher is None:
@@ -194,6 +236,32 @@ class Gegenprobe:
             fehlwurf_stimmt=self._fehlwurf(vorher, jetzt))
         self.befunde.append(befund)
         return befund
+
+    def _summe(self, wurf, vorher, lesung) -> tuple[int | None, str, bool]:
+        """Was gilt als Summe dieses Wurfs -- und was ist sie wert?
+
+        Ohne Lesung mit Kandidaten bleibt es beim rohen Wert; das ist der
+        bisherige Zustand und aendert nichts.
+
+        Mit Lesung entscheidet die Spur. Sie bekommt zwei Hinweise:
+
+        * die WURFNUMMER der Tafel -- nur so kann die Spur mitten in ein
+          laufendes Spiel einsteigen, statt jeden Stand oberhalb der selbst
+          gezaehlten Wuerfe fuer unmoeglich zu halten.
+        * die Kegel des VORHERIGEN Wurfs als Erwartung. Die Tafel traegt das
+          Ergebnis verspaetet nach; zum Meldezeitpunkt steht dort der Stand
+          nach dem Wurf davor.
+        """
+        if lesung is None or not getattr(lesung, "digits", ()):
+            return wurf.displayed_total, "roh", True
+
+        spur = self.spur(wurf.lane)
+        spur.kennt_wurfnummer(wurf.displayed_throw_number)
+        gefallen = None if vorher is None else vorher.lampen
+        deutung = spur.deute(lesung, gefallen=gefallen)
+        if not deutung.brauchbar:
+            return None, deutung.art, False
+        return deutung.wert, deutung.art, deutung.unabhaengig
 
     def _fehlwurf(self, a: _Offen, b: _Offen) -> str:
         """Hat der Fehlwurfzaehler getan, was er tun muesste?
@@ -234,12 +302,28 @@ class Gegenprobe:
         # der beiden Summen falsch gelesen wurde -- und eine unbrauchbare
         # Summe ist so gut wie keine. Sie darf dann nicht als Schiedsrichter
         # auftreten.
-        brauchbar = d is not None and 0 <= d <= self.pin_count
+        #
+        # EBENSO WENIG eine GEFUEHRTE Summe. Wurde sie aus der Erwartung
+        # gewonnen -- also aus den Lampen --, stimmt ihre Differenz mit den
+        # Lampen zwangslaeufig ueberein. Sie als Bestaetigung zu zaehlen
+        # hiesse, eine Messung zweimal zu befragen und die Antwort fuer zwei
+        # Zeugen zu halten (siehe `gefuehrtes_lesen`, "Die Richtung
+        # entscheidet ueber die Ehrlichkeit").
+        eigenstaendig = a.summe_unabhaengig and b.summe_unabhaengig
+        brauchbar = (d is not None and 0 <= d <= self.pin_count
+                     and eigenstaendig)
 
         if not brauchbar:
-            grund = ("Summe nicht auf beiden Seiten gelesen" if d is None
-                     else f"Summensprung {d} liegt ausserhalb "
-                          f"0..{self.pin_count}, unbrauchbar")
+            if d is None:
+                grund = "Summe nicht auf beiden Seiten gelesen"
+            elif not eigenstaendig:
+                gefuehrt = [k for k, o in (("vorher", a), ("danach", b))
+                            if not o.summe_unabhaengig]
+                grund = (f"Summe {'/'.join(gefuehrt)} gefuehrt gelesen, "
+                         "kein eigener Zeuge")
+            else:
+                grund = (f"Summensprung {d} liegt ausserhalb "
+                         f"0..{self.pin_count}, unbrauchbar")
             if a.ziffer is None:
                 return (NUR_LAMPEN, grund + ", auch keine Kegelziffer")
             if a.ziffer == a.lampen:
@@ -270,6 +354,31 @@ class Gegenprobe:
                 "-- keiner bestaetigt")
 
     # -------------------------------------------------------------- Bericht
+
+    def _summenzeilen(self) -> list[str]:
+        """Was das gefuehrte Lesen mit den Summen gemacht hat -- je Bahn.
+
+        Die Zeile gehoert in den Bericht, weil sie zwei Dinge auseinanderhaelt,
+        die im Urteil beide als "keine Summe" erscheinen: eine Summe, die nicht
+        lesbar war, und eine, die gelesen aber verworfen wurde, weil es sie
+        nicht gegeben haben kann. Das Zweite zeigt auf ein Feld, das nicht
+        stimmt -- GEMESSEN auf Bahn 2 des Hallenmitschnitts.
+        """
+        aktive = {b: s for b, s in sorted(self._spuren.items()) if s.zaehler}
+        if not aktive:
+            return []
+        zeilen = ["  Summenlesung je Bahn "
+                  "(eigenstaendig / gefuehrt / verworfen):"]
+        for bahn, spur in aktive.items():
+            z = spur.zaehler
+            eigen = z.get(EINDEUTIG, 0) + z.get(VERANKERT, 0)
+            verworfen = z.get(UNMOEGLICH, 0) + z.get(WIDERSPRUCH, 0)
+            stumm = z.get(STUMM, 0)
+            zeilen.append(
+                f"    Bahn {bahn}: {eigen} eigenstaendig, "
+                f"{z.get(GEFUEHRT, 0)} gefuehrt, {verworfen} verworfen, "
+                f"{stumm} nicht gelesen; Stand zuletzt {spur.stand}")
+        return zeilen
 
     def zusammenfassung(self) -> dict[str, int]:
         return dict(Counter(b.urteil for b in self.befunde))
@@ -303,6 +412,8 @@ class Gegenprobe:
                 f"  {'Fehlwurfzaehler passt zum Ergebnis':46s} {passend:5d}  "
                 f"({100 * passend / len(geprueft):4.1f} % von "
                 f"{len(geprueft)} lesbaren)")
+
+        zeilen.extend(self._summenzeilen())
 
         strittig = [b for b in self.befunde
                     if b.urteil in (LAMPEN_VERDAECHTIG, WURF_UNBESTAETIGT,

@@ -108,3 +108,46 @@ class TestMehrheitBug020:
         wert, einigkeit = agg.mehrheit(ignoriere_fuehrende=1)
         assert einigkeit == 1.0, "Nur die bewerteten Stellen zaehlen"
         assert wert in (12, 812), "Der Wert entsteht aus den Mehrheitsziffern"
+
+
+class TestAlsLesung:
+    """Das Feld als Lesung MIT Kandidaten -- Grundlage des geführten Lesens.
+
+    `result()` und `mehrheit()` dampfen jede Stelle auf ihren Sieger ein.
+    Genau die Schwankung ist aber die Information, die eine Erwartung ehrlich
+    auflösen kann (siehe `analysis/gefuehrtes_lesen.py`).
+    """
+
+    def test_eine_schwankende_stelle_behaelt_beide_lesarten(self):
+        """Derselbe Fall wie oben: 35 mal '0040', 5 mal '0090'."""
+        a = FieldAggregator(digits=4, min_agreement=0.5)
+        for _ in range(35):
+            a.add(*lesung("0040"))
+        for _ in range(5):
+            a.add(*lesung("0090"))
+        l = a.als_lesung()
+        assert l.digits == ("0", "0", "4", "0")
+        assert l.candidates[2] == (4, 9)
+        assert l.candidates[0] == (0,)
+
+    def test_ein_einzelner_ausreisser_wird_kein_kandidat(self):
+        """Eine Stimme unter fünfzig macht eine Stelle nicht beliebig."""
+        a = FieldAggregator(digits=4)
+        for _ in range(49):
+            a.add(*lesung("0040"))
+        a.add(*lesung("0070"))
+        assert a.als_lesung().candidates[2] == (4,)
+
+    def test_eine_nie_gelesene_stelle_bleibt_offen(self):
+        a = FieldAggregator(digits=4)
+        for _ in range(10):
+            a.add(*lesung("00?0"))
+        l = a.als_lesung()
+        assert l.digits[2] == "?"
+        assert l.candidates[2] == ()
+        assert l.value is None
+
+    def test_ohne_messungen_bleibt_alles_offen(self):
+        l = FieldAggregator(digits=4).als_lesung()
+        assert l.digits == ("?", "?", "?", "?")
+        assert l.value is None
