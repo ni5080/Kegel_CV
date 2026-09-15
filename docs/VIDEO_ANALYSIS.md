@@ -2985,3 +2985,55 @@ Pixelraster des Monitors erzeugen genau die Hochfrequenz, die das Mass zaehlt.
 Verworfen. Die ehrliche Rueckmeldung ist die Zahl, die der Abgleich ohnehin
 berechnet -- `BoardFinder.beste_inlier`, die tragenden Merkmale der besten
 Uebereinstimmung, auch wenn sie unter der Schwelle bleibt.
+
+### Der Handyblick, aus dem Mitschnitt nachgestellt (2026-09-15)
+
+Weil eine Kegelbahn nicht in fuenf Minuten erreichbar ist, wurde der Blick
+nachgestellt: `tools/simuliere_handykamera.py` schneidet aus einem Hallenframe
+einen Ausschnitt um EINE Tafel, gerade so gross, dass sie denselben Anteil der
+Bildbreite fuellt wie auf einem Telefon aus der gewuenschten Entfernung, und
+skaliert ihn auf 1440x1920 hoch.
+
+Tafel im Hallenframe: 187 px breit. Musterbild: 190 px. Noetig: 18 Merkmale.
+
+| Tafel fuellt | Tafel dann | ohne Leiter | mit Leiter | Tafeln gefunden |
+|---|---|---|---|---|
+| 15 % | 216 px | 179 | 292 | 3 |
+| 25 % | 360 px | **0** | 252 | 2 |
+| 40 % | 576 px | **0** | 200 | 1 |
+| 60 % | 864 px | **0** | 147 | 1 |
+| 80 % | 1152 px | **0** | 100 | 1 |
+
+**Ohne Leiter traegt genau ein Abstand** -- der, bei dem die Tafel zufaellig
+Mustergroesse hat. Schon bei 25 % Bildfuellung faellt es auf null. Mit Leiter
+traegt jeder Abstand von 15 bis 80 %.
+
+Dazu schraeg und unscharf, bei 40 % Bildfuellung:
+
+| Neigung | Unschaerfe | Merkmale | Tafeln |
+|---|---|---|---|
+| 0 % | 0 px | 200 | 1 |
+| 10 % | 0 px | 243 | 1 |
+| 20 % | 0 px | 156 | 1 |
+| 0 % | 9 px | 203 | 1 |
+| 10 % | 5 px | 236 | 1 |
+
+Gemeinsam gehalten. Das bestaetigt den Toleranzbereich von oben: Winkel und
+Schaerfe sind unkritisch, der Massstab war alles.
+
+**WAS DAMIT NICHT GEZEIGT IST** -- und das gehoert dazu:
+
+* **Andere Optik.** Ein Handyobjektiv zeichnet anders als eine RTSP-Kamera:
+  andere Verzeichnung, andere Schaerfeverteilung, andere Farbabstimmung.
+* **Andere Beleuchtung.** Der Mitschnitt entstand abends im Training.
+* **Echte Aufloesung.** Hochskalieren erfindet keine Bildpunkte.
+
+Der letzte Punkt macht die Simulation zur UNTEREN SCHRANKE, was die Aufloesung
+angeht: Ein Telefon aus einem Meter Entfernung sieht mehr Einzelheiten als
+dieser Ausschnitt. Die ersten beiden Punkte bleiben offen -- gezeigt ist, dass
+der MASSSTAB der Blocker war und die Leiter ihn raeumt, nicht, dass die
+Merkmale einer Handykamera zu einem Muster aus einer Hallenkamera passen.
+
+Faellt das vor Ort durch, steht die Antwort schon bereit: `speichere_typ` legt
+einen Tafeltyp aus dem Handybild selbst an. Dann vermisst man einmal eine
+Tafel von Hand, und die Suche findet die uebrigen.
