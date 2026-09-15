@@ -1559,6 +1559,31 @@ class MainWindow(QMainWindow):
             return self._current_frame.image
         return None
 
+    def _springe_frames(self, schritt: int):
+        """Holt ein Bild `schritt` Frames weiter -- fuer den Tafeleditor.
+
+        WOZU (Nutzer, 2026-09-15): *"nutze bitte ein Standbild und eventuell
+        die Moeglichkeit mit Frames huepfen"*. Ob ein Ziffernrahmen sitzt,
+        entscheidet sich an mehreren ANZEIGEN; wann gewechselt wird, soll aber
+        der Nutzer bestimmen und nicht ein Takt.
+
+        BEI EINEM STREAM GEHT DAS NICHT: Dort gibt es keine Frame-Nummer, zu
+        der man zurueckspringen koennte. Der Aufrufer bekommt dann (None,
+        None) und sagt es dem Nutzer -- statt still nichts zu tun.
+
+        Returns:
+            (Bild, Frame-Nummer) oder (None, None).
+        """
+        if not self.player.is_loaded or self.player.is_live:
+            return None, None
+        ziel = max(0, self.player.position + schritt)
+        if not self.player.seek(ziel):
+            return None, None
+        frame = self.player.current_frame
+        if frame is None:
+            return None, None
+        return frame.image, self.player.position
+
     def _tafel_unter(self, x: float, y: float):
         """Welche Tafel liegt unter dem Klick? None, wenn keine."""
         import cv2
@@ -1587,6 +1612,7 @@ class MainWindow(QMainWindow):
             lane, bild,
             tafeln=len(self.session.calibration.lanes),
             bild_quelle=self._bild_zum_nachziehen,
+            springer=self._springe_frames,
             parent=self)
         if dialog.exec() != QDialog.Accepted:
             self.statusBar().showMessage("Nachkalibrieren abgebrochen", 3000)

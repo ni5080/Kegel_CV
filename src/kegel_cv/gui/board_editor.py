@@ -33,6 +33,7 @@ from ..calibration.geometry import GeometryError, PerspectiveTransform, Quad
 from ..calibration.model import DIGIT_PREFIX, Roi
 from ..calibration.roi_preview import quadmasse, roi_farbe
 from ..calibration.session import CalibrationSession
+from .ziffern_lupe import ZiffernLupe
 
 log = logging.getLogger(__name__)
 
@@ -430,7 +431,7 @@ class TafelEditorDialog(QDialog):
     """
 
     def __init__(self, lane, bild: np.ndarray, *, tafeln: int = 1,
-                 bild_quelle=None, parent=None) -> None:
+                 bild_quelle=None, springer=None, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Bahn {lane.display_number} nachkalibrieren")
         self._lane = lane
@@ -467,21 +468,48 @@ class TafelEditorDialog(QDialog):
         # --- Ziffernlupe ---
         #
         # WOFUER (Nutzer, 2026-09-15): *"dass er wenn er eine Ziffer einrahmt
-        # die Mittelpunkte der einzelnen Felder angezeigt bekommt und dadurch
-        # dann sieht wie er die Ziffer zu platzieren hat"*.
+        # die Mittelpunkte der einzelnen Felder angezeigt bekommt"* -- und
+        # nach der ersten Fassung: *"damit kann quasi niemand arbeiten, weil
+        # das Bild die ganze Zeit seine Groesse aendert ... und dann faende
+        # ich es sinnvoller wenn wir in der Grafik unten die Anpassungen
+        # vornehmen und nicht oben."*
         #
-        # Sie zeigt fuer den gerade beruehrten Ziffernrahmen, was der Leser
-        # daraus macht: Rotmaske, die sieben Messflaechen mit ihren
-        # Fuellgraden, und die wahrscheinlichsten Ziffern. Begruendung und die
-        # Messung, die dazu fuehrte, stehen in `detection/ziffern_lupe.py`.
+        # Beides ist hier beantwortet: Das Feld hat eine feste Groesse, und
+        # gezogen wird DORT, wo man die Messung sieht. Begruendung und die
+        # Rechnung dahinter stehen in `gui/ziffern_lupe.py`.
         self._original = bild
         self._leser = None
-        self.lupe = QLabel()
-        self.lupe.setMinimumHeight(120)
-        self.lupe.setStyleSheet("background:#111;")
-        self.lupe.setText("Ziffernrahmen beruehren, um die Messflaechen zu "
-                          "sehen")
+        self._umrechnung = None
+        self.lupe = ZiffernLupe()
+        self.lupe.geaendert.connect(self._lupe_hat_geaendert)
         spalte.addWidget(self.lupe)
+
+        # --- Standbild und Frame-Spruenge ---
+        #
+        # Der Takt lief bisher immer. Beim Ziehen eines Ziffernrahmens ist das
+        # unbrauchbar: Das Bild wechselt unter der Hand, und man sieht nie, ob
+        # die Aenderung etwas gebracht hat. Also Standbild als Vorgabe -- und
+        # dafuer die Moeglichkeit, gezielt weiterzuspringen.
+        bild_zeile = QHBoxLayout()
+        self.standbild = QCheckBox("Standbild")
+        self.standbild.setChecked(True)
+        self.standbild.setToolTip(
+            "Haelt das Bild an. Zum Pruefen einer Ziffernbox ist das noetig --"
+            " sonst wechselt die Anzeige, waehrend man zieht.")
+        self.standbild.toggled.connect(self._on_standbild)
+        bild_zeile.addWidget(self.standbild)
+        for beschriftung, schritt in (("<<", -100), ("<", -10), ("|<", -1),
+                                      (">|", 1), (">", 10), (">>", 100)):
+            knopf = QPushButton(beschriftung)
+            knopf.setMaximumWidth(44)
+            knopf.setToolTip(f"{schritt:+d} Frames")
+            knopf.clicked.connect(lambda _=False, s=schritt: self._springe(s))
+            bild_zeile.addWidget(knopf)
+        self.bild_info = QLabel("")
+        self.bild_info.setStyleSheet("color:#888;")
+        bild_zeile.addWidget(self.bild_info)
+        bild_zeile.addStretch(1)
+        spalte.addLayout(bild_zeile)
 
         # --- Auswahl und gemeinsamer Versatz ---
         #
@@ -570,13 +598,18 @@ class TafelEditorDialog(QDialog):
 
         self._passe_groesse_an(px)
 
-        # DAS BILD DARF NICHT EINFRIEREN. Im Livestream wechseln die Ziffern;
-        # ob ein Rahmen sitzt, entscheidet sich an mehreren Anzeigen, nicht an
-        # einem Standbild.
+        # FRUEHER LIEF DER TAKT IMMER, mit der Begruendung, im Livestream
+        # wechselten die Ziffern und ein Standbild zeige zu wenig. Das stimmt
+        # fuer die grobe Lage der Tafel -- und ist genau falsch fuer die
+        # Ziffernrahmen: Dort aendert sich das Bild unter der Hand, waehrend
+        # man zieht, und man sieht nie, ob die Aenderung etwas gebracht hat.
+        #
+        # Der Takt bleibt deshalb, aber das Standbild ist die Vorgabe. Wer
+        # mehrere Anzeigen sehen will, schaltet es ab oder springt gezielt
+        # weiter.
         self._takt = QTimer(self)
         self._takt.timeout.connect(self._bild_erneuern)
-        if bild_quelle is not None:
-            self._takt.start(BILDTAKT_MS)
+        self._springer = springer
 
     # ------------------------------------------------------------ Innereien
 
@@ -649,42 +682,82 @@ class TafelEditorDialog(QDialog):
             self._zeige_lupe(roi)
 
     def _zeige_lupe(self, roi: Roi) -> None:
-        """Zeichnet die Messflaechen dieses Ziffernrahmens.
+        """Legt diesen Ziffernrahmen in die Lupe.
 
-        DER AUSSCHNITT KOMMT AUS DEM ORIGINALBILD, nicht aus der entzerrten
-        Tafel. Der Leser arbeitet auf einem achsparallelen Rechteck im Frame
-        (`norm_rect_to_frame_bbox`); eine Lupe, die etwas anderes zeigt als
-        die Messung, waere schlimmer als keine.
+        DER LESER UND DIE UMRECHNUNG WERDEN EINMAL GEBAUT und dann behalten:
+        Das Bauen kostet, und die Lupe wird bei jeder Mausbewegung gefuellt.
         """
         if self._original is None:
             return
         try:
-            from ..calibration.geometry import norm_rect_to_frame_bbox
-            from ..config import load_config
-            from ..detection.digit_reader import CalibratedDigitReader
-            from ..detection.ziffern_lupe import zeichne_lupe
-
             if self._leser is None:
+                from ..config import load_config
+                from ..detection.digit_reader import CalibratedDigitReader
                 cfg = load_config()
                 self._leser = CalibratedDigitReader(cfg.detection.digits)
                 self._umrechnung = self._lane.transform(
                     cfg.calibration.warped_width,
                     cfg.calibration.warped_height)
-
-            x, y, w, h = norm_rect_to_frame_bbox(
-                self._umrechnung, roi.rect, self._original.shape)
-            bild = zeichne_lupe(self._original[y:y + h, x:x + w], self._leser)
         except Exception as exc:  # noqa: BLE001
             # Die Lupe ist Hilfe, nicht Voraussetzung -- ein Fehler hier darf
             # das Nachkalibrieren nicht verhindern (P8).
-            log.warning("Ziffernlupe nicht darstellbar: %s", exc)
-            self.lupe.setText(f"Lupe nicht darstellbar: {exc}")
+            log.warning("Ziffernlupe nicht einsatzbereit: %s", exc)
+            self.lupe.setze_hinweis(f"Lupe nicht verfuegbar: {exc}")
             return
+        self.lupe.zeige(roi.name, roi.rect, self._original, self._leser,
+                        self._umrechnung)
 
-        h_, w_, _ = bild.shape
-        qimg = QImage(bild.data, w_, h_, 3 * w_,
-                      QImage.Format_BGR888).copy()
-        self.lupe.setPixmap(QPixmap.fromImage(qimg))
+    def _lupe_hat_geaendert(self, name: str, rect: tuple) -> None:
+        """Uebernimmt, was in der Lupe gezogen wurde.
+
+        Die Lupe kennt die Bereichsliste nicht -- sie meldet nur, was aus dem
+        Rechteck geworden ist. Geschrieben wird hier, damit es genau einen Ort
+        gibt, an dem sich ein Bereich aendert.
+        """
+        for i, roi in enumerate(self.leinwand.rois):
+            if roi.name == name:
+                self.leinwand.rois[i] = roi.model_copy(update={"rect": rect})
+                break
+        self.leinwand.update()
+        x, y, w, h = rect
+        self.info.setText(f"{name} -- Lage {x:.4f}/{y:.4f}, "
+                          f"Groesse {w:.4f}x{h:.4f}")
+
+    def _on_standbild(self, an: bool) -> None:
+        """Haelt das Bild an oder laesst es wieder laufen."""
+        if an or self._bild_quelle is None:
+            self._takt.stop()
+        else:
+            self._takt.start(BILDTAKT_MS)
+
+    def _springe(self, schritt: int) -> None:
+        """Holt ein Bild `schritt` Frames weiter und legt es unter die Rahmen.
+
+        WOZU (Nutzer, 2026-09-15): *"nutze bitte ein Standbild und eventuell
+        die Moeglichkeit mit Frames huepfen"*. Ob ein Ziffernrahmen sitzt,
+        entscheidet sich an mehreren ANZEIGEN -- aber man will selbst
+        bestimmen, wann gewechselt wird.
+        """
+        if self._springer is None:
+            self.bild_info.setText("Springen hier nicht moeglich (Stream)")
+            return
+        try:
+            bild, nummer = self._springer(schritt)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Frame-Sprung fehlgeschlagen: %s", exc)
+            self.bild_info.setText(f"Sprung fehlgeschlagen: {exc}")
+            return
+        if bild is None:
+            self.bild_info.setText("kein weiteres Bild")
+            return
+        self._original = bild
+        self.leinwand.set_bild(entzerre(bild, self._lane.quad))
+        self.bild_info.setText(f"Frame {nummer}" if nummer is not None else "")
+        # Die Lupe zeigt denselben Rahmen, nur auf dem neuen Bild.
+        if self.lupe._name:
+            roi = self.leinwand._roi(self.lupe._name)
+            if roi is not None:
+                self._zeige_lupe(roi)
 
     def _bild_erneuern(self) -> None:
         """Neues Bild unter die Rahmen legen -- die Rahmen bleiben stehen."""
@@ -693,6 +766,9 @@ class TafelEditorDialog(QDialog):
         bild = self._bild_quelle()
         if bild is None:
             return
+        # AUCH DAS ORIGINAL NACHZIEHEN. Die Lupe liest daraus; bliebe es
+        # stehen, zeigte sie ein Bild, das es so nicht mehr gibt.
+        self._original = bild
         self.leinwand.set_bild(entzerre(bild, self._lane.quad))
 
     @property
