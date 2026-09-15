@@ -3333,3 +3333,60 @@ nicht eingeschaltet, solange keine Messung am laufenden Material sie trägt.
 Warum der beschriftete Datensatz das nicht zeigen konnte: Er besteht zu zwei
 Dritteln aus Bahn 2+3 und misst vor allem `pin_count`, ein EINSTELLIGES Feld.
 Die Probleme liegen bei der vierstelligen Summe auf Bahn 2 und 4.
+
+## 2026-09-15 — Was eine Kalibrierung mit Sicht auf die Messung bringt
+
+Der Nutzer hat mit der neuen Ziffernlupe Bahn 2 des Hallenmitschnitts
+nachkalibriert (`data/calibrations/deutlichbesser.json`). Bahn 3 verschob sich
+dabei gleichmäßig um +0,0052/+0,0045 auf allen Bereichen — die Signatur der
+automatischen Tafelerkennung, keine Handarbeit. Bahn 4 und 5 blieben
+unangetastet und dienen als Kontrolle.
+
+### Fortlaufendes Lesen (13.530 Frames, jeder zehnte)
+
+| Bahn | | Summenlesungen | davon systematisch sauber | Wurfnummer gelesen |
+|---|---|---|---|---|
+| **2** | alt | 362 | 73,7 % | 812 |
+| **2** | **neu** | **1157** | **97,0 %** | **1316** |
+| **3** | alt | 265 | 98,5 % | 1311 |
+| **3** | **neu** | **1303** | **99,8 %** | 1311 |
+| 4 | unverändert | 1011 | 94,8 % | 1307 |
+| 5 | unverändert | 461 | 98,3 → 98,7 % | 1346 |
+
+Bahn 2 liest dreimal so oft und liegt dabei von 73,7 auf 97,0 % richtig.
+
+### Die Gegenprobe im Vollauf
+
+| | alt | **neu** |
+|---|---|---|
+| Summe auf beiden Seiten lesbar | 7 von 57 | **35 von 57** |
+| Differenz trifft die Lampen | 1 | **30** |
+| `einig` (alle drei Quellen) | 3 (5,3 %) | **25 (43,9 %)** |
+| `wurf_fehlt` | 3 | **0** |
+| Würfe | 64 VALID | 62 VALID, 2 ERROR |
+
+Bahn 2s Summenverlauf ist zum ersten Mal durchgehend plausibel:
+16, 24, 33, 42, 50, 55, 64, 73, 82, 87, … 117, 126, 135, 142, 143, 147, 151,
+152, 161, 170, 179, 186, 188, 196.
+
+### Die zwei ERROR sind kein Rückschritt
+
+Es sind genau die beiden Würfe, die in JEDEM früheren Lauf als `strittig`
+auffielen. Vorher galten sie als gültig, weil die Summe nicht lesbar war und
+eine Prüfung deshalb gar nicht erst griff. Jetzt greift sie:
+
+**Bahn 3 Wurf 8** — Lampen 4, Ziffer 9, Summendifferenz **4**. Die Summe stützt
+die LAMPEN; die Ziffer ist falsch gelesen. Das gebuchte Ergebnis (4) stimmt,
+die Meldung ist übervorsichtig.
+
+**Bahn 2 Wurf 21** — Lampen 5, Ziffer 4, Summendifferenz **4**. Die Summe
+stützt die ZIFFER. **Zum ersten Mal überführen zwei voneinander unabhängige
+Quellen gemeinsam die Lampen.** Genau dafür wurde die Gegenprobe gebaut
+(`lampen_verdaechtig`).
+
+### Offen
+
+Bahn 4 liefert vier `unklar`: Die Summendifferenz liegt dort durchweg zwei bis
+drei unter der Lampenzahl (Lampen 9 gegen Differenz 6, Lampen 7 gegen 2). Ihre
+Ziffernrahmen wurden nicht nachgezogen — dieselbe Behandlung wie bei Bahn 2
+wäre der nächste Schritt.
