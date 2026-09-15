@@ -2907,3 +2907,81 @@ Damit traegt EINE Konfiguration beide Quellen, ohne Fallunterscheidung:
 | feste Zahl 0 | keine | **entsteht** |
 | Anteil am Gipfel (0,3) | Bahn 2 in 26,7 % der Frames | gefangen |
 | **Anteil am Rand (0,5)** | **keine** | **gefangen** |
+
+## Was der Tafelabgleich vertraegt (2026-09-15)
+
+**Der Anlass.** Die Handy-App fand auf einer gross und frontal im Bild
+stehenden FUNK-Tafel nichts. Das sah aus, als truege das Verfahren nicht.
+
+**Erste Erkenntnis: Das Musterbild passt nur zu seiner Quelle.**
+
+| Quelle | tragende Merkmale | Tafeln gefunden |
+|---|---|---|
+| Hallenframe 2304x1296 (Herkunft des Musters) | **154** | 4 |
+| Streamframe 1920x1080 (Overlay) | 0 | -- |
+
+`FUNK_klassisch` stammt von der RTSP-Hallenkamera und passt dorthin. Die
+Overlay-Tafeln des Livestreams sind eine andere Darstellung; die Kalibrierung
+`Fastlane` ist nicht ueber diese Suche entstanden.
+
+### Der Toleranzbereich
+
+Gemessen am Hallenframe, in dem alle vier Tafeln sicher gefunden werden. Das
+Zielbild wurde schrittweise verschoben; noetig sind 18 tragende Merkmale.
+
+| | vertraegt | kippt bei |
+|---|---|---|
+| **Massstab** | **0,8x bis 1,5x** | 0,6x und 2,0x |
+| Drehung | jede, bis 90 Grad | -- |
+| Unschaerfe | Gauss-Kern bis 13 px | 21 px |
+| Neigung | bis 20 % Trapez | 30 % |
+
+Drehung und Unschaerfe sind unkritisch -- ORB ist drehinvariant, und die
+Merkmale halten erstaunlich viel Weichzeichnung aus. **Der Massstab ist das
+schmale Fenster**, und genau daran scheiterte die App: Auf dem Telefon fuellte
+eine Tafel rund 900 Bildpunkte gegen 190 im Muster. Das Fuenffache.
+
+### Die Massstabsleiter
+
+Das Musterbild wird in mehreren Groessen angeboten, statt die Kamera so lange
+zu verschieben, bis es zufaellig passt:
+
+| Zielmassstab | nur Original | mit Leiter |
+|---|---|---|
+| 0,3x | 0 | 0 |
+| 0,6x | 0 | 25 |
+| 0,8x | 86 | 86 |
+| 1,0x | 154 | 154 |
+| 1,5x | 102 | 228 |
+| **2,0x** | **0** | **461** |
+| **3,0x** | **0** | **398** |
+| **4,0x** | **0** | **666** |
+
+Aus 0,8-1,5x wird **0,6-4,0x**. Unter 0,3x bleibt es dabei -- eine Tafel unter
+rund 60 Bildpunkten traegt keine Merkmale mehr, und lesbar waere sie ohnehin
+nicht.
+
+Die teuren Merkmale des ZIELBILDES werden nur einmal berechnet; jede weitere
+Sprosse kostet nur den Vergleich.
+
+**Der Tischrechner-Weg bleibt unberuehrt.** `erkenne` nimmt die Leiter als
+freiwilligen Zusatz; ohne sie benutzt es genau die eine Vorlage wie bisher.
+Eine fest montierte Hallenkamera steht immer gleich weit weg -- dort loest die
+Leiter kein Problem und koennte nur eines schaffen.
+
+### Ein Maß, das NICHT taugt
+
+Als Rueckmeldung beim Ausrichten lag eine Schaerfepruefung nahe (Streuung der
+Laplace-Kanten). GEMESSEN:
+
+| | Laplace-Streuung |
+|---|---|
+| unscharfes Handybild (Kamera zu nah) | **1851** |
+| scharfer Tafelausschnitt | 1465 |
+| Musterbild | 79 |
+
+Das unscharfe Bild ist "schaerfer" als das scharfe: Staubkoerner und das
+Pixelraster des Monitors erzeugen genau die Hochfrequenz, die das Mass zaehlt.
+Verworfen. Die ehrliche Rueckmeldung ist die Zahl, die der Abgleich ohnehin
+berechnet -- `BoardFinder.beste_inlier`, die tragenden Merkmale der besten
+Uebereinstimmung, auch wenn sie unter der Schwelle bleibt.

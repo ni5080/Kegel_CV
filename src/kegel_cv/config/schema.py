@@ -748,6 +748,50 @@ class DigitDetectionConfig(BaseModel):
     template_min_score: float = Field(default=0.30, ge=-1.0, le=1.0)
 
 
+class BoardSearchConfig(BaseModel):
+    """Die automatische Tafelsuche (siehe `calibration/board_library.py`)."""
+
+    # IN WELCHEN GROESSEN das Musterbild angeboten wird.
+    #
+    # WARUM ES DIE LEITER BRAUCHT. Der Merkmalsabgleich vertraegt nur einen
+    # schmalen Massstabsbereich. GEMESSEN 2026-09-15 an einem Hallenframe, in
+    # dem alle vier Tafeln sicher gefunden werden (154 tragende Merkmale) --
+    # das Zielbild schrittweise vergroessert und verkleinert:
+    #
+    #     Zielmassstab   nur Original   mit Leiter
+    #            0,6x              0           25
+    #            0,8x             86           86
+    #            1,0x            154          154
+    #            1,5x            102          228
+    #            2,0x              0          461
+    #            3,0x              0          398
+    #            4,0x              0          666
+    #
+    # Ohne Leiter reicht es von 0,8 bis 1,5 -- mit ihr von 0,6 bis 4,0.
+    #
+    # WARUM DAS ZAEHLT: Eine fest montierte Hallenkamera steht immer gleich
+    # weit weg, ein Handy nicht. Auf dem Telefon fuellte eine Tafel rund 900
+    # Bildpunkte gegen 190 im Muster -- das Fuenffache, weit ausserhalb des
+    # Fensters. Die Suche fand nichts, und es sah aus, als koenne das
+    # Verfahren nichts.
+    #
+    # Die TEUREN Merkmale des Zielbildes werden nur EINMAL berechnet; jede
+    # weitere Sprosse kostet nur den Vergleich.
+    #
+    # Zum Abschalten: eine Liste mit einer einzigen 1.0.
+    scale_ladder: list[float] = Field(
+        default_factory=lambda: [0.35, 0.5, 0.7, 1.0, 1.4, 2.0, 2.8, 4.0])
+
+    @model_validator(mode="after")
+    def _check_ladder(self) -> BoardSearchConfig:
+        if not self.scale_ladder:
+            raise ValueError("scale_ladder darf nicht leer sein -- fuer die "
+                             "unveraenderte Vorlage genuegt [1.0]")
+        if any(f <= 0 for f in self.scale_ladder):
+            raise ValueError("scale_ladder: Massstaebe muessen positiv sein")
+        return self
+
+
 class PersonMaskConfig(BaseModel):
     """Menschen schwaerzen und Tafelverdeckung erkennen.
 
@@ -908,6 +952,7 @@ class PersonModelConfig(BaseModel):
 
 
 class DetectionConfig(BaseModel):
+    board_search: BoardSearchConfig = Field(default_factory=BoardSearchConfig)
     person_mask: PersonMaskConfig = Field(default_factory=PersonMaskConfig)
     person_model: PersonModelConfig = Field(default_factory=PersonModelConfig)
     green: GreenDetectionConfig = Field(default_factory=GreenDetectionConfig)

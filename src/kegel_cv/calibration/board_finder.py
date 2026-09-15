@@ -175,6 +175,15 @@ class BoardFinder:
         self._orb = cv2.ORB_create(nfeatures=nfeatures, scaleFactor=1.2,
                                    nlevels=8)
         self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        # Wie viele tragende Merkmale die BESTE Uebereinstimmung des letzten
+        # Laufs hatte -- auch wenn sie unter der Schwelle blieb.
+        #
+        # WOFUER: "Keine Tafel gefunden" sagt nicht, ob man knapp daneben lag
+        # oder voellig. Beim Ausrichten einer Handykamera ist genau das die
+        # Auskunft, die man braucht -- eine Zahl, die steigt, wenn man besser
+        # zielt. GEMESSEN am 2026-09-15: ein unscharfes Bild kam auf 4, ein
+        # scharfes derselben Tafel auf 10, noetig sind 18.
+        self.beste_inlier = 0
 
     def finde(self, ziel: np.ndarray, vorlagen: list[np.ndarray],
               *, versatz: tuple[int, int] = (0, 0)) -> Treffer | None:
@@ -185,6 +194,7 @@ class BoardFinder:
         """
         if ziel is None or ziel.size == 0 or not vorlagen:
             return None
+        self.beste_inlier = 0
         ziel_grau = self._grau(ziel)
         kp_ziel, des_ziel = self._orb.detectAndCompute(ziel_grau, None)
         if des_ziel is None or len(kp_ziel) < 10:
@@ -203,6 +213,7 @@ class BoardFinder:
 
         if bester is None:
             return None
+        self.beste_inlier = bester.inlier
         if bester.inlier < self.min_inlier:
             # NICHT stillschweigend zurueckgeben. GEMESSEN: Der gescheiterte
             # Treffer hatte 7 Inlier und lag 1429 Pixel daneben, die

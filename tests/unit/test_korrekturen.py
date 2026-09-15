@@ -152,3 +152,30 @@ class TestKeineEckenImGepaeck:
         text = pfad.read_text(encoding="utf-8")
         assert "quad" not in text and "999" not in text
         assert json.loads(text)["korrekturen"][0]["tafeln"]["1"]
+
+
+class TestKorrekturdateienSindKeineTafeltypen:
+    """`<Typ>.korrekturen.json` landete als Tafeltyp in der Bibliothek, wurde
+    wegen des fehlenden Musterbildes verworfen und hinterliess bei jedem Start
+    eine Warnung, die nach einem Fehler aussieht (gefunden 2026-09-15 beim
+    ersten Bibliothekslauf auf dem Telefon)."""
+
+    def test_sie_werden_uebergangen(self, tmp_path, caplog):
+        import cv2
+        import numpy as np
+        from kegel_cv.calibration.board_library import lade_bibliothek
+        from kegel_cv.calibration.model import (Calibration, LaneCalibration,
+                                                Roi)
+
+        kal = Calibration(lanes=[LaneCalibration(
+            lane_id=1, quad=[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
+            rois=[Roi(name="green_lamp", rect=(0.1, 0.1, 0.2, 0.2))])])
+        kal.save(tmp_path / "Typ.json")
+        cv2.imwrite(str(tmp_path / "Typ.png"),
+                    np.full((20, 20, 3), 128, np.uint8))
+        (tmp_path / "Typ.korrekturen.json").write_text("{}", encoding="utf-8")
+
+        with caplog.at_level("WARNING"):
+            typen = lade_bibliothek(tmp_path)
+        assert [t.name for t in typen] == ["Typ"]
+        assert "korrekturen" not in caplog.text

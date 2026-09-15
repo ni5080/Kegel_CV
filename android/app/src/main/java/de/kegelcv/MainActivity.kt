@@ -85,6 +85,10 @@ class MainActivity : AppCompatActivity() {
             starteSelbsttest()
         }
         knopfTafeln = findViewById(R.id.knopf_tafeln)
+        // Der Knopf beschriftet den ZUSTAND, nicht die Aktion. Stand dort
+        // "Tafeln suchen", waehrend die Suche schon lief, schaltete der erste
+        // Tipp sie ab -- genau das Gegenteil dessen, was er versprach.
+        knopfTafeln.text = if (dauersuche) "Suche laeuft" else "Suche aus"
         knopfTafeln.setOnClickListener {
             dauersuche = !dauersuche
             knopfTafeln.text = if (dauersuche) "Suche laeuft" else "Suche aus"
@@ -240,8 +244,13 @@ class MainActivity : AppCompatActivity() {
         laeuftGerade = true
         thread {
             val text = runCatching {
-                Python.getInstance().getModule("kamera")
-                    .callAttr("suche_tafeln", bibliothek()).toString()
+                val py = Python.getInstance().getModule("kamera")
+                val ergebnis = py.callAttr("suche_tafeln", bibliothek()).toString()
+                // Das untersuchte Bild aufheben -- ohne es laesst sich ein
+                // Fehlschlag nicht untersuchen, sondern nur bereden.
+                py.callAttr("speichere_letztes",
+                    File(filesDir, "letztes_bild.jpg").absolutePath)
+                ergebnis
             }.getOrElse { fehlertext(it) }
             melde(text)
             laeuftGerade = false

@@ -98,6 +98,12 @@ def lade_bibliothek(ordner: str | Path) -> list[Tafeltyp]:
 
     typen: list[Tafeltyp] = []
     for pfad in sorted(ordner.glob("*.json")):
+        # `<Typ>.korrekturen.json` sind gemerkte Handkorrekturen, kein Typ
+        # (siehe `korrekturen.py`). Sie landeten hier als Tafeltyp, wurden
+        # wegen des fehlenden Musterbildes verworfen -- und hinterliessen bei
+        # jedem Start eine Warnung, die nach einem Fehler aussieht.
+        if pfad.stem.endswith(".korrekturen"):
+            continue
         bild_pfad = pfad.with_suffix(MUSTER_ENDUNG)
         if not bild_pfad.is_file():
             log.warning("Tafeltyp %s hat kein Musterbild (%s erwartet)",
@@ -122,12 +128,19 @@ def lade_bibliothek(ordner: str | Path) -> list[Tafeltyp]:
 
 
 def erkenne(bild: np.ndarray, typen: list[Tafeltyp], *,
-            min_inlier: int = 18, max_tafeln: int = 8) -> Erkennung | None:
+            min_inlier: int = 18, max_tafeln: int = 8,
+            leiter: list[float] | None = None) -> Erkennung | None:
     """Sucht den Typ, der am besten zu diesem Bild passt.
 
     Gewertet wird nach der Zahl der TAFELN zuerst und der Summe der tragenden
     Merkmale danach: Ein Typ, der vier Tafeln findet, ist mehr wert als einer,
     der eine einzige besonders sicher trifft.
+
+    `leiter` bietet das Musterbild in mehreren Groessen an. Ohne sie vertraegt
+    der Abgleich nur den 0,8- bis 1,5-fachen Massstab -- mit ihr den 0,6- bis
+    4-fachen (gemessen 2026-09-15, Belege in `config/schema.py`). Fuer eine
+    fest montierte Kamera ist das gleichgueltig; fuer eine Handykamera, die
+    irgendwo steht, entscheidet es darueber, ob ueberhaupt etwas gefunden wird.
 
     Rueckgabe None, wenn keiner passt -- das ist der Normalfall in einer
     unbekannten Halle und kein Fehler.
@@ -135,10 +148,13 @@ def erkenne(bild: np.ndarray, typen: list[Tafeltyp], *,
     if bild is None or bild.size == 0 or not typen:
         return None
 
+    stufen = [f for f in (leiter or [1.0]) if f > 0] or [1.0]
     finder = BoardFinder(min_inlier=min_inlier)
     bestes: Erkennung | None = None
     for typ in typen:
-        treffer = finder.finde_alle(bild, [typ.muster], max_tafeln=max_tafeln)
+        vorlagen = [typ.muster if f == 1.0 else _skaliert(typ.muster, f)
+                    for f in stufen]
+        treffer = finder.finde_alle(bild, vorlagen, max_tafeln=max_tafeln)
         if not treffer:
             continue
         treffer = _verfeinere(bild, treffer, finder, max_tafeln)

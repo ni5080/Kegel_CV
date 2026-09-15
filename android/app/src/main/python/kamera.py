@@ -95,12 +95,9 @@ def zustand() -> str:
         return "warte auf das erste Bild ..."
     hoehe, breite = _letztes.shape[:2]
     mittel = sum(_zeiten) / len(_zeiten) if _zeiten else 0.0
-    dreh = sum(_drehzeiten) / len(_drehzeiten) if _drehzeiten else 0.0
     lage = "hochkant" if hoehe > breite else "quer"
-    return (f"Bild {breite}x{hoehe} ({lage}), {_letzte_nummer} empfangen"
-            + ZEILENENDE
-            + f"Farbwandlung {mittel:.1f} ms, Drehung um {_letzte_drehung} Grad "
-              f"{dreh:.1f} ms")
+    return (f"Bild {breite}x{hoehe} ({lage}), {_letzte_nummer} empfangen, "
+            f"Wandlung {mittel:.1f} ms")
 
 
 def _bibliothek(ordner: str):
@@ -109,6 +106,49 @@ def _bibliothek(ordner: str):
         from kegel_cv.calibration.board_library import lade_bibliothek
         _typen = lade_bibliothek(ordner)
     return _typen
+
+
+# Ab so vielen tragenden Merkmalen gilt eine Tafel als sicher gefunden --
+# derselbe Wert, den `BoardFinder` voreingestellt verlangt.
+_MINDESTENS = 18
+
+# In welchen Groessen das Musterbild angeboten wird. Ohne Leiter vertraegt der
+# Abgleich nur den 0,8- bis 1,5-fachen Massstab; mit ihr den 0,6- bis
+# 4-fachen. Fuer eine fest montierte Hallenkamera ist das gleichgueltig -- sie
+# steht immer gleich weit weg. Ein Handy steht irgendwo, und genau daran
+# scheiterte der erste Versuch: Die Tafel fuellte 900 Bildpunkte gegen 190 im
+# Muster. Belege in `config/schema.py`, `BoardSearchConfig`.
+_LEITER = [0.35, 0.5, 0.7, 1.0, 1.4, 2.0, 2.8, 4.0]
+
+
+def _wie_nah(bild, typen) -> int:
+    """Tragende Merkmale der besten Uebereinstimmung, auch unterhalb der Schwelle."""
+    from kegel_cv.calibration.board_finder import BoardFinder
+    import cv2
+    finder = BoardFinder(min_inlier=_MINDESTENS)
+    vorlagen = []
+    for typ in typen:
+        for f in _LEITER:
+            vorlagen.append(typ.muster if f == 1.0 else cv2.resize(
+                typ.muster, None, fx=f, fy=f,
+                interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_CUBIC))
+    finder.finde(bild, vorlagen)
+    return finder.beste_inlier
+
+
+def speichere_letztes(pfad: str) -> str:
+    """Legt das zuletzt untersuchte Bild ab.
+
+    WOFUER: Ein Fehlschlag der Tafelsuche laesst sich am Telefon nicht
+    untersuchen, sondern nur bereden. Mit dem Bild auf dem Rechner laesst sich
+    Merkmal fuer Merkmal gegen das Musterbild vergleichen -- und dann sieht
+    man, ob es am Massstab liegt, am Winkel oder an der Schaerfe.
+    """
+    if _letztes is None:
+        return ""
+    import cv2
+    cv2.imwrite(pfad, _letztes, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    return pfad
 
 
 def suche_tafeln(ordner: str) -> str:
@@ -135,15 +175,19 @@ def suche_tafeln(ordner: str) -> str:
     from kegel_cv.calibration.board_library import erkenne
 
     t0 = time.perf_counter()
-    erkennung = erkenne(_letztes, typen)
+    erkennung = erkenne(_letztes, typen, leiter=_LEITER)
     dauer = (time.perf_counter() - t0) * 1000
 
     if erkennung is None:
+        # Nicht nur "nichts gefunden", sondern WIE NAH es war. Beim Ausrichten
+        # ist das die einzige brauchbare Auskunft: eine Zahl, die steigt, wenn
+        # man besser zielt.
+        nah = _wie_nah(_letztes, typen)
         return (kopf + ZEILENENDE
-                + f"Keine Tafel gefunden ({dauer:.0f} ms, "
-                f"{len(typen)} Typ(en) geprueft)." + ZEILENENDE
-                + "Das ist in einer unbekannten Halle der Normalfall und kein"
-                + " Fehler -- die Tafel muss gross und gerade im Bild stehen.")
+                + f"Keine Tafel ({dauer:.0f} ms). Beste Uebereinstimmung "
+                + f"{nah} von {_MINDESTENS} noetigen Merkmalen."
+                + ZEILENENDE
+                + "Tafel gross, gerade und scharf ins Bild holen.")
 
     zeilen = [kopf,
               f"{erkennung.typ.name}: {len(erkennung.treffer)} Tafel(n), "
@@ -171,7 +215,7 @@ def rechteck_der_tafeln(ordner: str):
     if not typen:
         return []
     from kegel_cv.calibration.board_library import erkenne
-    erkennung = erkenne(_letztes, typen)
+    erkennung = erkenne(_letztes, typen, leiter=_LEITER)
     if erkennung is None:
         return []
     return [[float(w) for p in t.quad for w in p] for t in erkennung.treffer]
