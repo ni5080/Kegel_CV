@@ -85,7 +85,10 @@ CELL_HEIGHT = 40
 
 
 def segment_regions(width: int = CELL_WIDTH,
-                    height: int = CELL_HEIGHT) -> dict[str, tuple[int, int, int, int]]:
+                    height: int = CELL_HEIGHT,
+                    shear: float = 0.0,
+                    middle_inset: float = 0.0,
+                    ) -> dict[str, tuple[int, int, int, int]]:
     """Segmentflaechen einer exakt eingerahmten Ziffer.
 
     Die Aufteilung ist rein geometrisch -- moeglich nur, weil die Ziffernbox
@@ -96,8 +99,24 @@ def segment_regions(width: int = CELL_WIDTH,
 
     Die Flaechen sind von den Ecken weggerueckt: Dort treffen zwei Segmente
     aufeinander, eine Messung waere mehrdeutig.
+
+    Args:
+        shear: Schraeglage der Schrift. Jede Flaeche wird waagerecht
+            verschoben, und zwar umso weiter nach rechts, je weiter oben sie
+            liegt. Begruendung und Messbeleg stehen bei
+            `detection.digits.segment_shear`.
+        middle_inset: Wie weit die mittlere Flaeche (g) beidseitig eingezogen
+            wird -- siehe `detection.digits.segment_middle_inset`.
     """
     def box(x0: float, y0: float, x1: float, y1: float) -> tuple[int, int, int, int]:
+        if shear:
+            # Die Verschiebung richtet sich nach der HOEHE der Flaechenmitte:
+            # oben am weitesten nach rechts, unten am weitesten nach links.
+            # Der Bezugspunkt ist die Zellenmitte, damit die Ziffer als Ganzes
+            # an ihrem Platz bleibt und nur gekippt wird.
+            versatz = shear * (0.5 - (y0 + y1) / 2.0)
+            x0, x1 = x0 + versatz, x1 + versatz
+        x0, x1 = max(0.0, min(1.0, x0)), max(0.0, min(1.0, x1))
         px0, py0 = int(x0 * width), int(y0 * height)
         px1, py1 = int(x1 * width), int(y1 * height)
         return px0, py0, max(1, px1 - px0), max(1, py1 - py0)
@@ -109,11 +128,18 @@ def segment_regions(width: int = CELL_WIDTH,
     # "0" wurde dadurch als "8" gelesen -- die Trefferquote fiel auf 17 %.
     # Am Rand der Ziffer liegen immer Segmente; nur die Mitte ist eindeutig.
     #
+    # NACHTRAG 2026-09-15: Sie war noch nicht schmal genug. Bei schraeger
+    # Schrift lehnen die senkrechten Striche in die Mitte hinein, und dieselbe
+    # Verwechslung entstand wieder -- nur leiser. GEMESSEN an 1187
+    # beschrifteten Bildern hebt ein beidseitiger Einzug die Treffer von
+    # 86,8 % auf 87,7 %, auf Bahn 4 und 5 von 66,8 % auf 69,3 %. Der Wert
+    # steht in `detection.digits.segment_middle_inset`, die Messtabelle dort.
+    #
     # Die SENKRECHTEN Segmente werden am aeusseren Viertel gemessen und von der
     # Mittellinie weggerueckt, wo sie sich mit "g" beruehren wuerden.
     return {
         "a": box(0.30, 0.00, 0.70, 0.16),
-        "g": box(0.34, 0.42, 0.66, 0.58),
+        "g": box(0.34 + middle_inset, 0.42, 0.66 - middle_inset, 0.58),
         "d": box(0.30, 0.84, 0.70, 1.00),
         "f": box(0.00, 0.14, 0.26, 0.44),
         "b": box(0.74, 0.14, 1.00, 0.44),
@@ -240,7 +266,9 @@ class CalibratedDigitReader:
     def __init__(self, cfg: DigitDetectionConfig) -> None:
         self.cfg = cfg
         self._preprocessor = SevenSegmentDetector(cfg)
-        self._regions = segment_regions()
+        self._regions = segment_regions(
+            shear=cfg.segment_shear,
+            middle_inset=cfg.segment_middle_inset)
 
     def read_digit(self, patch: np.ndarray) -> tuple[str, float]:
         zeichen, confidence, _ = self.read_digit_full(patch)

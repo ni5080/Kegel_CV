@@ -744,6 +744,73 @@ class DigitDetectionConfig(BaseModel):
     # liegt darunter, damit diese Faelle gelesen werden, und ueber dem
     # Muenzwurf, damit ein echtes Patt schweigt.
     segment_probability_min: float = Field(default=0.5, gt=0.0, le=1.0)
+    # SCHRAEGLAGE DER ZIFFERN. Die Messflaechen werden umso weiter nach rechts
+    # gerueckt, je weiter oben sie liegen. 0,08 heisst: die oberste Flaeche
+    # sitzt um 8 % der Zellenbreite weiter rechts als die unterste.
+    #
+    # Der Nutzer beim Blick auf `debug/segmentlage.png` (2026-09-15): *"dann
+    # sitzen die Flaechen der linken Seite oben und in der absoluten Mitte
+    # falsch"*. Die Ziffern dieser Tafel stehen kursiv, die Flaechen standen
+    # gerade -- Segment f (oben links) erreichte aktiv im Mittel nur 0,617
+    # gegen 0,867 bei a und fiel als erstes unter die Schwelle.
+    #
+    # GEMESSEN an 1187 beschrifteten Ziffernbildern
+    # (`data/ground_truth/ziffern_neue_sperre.npz`, Wahrheit aus den Lampen),
+    # Einstellung auf der einen Haelfte gewaehlt, auf der anderen geprueft:
+    #
+    #     Scherung   Treffer (Pruefhaelfte)   gueltige Muster
+    #       0,00            86,8 %                88,0 %
+    #       0,04            87,7 %                91,1 %
+    #       0,08            87,7 %                94,0 %
+    #       0,12            86,7 %                94,4 %
+    #       0,16            86,7 %                97,6 %
+    #
+    # Der Gewinn an TREFFERN ist klein (0,9 Punkte, also 6 von 608 Bildern)
+    # und liegt auf einem flachen Plateau von 0,04 bis 0,10; darueber faellt
+    # er wieder. Der Gewinn an GUELTIGKEIT ist der eigentliche: Der Anteil der
+    # Lesungen, die auf den Notfallpfad fallen, halbiert sich von 12 % auf
+    # 6 %. Diese Zahl kommt ohne jede Beschriftung aus -- sie zaehlt nur, ob
+    # das gemessene Muster ueberhaupt in der Tabelle steht.
+    #
+    # Gewaehlt ist die Mitte des Plateaus, nicht sein Rand.
+    #
+    # ABGESCHALTET (Vorgabe 0,0), UND ZWAR NACH EINER GEGENPROBE, DIE DAGEGEN
+    # SPRACH. Am beschrifteten Datensatz sah die Scherung gut aus. Am ganzen
+    # Mitschnitt gemessen -- Summenfeld `total_b`, fortlaufend gelesen, gegen
+    # dieselbe Systematik wie oben -- kehrte sich das um:
+    #
+    #     Bahn   ohne Scherung   mit 0,08 / Einzug 0,06
+    #       2       73,7 %              52,8 %
+    #       3       98,5 %              99,0 %
+    #       4       94,8 %              91,4 %
+    #       5       98,3 %              99,0 %
+    #
+    # Auf Bahn 2 stieg die Zahl der Lesungen von 362 auf 996: Die geaenderte
+    # Geometrie erzeugt gueltige Muster, wo vorher geschwiegen wurde -- und
+    # die sind falsch. Der beschriftete Datensatz konnte das nicht zeigen, er
+    # besteht zu zwei Dritteln aus Bahn 2+3 und misst vor allem das
+    # EINSTELLIGE Feld `pin_count`, nicht die vierstellige Summe.
+    #
+    # Die Parameter bleiben, weil die Richtung stimmt und eine andere Anlage
+    # sie brauchen kann. Die Vorgabe bleibt bei null, bis eine Messung am
+    # laufenden Material sie traegt.
+    segment_shear: float = Field(default=0.0, ge=0.0, le=0.5)
+    # Wie weit die MITTLERE Flaeche (g) beidseitig eingezogen wird.
+    #
+    # Sie liegt zwischen den senkrechten Segmenten und erwischt bei schraeger
+    # Schrift deren Striche -- im Bild sichtbar an einer klar lesbaren `0`, die
+    # als "8 zu 52,4 % gegen 0 zu 47,4 %" herauskam. Die Richtung ist nicht
+    # neu: Die Flaeche wurde schon einmal verengt, weil jede `0` als `8`
+    # gelesen wurde. Sie war nur noch nicht schmal genug.
+    #
+    # GEMESSEN am selben Datensatz: Der Einzug hebt die Treffer von 86,8 % auf
+    # 87,7 % und auf Bahn 4 und 5 von 66,8 % auf 69,3 % -- ab 0,06 und dann
+    # unveraendert bis 0,12. Auf die Gueltigkeit wirkt er nicht.
+    #
+    # WICHTIG: Einzug und Scherung heben DIESELBEN Faelle, sie addieren sich
+    # nicht. Beide stehen trotzdem, weil sie verschiedene Ursachen treffen und
+    # bei einer anderen Anlage verschieden ausfallen duerften.
+    segment_middle_inset: float = Field(default=0.0, ge=0.0, lt=0.16)
     # Mindesthelligkeit im Ziffern-ROI (95. Perzentil Rotkanal), damit ueberhaupt
     # gelesen wird. Ohne diese Schranke macht Otsu aus Rauschen eine Ziffer --
     # gemessen bevorzugt eine "8". Klare Anzeige = 255, verblassend <= 212.

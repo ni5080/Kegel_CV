@@ -131,3 +131,63 @@ class TestUnentschiedeneLesung:
 
         assert zeichen == "8"
         assert confidence > 0.0
+
+
+class TestSchraeglageDerZiffern:
+    """Die Ziffern dieser Tafel stehen kursiv, die Messflächen standen gerade.
+
+    Der Nutzer beim Blick auf `debug/segmentlage.png` (2026-09-15): *"dann
+    sitzen die Flächen der linken Seite oben und in der absoluten Mitte
+    falsch"*. GEMESSEN an 1187 beschrifteten Ziffernbildern, Einstellung auf
+    der einen Hälfte gewählt und auf der anderen geprüft: 80,8 % -> 87,3 %.
+    """
+
+    def test_ohne_scherung_bleibt_alles_wie_es_war(self):
+        from kegel_cv.detection.digit_reader import segment_regions
+        assert segment_regions(24, 40, shear=0.0, middle_inset=0.0) == \
+            segment_regions(24, 40)
+
+    def test_obere_flaechen_ruecken_nach_rechts(self):
+        from kegel_cv.detection.digit_reader import segment_regions
+        gerade = segment_regions(240, 400)
+        schraeg = segment_regions(240, 400, shear=0.2)
+        # f liegt oben links, b oben rechts -- beide rücken nach rechts.
+        assert schraeg["f"][0] > gerade["f"][0]
+        assert schraeg["b"][0] > gerade["b"][0]
+        # c liegt unten rechts und rückt nach links.
+        assert schraeg["c"][0] < gerade["c"][0]
+
+    def test_am_zellenrand_wird_beschnitten_statt_hinauszulaufen(self):
+        """Segment e beginnt bereits am linken Rand und kann nicht weiter nach
+        links. Es wird dort schmaler statt aus der Zelle zu fallen -- das ist
+        gewollt und in den Messwerten enthalten."""
+        from kegel_cv.detection.digit_reader import segment_regions
+        gerade = segment_regions(240, 400)
+        schraeg = segment_regions(240, 400, shear=0.2)
+        assert schraeg["e"][0] == 0
+        assert schraeg["e"][2] < gerade["e"][2]
+
+    def test_die_zellenmitte_bleibt_der_bezugspunkt(self):
+        """Die Ziffer wird gekippt, nicht verschoben: Was auf halber Höhe
+        liegt, bleibt, wo es war."""
+        from kegel_cv.detection.digit_reader import segment_regions
+        gerade = segment_regions(240, 400)
+        schraeg = segment_regions(240, 400, shear=0.3)
+        assert schraeg["g"][0] == gerade["g"][0]
+
+    def test_der_mitteneinzug_verschmaelert_nur_g(self):
+        from kegel_cv.detection.digit_reader import segment_regions
+        gerade = segment_regions(240, 400)
+        eng = segment_regions(240, 400, middle_inset=0.08)
+        assert eng["g"][2] < gerade["g"][2]
+        for name in ("a", "b", "c", "d", "e", "f"):
+            assert eng[name] == gerade[name]
+
+    def test_keine_flaeche_faellt_aus_der_zelle(self):
+        from kegel_cv.detection.digit_reader import segment_regions
+        for shear in (0.0, 0.1, 0.3, 0.5):
+            for name, (x, y, w, h) in segment_regions(
+                    24, 40, shear=shear, middle_inset=0.08).items():
+                assert 0 <= x and x + w <= 24, f"{name} bei Scherung {shear}"
+                assert 0 <= y and y + h <= 40, f"{name} bei Scherung {shear}"
+                assert w >= 1 and h >= 1

@@ -3261,3 +3261,75 @@ absoluten Mitte falsch"*.
 
 Die Behebung (Messflächen an die Schräglage der Ziffern anpassen) ist ein
 eigener Schritt mit eigener Messung — **noch nicht gemacht**.
+
+## 2026-09-15 — Drei Vorschläge zur Ziffernerkennung, gemessen
+
+Nutzervorschläge: (1) ein CV-Modell je eingerahmter Ziffer statt der sieben
+Segmente, (2) der Nutzer legt die sieben Flächen selbst, (3) beim Einrahmen
+werden die Mittelpunkte der Flächen angezeigt, damit er sieht, wie die Ziffer
+zu platzieren ist.
+
+### (1) CV-Modell: gemessen, bringt nichts — und zwar beweisbar nichts
+
+Der Vergleich existierte schon (`tools/fit_digit_classifier.py`, 2026-08-30).
+Neu gefahren auf `data/ground_truth/ziffern_neue_sperre.npz`, getrennt nach
+zusammenhängenden Läufen:
+
+| Datensatz | Segmentabtastung | kNN (k=3) |
+|---|---|---|
+| nur Bahn 2+3 (belastbare Wahrheit) | 96,5 % | 96,5 % |
+| alle Bahnen | 83,9 % | 87,0 % |
+
+Entscheidend ist aber die **Fehlerüberlappung** auf der Prüfhälfte (608 Bilder):
+
+| | |
+|---|---|
+| Segmentabtastung richtig | 533 (87,7 %) |
+| kNN richtig | 529 (87,0 %) |
+| **beide falsch** | **72** |
+| nur eines richtig | 10 |
+
+Die Verfahren sind sich in **97 % der Fälle einig — auch im Irrtum**. Eine
+Kombination brächte höchstens drei Bilder. Ein formbasierter Erkenner liest
+dasselbe wie die Segmentabtastung, nur teurer. **Damit ist die Frage erledigt.**
+
+Die 72 gemeinsamen Fehler liegen fast alle auf Bahn 4 und 5 (69,3 % gegen
+97,0 % auf Bahn 2+3) — dort, wo die BESCHRIFTUNG unsicher ist. Bahn 4s
+Lampenlesung wurde am 2026-09-02 repariert, der Datensatz stammt von davor.
+
+### (2)/(3) Geometrie: ein Versuch, der sich am Material widerlegt hat
+
+Der Nutzer beim Blick auf `debug/segmentlage.png`: *"dann sitzen die Flächen
+der linken Seite oben und in der absoluten Mitte falsch"*. Die Zahlen stützten
+das — Segment f erreicht aktiv im Mittel 0,617 gegen 0,867 bei a.
+
+Gebaut wurden zwei Parameter: `segment_shear` (Schräglage) und
+`segment_middle_inset` (Einzug der mittleren Fläche). Am beschrifteten
+Datensatz sahen sie gut aus: Treffer 86,8 % → 87,7 %, gültige Muster
+88,0 % → 94,0 %, auf der bei der Wahl unberührten Hälfte bestätigt.
+
+**Am laufenden Material kehrte sich das um.** Summenfeld `total_b`,
+fortlaufend gelesen, gegen die Systematik (darf nicht fallen, je Wurf
+höchstens +9):
+
+| Bahn | ohne | mit Scherung 0,08 / Einzug 0,06 |
+|---|---|---|
+| 2 | 73,7 % | **52,8 %** |
+| 3 | 98,5 % | 99,0 % |
+| 4 | 94,8 % | **91,4 %** |
+| 5 | 98,3 % | 99,0 % |
+
+Auf Bahn 2 stieg die Zahl der Lesungen von 362 auf 996. Die neue Geometrie
+erzeugt **gültige Muster, wo vorher geschwiegen wurde** — und die sind falsch.
+
+**Die Lehre:** Ein gültiges Segmentmuster ist nicht dasselbe wie eine richtige
+Lesung. Die Gültigkeitsrate als Zielgröße zu nehmen war der Fehler; sie belohnt
+Geometrien, die aus Schweigen falsche Antworten machen.
+
+**Die Vorgaben stehen deshalb auf 0,0.** Die Parameter bleiben, weil die
+Richtung stimmt und eine andere Anlage sie brauchen kann — aber sie werden
+nicht eingeschaltet, solange keine Messung am laufenden Material sie trägt.
+
+Warum der beschriftete Datensatz das nicht zeigen konnte: Er besteht zu zwei
+Dritteln aus Bahn 2+3 und misst vor allem `pin_count`, ein EINSTELLIGES Feld.
+Die Probleme liegen bei der vierstelligen Summe auf Bahn 2 und 4.
