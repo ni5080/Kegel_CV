@@ -280,12 +280,13 @@ deshalb steht sie im Profil.
 
 ### Was noch offen ist
 
-Ob eine Kegellampe leuchtet, **weil** der Kegel gefallen ist oder weil er
-steht, ist ebenfalls eine Anlageneigenschaft. Es gibt bisher kein Material
-einer Anlage, die es andersherum macht, und ein ungetesteter Schalter ist
-schlimmer als eine dokumentierte Lücke.
+Nicht die Lampenpolarität und nicht die Kegelnummerierung — beides ist genormt
+(siehe `docs/OPEN_QUESTIONS.md`). Und die Nummerierung hat einen Prüfer, den
+kein Test ersetzt: Der Liveticker zeigt bei jedem Wurf das Kegelbild, und es
+wird während des Spiels mitgelesen.
 
-Die gefährlichste Art zu scheitern wäre hier nicht „es geht nicht", sondern
-**„es geht plausibel falsch"**: Eine gespiegelte Kegelnummern-Zuordnung
-liefert die richtige *Anzahl* und die falschen *Nummern*. Jede Prüfung im
-Werkzeug vergleicht heute Anzahlen — das fiele niemandem auf.
+Offen ist der **Einmessbericht**: Woher weiß man, dass eine neue Halle trägt?
+Die Bausteine sind da (`PlausibilityCheck`, `evidence`, Confidence), die
+Zusammenfassung fehlt. Das ist die gefährlichere Lücke, denn hier gibt es
+keinen Liveticker, der es aufdeckt — die Abweichungen wären einzelne falsche
+Würfe zwischen vielen richtigen.

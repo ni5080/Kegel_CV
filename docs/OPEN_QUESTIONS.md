@@ -594,30 +594,36 @@ allein auf einer gelesenen 0 aufbauen.
 **Verwandt:** BUG-009 (9 ohne unteren Balken → 4), BUG-020 (Einigkeit statt
 Bildgüte), Q15.
 
-## Skalierung auf weitere Anlagen (offen seit 2026-09-15)
+## Skalierung auf weitere Anlagen (2026-09-15)
 
 Das Anlagenprofil (`calibration/anlage.py`) trennt jetzt, was beim
-Hallenwechsel mitreist. Drei Fragen bleiben unbeantwortet, weil es **kein
-Material einer zweiten Anlage** gibt:
+Hallenwechsel mitreist. Von den drei Fragen, die ich dabei aufgeworfen hatte,
+sind zwei **keine Fragen** — der Nutzer kennt die Domäne, ich nicht:
 
-**1. Polarität der Kegellampen.** Leuchtet eine Lampe, weil der Kegel gefallen
-ist, oder weil er steht? Heute ist „leuchtet = gefallen" fest angenommen. Ein
-Schalter dafür wäre schnell gebaut und ungetestet — schlimmer als diese Lücke.
-Die Ziffern könnten es beantworten: Zeigt die Kegelzahl 5, während 5 Lampen
-leuchten, ist die Sache klar. Über 50 Würfe wäre das eindeutig.
+**Polarität der Kegellampen — erledigt.** „Leuchtet = gefallen" ist Standard,
+nicht Konvention einer Halle. Ein Schalter dafür wäre ein ungetesteter
+Schalter für einen Fall, den es nicht gibt.
 
-**2. Die gefährliche Art zu scheitern.** Eine gespiegelte
-Kegelnummern-Zuordnung liefert die richtige *Anzahl* und die falschen
-*Nummern*. Jede Prüfung im Werkzeug vergleicht heute Anzahlen; das fiele
-niemandem auf. Ein möglicher Wächter: Über viele Würfe muss jede Kegelnummer
-ungefähr gleich oft fallen, und Kegel 1 deutlich öfter als Kegel 9. Eine
-Verteilung, die das verletzt, wäre ein Alarm. Ungemessen.
+**Gespiegelte Kegelnummern — erledigt, zweifach.** Die Nummerierung ist
+genormt (oben ist hinten), und die Kalibrierung sagt ausdrücklich, welcher
+Bereich welcher Kegel ist. Dazu kommt der stärkere Beleg: **Der Liveticker
+zeigt bei jedem Wurf das Kegelbild**, und es wird während des Spiels
+mitgelesen. Eine vertauschte Seite wäre über Wochen jedem Spieler aufgefallen
+— ein gefallener Kegel steht sichtbar woanders. Der Vorbehalt in
+`config/default.yaml` („Annahme, nicht Messung") ist entsprechend ersetzt.
 
-**3. Woher weiß man, dass eine neue Halle trägt?** Die Bausteine sind da
-(`PlausibilityCheck`, `evidence`, die Confidence), die Zusammenfassung fehlt:
-*„Über 120 Würfe stimmten Lampen und Ziffern in 96 % überein, die Summe in
-99 %, die Wurfnummer lief lückenlos."* Ohne so einen Einmessbericht merkt
-niemand, dass eine neue Halle nur *fast* funktioniert.
+Damit bleibt **eine** Frage offen, und sie ist die nützlichste von den dreien:
 
-Alle drei brauchen eine zweite Anlage. Sie jetzt zu bauen hieße, gegen eine
-Halle zu entwickeln, die das Werkzeug schon kennt — und das beweist nichts.
+### Woher weiß man, dass eine neue Halle trägt?
+
+Die Bausteine sind da (`PlausibilityCheck`, `evidence`, die Confidence), die
+Zusammenfassung fehlt: *„Über 120 Würfe stimmten Lampen und Ziffern in 96 %
+überein, die Summe in 99 %, die Wurfnummer lief lückenlos."*
+
+Ohne so einen Einmessbericht merkt niemand, dass eine neue Halle nur *fast*
+funktioniert — und anders als bei der Kegelnummerierung gibt es dafür keinen
+Liveticker, der es im Betrieb aufdeckt: Die Abweichungen wären einzelne
+falsche Würfe zwischen vielen richtigen.
+
+Gebaut wird das, sobald Material einer zweiten Anlage da ist. Es jetzt gegen
+die Halle zu entwickeln, die das Werkzeug schon kennt, beweist nichts.

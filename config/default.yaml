@@ -256,10 +256,18 @@ calibration:
   # Spiegelung von oben nach unten, links bleibt links. Vom Nutzer festgelegt
   # am 2026-09-01 und gestuetzt durch Bahn 2, Frame 180238: Dort blieb unsere
   # L2 stehen, und der Nutzer sagte unabhaengig "hinten links" voraus -- seine
-  # 7. Die Seitenzuordnung ist dabei Annahme, nicht Messung.
+  # 7.
+  #
+  # DIE SEITENZUORDNUNG galt bis 2026-09-15 als Annahme. Sie ist keine: Der
+  # Liveticker zeigt bei jedem Wurf das Kegelbild, und es wird waehrend des
+  # Spiels mitgelesen. Eine vertauschte linke und rechte Seite waere ueber
+  # Wochen jedem Spieler aufgefallen -- ein gefallener Kegel steht schliesslich
+  # sichtbar woanders. Der Nutzer dazu: "bei uns waere das schon laengst
+  # aufgefallen, im Liveticker sieht man das ja immer schon."
   #
   # ANLAGENEIGENSCHAFT. Dieser Wert gehoert zu EINER Anlage, nicht zum
-  # Verfahren -- eine andere Halle nummeriert womoeglich anders. Er laesst
+  # Verfahren. Die Nummerierung ist zwar genormt -- oben ist hinten --, aber
+  # er laesst
   # sich deshalb im Tafeltyp ueberschreiben (`anlage.pin_number_mapping`,
   # siehe `calibration/anlage.py`). Was hier steht, ist die Vorgabe.
   pin_number_mapping: [9, 7, 8, 4, 5, 6, 2, 3, 1]
