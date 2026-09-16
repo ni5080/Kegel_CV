@@ -591,8 +591,24 @@ class WarmthLampDetector:
         # Ergebnis. Klar leuchtende Lampen (Helligkeit 255) wurden als UNKNOWN
         # gemeldet, weil ihre Waerme mit 31 knapp unter der Schwelle lag.
         # Die Waerme dient jetzt nur noch als Plausibilitaetsschranke gegen
-        # helle, aber farblose Reflexe.
-        if brightness >= an_schwelle and warmth >= self.cfg.warmth_min:
+        # helle, aber farblose Reflexe -- und ist standardmaessig AUS.
+        #
+        # NACHTRAG 2026-09-16: Sie war nie wirklich aus. `warmth_min: 0.0`
+        # sollte das ausdruecken, aber die Waerme (`rot - blau`) wird bei
+        # einer weiss gesaettigten Lampe negativ. GEMESSEN auf Bahn 2,
+        # F6600-6960: Helligkeit konstant 255,0, Waerme pendelnd zwischen
+        # -0,3 und +0,3 -- der Zustand sprang sechsmal zwischen ON und
+        # UNKNOWN, ohne dass jemand warf. Ueber den ganzen Mitschnitt traf es
+        # 99 von 3685 hellen Messungen der Bahn 2 (2,7 %), auf Bahn 3 und 4
+        # keine einzige.
+        #
+        # Ein solcher UNKNOWN-Kegel faellt aus der Liste der liegenden Kegel
+        # und wirkt damit wie "steht". Bei einem Raeumwurf ist das Ergebnis
+        # eine Differenz zweier Messungen -- der Punktestand war betroffen
+        # (Bahn 2 Wurf 21: 5 gebucht, Ziffer und Summe sagten 4).
+        warm_genug = (self.cfg.warmth_min is None
+                      or warmth >= self.cfg.warmth_min)
+        if brightness >= an_schwelle and warm_genug:
             state = LampState.ON
         elif brightness <= aus_schwelle:
             state = LampState.OFF

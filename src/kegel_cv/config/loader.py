@@ -174,7 +174,10 @@ def load_config(
     # Mitgegeben werden die beiden Werte, an denen sich die Profile
     # unterscheiden. Ein Pfad allein sagt nichts, wenn jemand die Datei
     # bearbeitet hat.
-    log.info("Konfiguration: %s | Verdeckungsschwelle %.1f | Waermeschranke %.1f",
+    # "aus" statt einer Zahl, wenn die Schranke abgeschaltet ist -- eine
+    # Null waere an dieser Stelle irrefuehrend, denn sie ist es nicht.
+    waerme = cfg.detection.lamps.warmth_min
+    log.info("Konfiguration: %s | Verdeckungsschwelle %.1f | Waermeschranke %s",
              config_path, cfg.detection.green.occlusion_score,
-             cfg.detection.lamps.warmth_min)
+             "aus" if waerme is None else "%.1f" % waerme)
     return cfg

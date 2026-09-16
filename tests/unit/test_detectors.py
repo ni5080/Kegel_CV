@@ -92,9 +92,33 @@ class TestWarmthLampDetector:
             "Helligkeit muss entscheiden -- die Waerme ist nur Plausibilitaet"
         )
 
-    def test_heller_aber_farbloser_reflex_gilt_nicht_als_lampe(self, detector):
-        """Die Waerme bleibt als Schranke gegen weisse Reflexe wirksam."""
+    def test_ohne_schranke_zaehlt_allein_die_helligkeit(self, detector):
+        """VORGABE seit 2026-09-16: `warmth_min` ist None, also aus.
+
+        Vorher stand dort 0,0 mit dem Kommentar "abgeschaltet" -- das war es
+        nicht. Die Waerme (`rot - blau`) wird bei einer weiss gesaettigten
+        Lampe negativ, und das Vorzeichen eines Rauschwerts entschied ueber
+        ON oder UNKNOWN. GEMESSEN auf Bahn 2, F6600-6960: Helligkeit konstant
+        255,0, Zustand sechsmal gewechselt, ohne dass jemand warf.
+        """
+        assert detector.cfg.warmth_min is None
         reading = detector.detect_one(patch((250, 250, 252)), "pin_lamp_1")
+        assert reading.state is LampState.ON
+
+    def test_mit_schranke_gilt_ein_farbloser_reflex_nicht_als_lampe(self):
+        """Eingeschaltet wirkt sie weiter -- fuer Anlagen mit FARBIGEN Lampen.
+
+        Der Nutzer zur Vorgabe: *"wenn ich jetzt weiter denke, eben an andere
+        Bahnen, die vielleicht mit Gruen oder Roten Lampen die Kegel anzeigen,
+        waere dann NUR Helligkeit nicht cleverer?"* -- ja. `rot - blau` ist
+        auf ROTE Lampen zugeschnitten; gruene fielen durch. Wer die Schranke
+        trotzdem braucht, schaltet sie im Anlagenprofil ein.
+        """
+        from kegel_cv.config import load_config
+        cfg = load_config().detection.lamps.model_copy(
+            update={"warmth_min": 12.0})
+        eigener = WarmthLampDetector(cfg)
+        reading = eigener.detect_one(patch((250, 250, 252)), "pin_lamp_1")
         assert reading.state is not LampState.ON
 
     def test_matte_lampe(self, detector):

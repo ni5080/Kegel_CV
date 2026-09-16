@@ -3390,3 +3390,50 @@ Bahn 4 liefert vier `unklar`: Die Summendifferenz liegt dort durchweg zwei bis
 drei unter der Lampenzahl (Lampen 9 gegen Differenz 6, Lampen 7 gegen 2). Ihre
 Ziffernrahmen wurden nicht nachgezogen — dieselbe Behandlung wie bei Bahn 2
 wäre der nächste Schritt.
+
+## 2026-09-16 — BUG-027: Null ist nicht aus
+
+Anlass war die Rückfrage des Nutzers zu einem Befund, den ich falsch gedeutet
+hatte: *„aber ich dachte die Lampen passen sich selbst an? Also müsste dieses
+'flackernd' wirkende (ich sehe da keine Helligkeitsänderungen) doch automatisch
+die Wolken im Histogram anpassen, oder nicht?"*
+
+Er hatte recht. GEMESSEN, Bahn 2, Kegel 3, F6600–6960:
+
+```
+Frame   Helligkeit  Waerme  AN-Schwelle  AUS-Schwelle  Zustand
+  6624       255.0     0.0        213.0         205.0       ON
+  6636       254.9    -0.3        213.0         205.0  UNKNOWN
+  6660       255.0     0.0        213.0         205.0       ON
+  6696       255.0    -0.2        213.0         205.0  UNKNOWN
+```
+
+Die Helligkeit steht konstant bei 255,0, die Schwellen bewegen sich nie, die
+Lampe geht kein einziges Mal auf AUS. Das gleitende Histogramm arbeitet
+einwandfrei — es ist nur nicht zuständig. Umgeschaltet hat die **Wärme**
+(`rot − blau`), die bei einer weiß gesättigten Lampe um null pendelt, bei einer
+Schranke von exakt 0,0.
+
+Über den ganzen Mitschnitt: **99 von 3685 hellen Messungen der Bahn 2 verworfen
+(2,7 %)**, auf Bahn 3 und 4 keine einzige. Wärme-Median bei hellen Messungen:
+Bahn 2 **0,78**, Bahn 3 2,87, Bahn 4 **24,17**.
+
+Die Behebung: `warmth_min` ist jetzt `float | None`, Vorgabe `None` = aus.
+
+| | vorher | **nachher** |
+|---|---|---|
+| Bahn 2 Wurf 21 | 5 Kegel (ERROR) | **4 Kegel (VALID)** |
+| `lampen_verdaechtig` | 1 | **0** |
+| `einig` | 25 (43,9 %) | **26 (45,6 %)** |
+| Differenz trifft die Lampen | 30 von 35 | **31 von 35** |
+| ERROR-Würfe | 2 | **1** |
+| Würfe | 64 | 64 |
+| ms/Frame | 23,76 | **23,80** |
+
+Die Laufzeit wurde eigens nachgemessen, weil ein Lauf zwischendurch 49 ms
+meldete: Dasselbe Skript über dieselben 13.530 Frames liefert 23,76 gegen
+23,80 ms — die Verlangsamung kam von parallel laufender Arbeit, nicht von der
+Änderung.
+
+Vollständige Herleitung samt der falschen Fährte („die Lampe flackert") in
+`.claude/skills/bugs/BUG-027-null-ist-nicht-aus/SKILL.md`.

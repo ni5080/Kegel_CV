@@ -547,7 +547,27 @@ class LampDetectionConfig(BaseModel):
     # Zweite Sicherung: Weiter als das darf der Bezugswert nicht steigen.
     baseline_max_drift: float = Field(default=70.0, ge=0)
 
-    warmth_min: float = 12.0
+    # None heisst AUS -- die Helligkeit entscheidet allein.
+    #
+    # VORSICHT, HIER LAG EIN FEHLER (2026-09-16, vom Nutzer aufgedeckt): Der
+    # Wert stand auf 0,0 mit dem Kommentar "abgeschaltet fuer diese Kamera".
+    # Abgeschaltet war er damit NICHT. Die Waerme ist `rot - blau` und wird
+    # bei einer weiss gesaettigten Lampe NEGATIV (gemessen -0,3 bis +0,3).
+    # Null ist deshalb nicht "aus", sondern genau die Kante, auf der eine
+    # weisse Lampe zittert -- und das Vorzeichen eines Rauschwerts entschied
+    # ueber ON oder UNKNOWN.
+    #
+    # Der Nutzer dazu, und er hat auf ganzer Linie recht: *"wenn ich jetzt
+    # weiter denke, eben an andere Bahnen, die vielleicht mit Gruen oder Roten
+    # Lampen die Kegel anzeigen, waere dann NUR Helligkeit nicht cleverer?"*
+    # `rot - blau` ist auf ROTE Lampen zugeschnitten. Bei gruenen Lampen laege
+    # der Wert um null, bei blauen deutlich darunter -- jede einzelne Lampe
+    # fiele durch, und niemand kaeme auf die Ursache, weil die Helligkeit ja
+    # stimmt.
+    #
+    # Eine Anlage mit farbigen Lampen kann die Schranke ueber das
+    # `AnlagenProfil` wieder einschalten. Die Vorgabe ist aus.
+    warmth_min: float | None = None
     # Nur der helle Kern des ROI wird gemessen -- die Lampe fuellt das Rechteck
     # nie ganz aus, der Rand ist Gehaeuse.
     core_percentile: int = Field(default=70, ge=0, le=99)

@@ -85,6 +85,11 @@ class AnlagenProfil(BaseModel):
     # `warmth_min` ist nur die Sperre gegen helle, aber FARBLOSE Reflexe. Bei
     # einer kalt leuchtenden Lampe (gruen, blau) muesste sie herunter, sonst
     # verwirft sie die echten Treffer mit.
+    # None heisst hier "nicht ueberschreiben" -- die Vorgabe der
+    # Konfiguration ist selbst None, also aus. Eine Anlage mit FARBIGEN
+    # Kegellampen kann die Schranke mit einem positiven Wert einschalten;
+    # fuer weiss gesaettigte Lampen ist sie schaedlich (siehe
+    # `detection.lamps.warmth_min`).
     warmth_min: float | None = Field(default=None, ge=0.0)
 
     # --- Was auf der Tafel steht -------------------------------------------

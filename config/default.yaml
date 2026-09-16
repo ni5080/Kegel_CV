@@ -688,7 +688,15 @@ detection:
     # der die urspruengliche Regel "Helligkeit ist das Hauptkriterium"
     # festgemacht wurde. Bahn 4 ist auf beiden Groessen schwach und gehoert
     # nachgemessen.
-    warmth_min: 0.0
+    #
+    # NULL IST DIE ABSCHALTUNG, 0.0 WAR SIE NICHT (Fehler, behoben 2026-09-16).
+    # Die Waerme ist `rot - blau` und wird bei einer weiss gesaettigten Lampe
+    # negativ. GEMESSEN auf Bahn 2, F6600-6960: Helligkeit konstant 255,0,
+    # Waerme pendelnd zwischen -0,3 und +0,3 -- der Zustand sprang sechsmal
+    # zwischen ON und UNKNOWN, ohne dass jemand warf. Ueber den ganzen
+    # Mitschnitt: 99 von 3685 hellen Messungen der Bahn 2 verworfen (2,7 %),
+    # auf Bahn 3 und 4 keine.
+    warmth_min: null
     # 0 = ALLE Pixel des ROI mitteln, kein Kernfilter.
     #
     # Der Kernfilter war ein Notbehelf fuer einen zu weiten Rahmen: Die Lampe

@@ -51,7 +51,11 @@ class TestDieMeldung:
         text = " ".join(r.getMessage() for r in caplog.records)
         assert "Konfiguration" in text
         assert "Verdeckungsschwelle" in text and "Waermeschranke" in text
-        assert ("%.1f" % cfg.detection.lamps.warmth_min) in text
+        # "aus" statt einer Zahl, wenn die Schranke abgeschaltet ist. Eine
+        # Null waere irrefuehrend: Sie war es lange, und genau daran lag ein
+        # Fehler (siehe `detection.lamps.warmth_min`).
+        waerme = cfg.detection.lamps.warmth_min
+        assert ("aus" if waerme is None else "%.1f" % waerme) in text
 
     def test_main_meldet_sie_nach_dem_logging_aufbau(self, caplog, monkeypatch):
         """Der eigentliche Fall: Die Oberflaeche laedt vor dem Logging.

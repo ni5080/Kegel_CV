@@ -30,6 +30,7 @@
 | [024](BUG-024-roi-aenderung-erreicht-die-analyse-nie/SKILL.md) | `GUI` | Eine im laufenden Betrieb verschobene ROI wirkte nicht -- die Analyse liest nur die beim Start vorberechneten Pixelrechtecke, und nichts sagte es | 2026-09-11 | **hoch** | `test_kalibrierung_im_lauf.py` |
 | [025](BUG-025-gesicht-im-tafelbild/SKILL.md) | `DETECT` | Die Personenmaske nahm die Tafelbereiche aus -- und genau dieses Rechteck ging als Bild an die Datenbank: Gesichter im Liveticker, gehaeuft bei Phantomwuerfen | 2026-09-13 | **hoch** | `test_menschen_im_tafelbild.py` |
 | [026](BUG-026-wache-haengt-an-einer-bildaenderung/SKILL.md) | `DETECT` | Eine Referenz, die nur unterhalb einer Schwelle nachlernt, erholt sich von einer ECHTEN Aenderung nie mehr: Bahn 5 war 13 000 Frames eingefroren, ohne dass etwas davorstand | 2026-09-14 | **hoch** | `test_personen_modell.py` |
+| [027](BUG-027-null-ist-nicht-aus/SKILL.md) | `DETECT` | Eine Schranke, die "abgeschaltet" heissen sollte, stand auf 0,0 -- fuer eine Groesse, die negativ werden kann, ist das keine Abschaltung, sondern eine Schwelle mitten im Rauschen. Ein Spieler bekam einen Punkt zu viel | 2026-09-16 | **hoch** | `test_detectors.py` |
 | [019](BUG-019-verworfener-spielwechsel-verschiebt-die-kette/SKILL.md) | `COUNT` | Verworfener Spielwechsel-Zyklus stellte die alte Wurfnummer wieder her — 5 von 64 Sätzen begannen bei 31 statt 1 | 2026-09-03 | **hoch** | `test_throw_analyzer.py::TestVerworfenerSpielwechselVerschiebtDieKette` |
 
 ---
