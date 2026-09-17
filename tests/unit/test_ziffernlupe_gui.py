@@ -118,11 +118,42 @@ class TestDieLupeIstVerdrahtet:
         d.deleteLater()
 
     def test_ohne_springer_meldet_der_sprung_das_auch(self, app):
-        """Beim Stream gibt es keine Frame-Nummer -- das gehört gesagt, nicht
-        stillschweigend ignoriert."""
+        """Kein Bildwechsel möglich -- das gehört gesagt, nicht stillschweigend
+        ignoriert."""
         d = TafelEditorDialog(bahn(), bild())
         d._springe(10)
-        assert "Stream" in d.bild_info.text()
+        assert "kein anderes Bild" in d.bild_info.text()
+        d.deleteLater()
+
+    def test_beim_stream_gibt_es_keine_rueckwaertsknoepfe(self, app):
+        """Der Nutzer (2026-09-17): *"Das wird später im Livestream alles
+        passieren müssen, wir können keine 'Aufzeichnung' bemühen."* Knöpfe
+        anzubieten, die dann stumm nichts tun, wäre schlechter als sie
+        wegzulassen."""
+        from PySide6.QtWidgets import QPushButton
+        d = TafelEditorDialog(bahn(), bild(), springer=lambda s: (None, None),
+                              rueckwaerts=False)
+        texte = [k.text() for k in d.findChildren(QPushButton)]
+        assert "frisches Bild" in texte
+        assert "<<" not in texte and "|<" not in texte
+        d.deleteLater()
+
+    def test_bei_einer_datei_gibt_es_sie(self, app):
+        from PySide6.QtWidgets import QPushButton
+        d = TafelEditorDialog(bahn(), bild(), springer=lambda s: (None, None),
+                              rueckwaerts=True)
+        texte = [k.text() for k in d.findChildren(QPushButton)]
+        assert "<<" in texte and ">>" in texte
+        assert "frisches Bild" not in texte
+        d.deleteLater()
+
+    def test_ein_rueckwaertsschritt_im_stream_wird_benannt(self, app):
+        """Nicht heimlich zu einem Vorwaertsschritt machen."""
+        d = TafelEditorDialog(bahn(), bild(),
+                              springer=lambda s: (None, None),
+                              rueckwaerts=False)
+        d._springe(-10)
+        assert "zurueck" in d.bild_info.text()
         d.deleteLater()
 
     def test_der_sprung_holt_ein_neues_bild(self, app):

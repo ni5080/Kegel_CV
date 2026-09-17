@@ -1560,22 +1560,42 @@ class MainWindow(QMainWindow):
         return None
 
     def _springe_frames(self, schritt: int):
-        """Holt ein Bild `schritt` Frames weiter -- fuer den Tafeleditor.
+        """Holt ein anderes Bild fuer den Tafeleditor.
 
-        WOZU (Nutzer, 2026-09-15): *"nutze bitte ein Standbild und eventuell
-        die Moeglichkeit mit Frames huepfen"*. Ob ein Ziffernrahmen sitzt,
-        entscheidet sich an mehreren ANZEIGEN; wann gewechselt wird, soll aber
-        der Nutzer bestimmen und nicht ein Takt.
+        DER STREAM IST DER ERNSTFALL, nicht die Datei. Der Nutzer dazu
+        (2026-09-17): *"Das wird spaeter im Livestream alles passieren
+        muessen, wir koennen keine 'Aufzeichnung' bemuehen.... Dann muessen
+        wir halt sagen, dass Frame, welches in dem Moment gueltig ist, wo der
+        Nutzer auf Nachkalibrieren klickt muss genommen werden."*
 
-        BEI EINEM STREAM GEHT DAS NICHT: Dort gibt es keine Frame-Nummer, zu
-        der man zurueckspringen koennte. Der Aufrufer bekommt dann (None,
-        None) und sagt es dem Nutzer -- statt still nichts zu tun.
+        Daraus folgen zwei verschiedene Faehigkeiten:
+
+            Datei   vor UND zurueck, gezielt um `schritt` Frames
+            Stream  nur VORWAERTS -- "gib mir das neueste Bild". Zu einem
+                    vergangenen Frame gibt es keinen Weg zurueck, und so zu
+                    tun, als gaebe es ihn, waere schlimmer als die Einschraenkung.
+
+        Eingefroren ist in beiden Faellen das Bild vom Moment des Oeffnens;
+        gewechselt wird nur auf Wunsch.
 
         Returns:
-            (Bild, Frame-Nummer) oder (None, None).
+            (Bild, Frame-Nummer) -- die Nummer ist None, wenn die Quelle
+            keine kennt. (None, None), wenn kein Bild zu holen war.
         """
-        if not self.player.is_loaded or self.player.is_live:
-            return None, None
+        if not self.player.is_loaded:
+            # Waehrend eines Laufs ist der Player zu; dann liefert der Worker
+            # das jeweils neueste Bild -- vorwaerts, wie beim Stream.
+            bild = self._bild_zum_nachziehen()
+            return (bild, None) if bild is not None else (None, None)
+
+        if self.player.is_live:
+            # Nur vorwaerts. Ein Rueckwaertsschritt wird nicht heimlich zu
+            # einem Vorwaertsschritt -- der Aufrufer soll es sagen koennen.
+            if schritt < 0:
+                return None, None
+            bild = self._bild_zum_nachziehen()
+            return (bild, None) if bild is not None else (None, None)
+
         ziel = max(0, self.player.position + schritt)
         if not self.player.seek(ziel):
             return None, None
@@ -1613,6 +1633,9 @@ class MainWindow(QMainWindow):
             tafeln=len(self.session.calibration.lanes),
             bild_quelle=self._bild_zum_nachziehen,
             springer=self._springe_frames,
+            # Rueckwaerts nur, wenn es eine Datei ist. Beim Stream gibt es
+            # kein vergangenes Frame (siehe `_springe_frames`).
+            rueckwaerts=self.player.is_loaded and not self.player.is_live,
             parent=self)
         if dialog.exec() != QDialog.Accepted:
             self.statusBar().showMessage("Nachkalibrieren abgebrochen", 3000)

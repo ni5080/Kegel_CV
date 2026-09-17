@@ -431,7 +431,8 @@ class TafelEditorDialog(QDialog):
     """
 
     def __init__(self, lane, bild: np.ndarray, *, tafeln: int = 1,
-                 bild_quelle=None, springer=None, parent=None) -> None:
+                 bild_quelle=None, springer=None, rueckwaerts: bool = True,
+                 parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Bahn {lane.display_number} nachkalibrieren")
         self._lane = lane
@@ -498,13 +499,36 @@ class TafelEditorDialog(QDialog):
             " sonst wechselt die Anzeige, waehrend man zieht.")
         self.standbild.toggled.connect(self._on_standbild)
         bild_zeile.addWidget(self.standbild)
-        for beschriftung, schritt in (("<<", -100), ("<", -10), ("|<", -1),
-                                      (">|", 1), (">", 10), (">>", 100)):
-            knopf = QPushButton(beschriftung)
-            knopf.setMaximumWidth(44)
-            knopf.setToolTip(f"{schritt:+d} Frames")
-            knopf.clicked.connect(lambda _=False, s=schritt: self._springe(s))
-            bild_zeile.addWidget(knopf)
+
+        # RUECKWAERTS NUR BEI EINER DATEI. Ein Livestream kennt kein
+        # vergangenes Frame -- der Nutzer dazu (2026-09-17): *"Das wird
+        # spaeter im Livestream alles passieren muessen, wir koennen keine
+        # 'Aufzeichnung' bemuehen.... Dann muessen wir halt sagen, dass
+        # Frame, welches in dem Moment gueltig ist, wo der Nutzer auf
+        # Nachkalibrieren klickt muss genommen werden."*
+        #
+        # Knoepfe anzubieten, die dann stumm nichts tun, waere schlechter als
+        # sie wegzulassen. Beim Stream bleibt "frisches Bild" -- vorwaerts
+        # geht immer.
+        if rueckwaerts:
+            for beschriftung, schritt in (("<<", -100), ("<", -10),
+                                          ("|<", -1), (">|", 1),
+                                          (">", 10), (">>", 100)):
+                knopf = QPushButton(beschriftung)
+                knopf.setMaximumWidth(44)
+                knopf.setToolTip(f"{schritt:+d} Frames")
+                knopf.clicked.connect(
+                    lambda _=False, s=schritt: self._springe(s))
+                bild_zeile.addWidget(knopf)
+        else:
+            frisch = QPushButton("frisches Bild")
+            frisch.setToolTip(
+                "Holt das aktuelle Bild aus dem laufenden Stream. "
+                "Zurueck geht es nicht -- ein Stream kennt kein vergangenes "
+                "Frame.")
+            frisch.clicked.connect(lambda: self._springe(1))
+            bild_zeile.addWidget(frisch)
+
         self.bild_info = QLabel("")
         self.bild_info.setStyleSheet("color:#888;")
         bild_zeile.addWidget(self.bild_info)
@@ -739,7 +763,7 @@ class TafelEditorDialog(QDialog):
         bestimmen, wann gewechselt wird.
         """
         if self._springer is None:
-            self.bild_info.setText("Springen hier nicht moeglich (Stream)")
+            self.bild_info.setText("kein anderes Bild verfuegbar")
             return
         try:
             bild, nummer = self._springer(schritt)
@@ -748,11 +772,14 @@ class TafelEditorDialog(QDialog):
             self.bild_info.setText(f"Sprung fehlgeschlagen: {exc}")
             return
         if bild is None:
-            self.bild_info.setText("kein weiteres Bild")
+            self.bild_info.setText(
+                "zurueck geht es im Stream nicht" if schritt < 0
+                else "gerade kein neues Bild da")
             return
         self._original = bild
         self.leinwand.set_bild(entzerre(bild, self._lane.quad))
-        self.bild_info.setText(f"Frame {nummer}" if nummer is not None else "")
+        self.bild_info.setText(f"Frame {nummer}" if nummer is not None
+                               else "frisches Bild")
         # Die Lupe zeigt denselben Rahmen, nur auf dem neuen Bild.
         if self.lupe._name:
             roi = self.leinwand._roi(self.lupe._name)
