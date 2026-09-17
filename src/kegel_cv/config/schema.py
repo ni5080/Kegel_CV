@@ -1018,7 +1018,21 @@ class PersonMaskConfig(BaseModel):
     # im Median 30 Frames, im 99. Perzentil 142, die laengste 250. 750 ist das
     # Dreifache der laengsten -- und bei 25 fps eine halbe Minute.
     # 0 schaltet den Neustart ab.
-    wache_neustart_frames: int = Field(default=750, ge=0)
+    # Auf Nutzerwunsch von 750 auf 250 gesenkt (2026-09-17): *"das sind 10
+    # Sekunden, das wird nie wieder vorkommen... eigentlich ist alles ueber 5
+    # Sekunden schon zu lang.. aber puffer ist gut."*
+    #
+    # SEIT BUG-030 KOSTET DIESE FRIST KEINE WUERFE MEHR. Die Bremse haengt
+    # nicht mehr an dieser Wache (`wache_bremse_schwelle`), also steuert die
+    # Frist nur noch, wie lange eine festhaengende Referenz zu viel schwaerzt.
+    #
+    # Das verbleibende Risiko liegt damit beim DATENSCHUTZ, nicht beim Zaehlen:
+    # Heilt sie, waehrend ein Mensch davorsteht und das Personenmodell ihn
+    # gerade nicht sieht, lernt sie ihn in die Referenz hinein -- und danach
+    # wird er nicht mehr geschwaerzt. Der Zaehler laeuft nur, solange das
+    # Modell niemanden meldet, aber es findet gemessen 53 bis 57 von 70 Frames.
+    # Bei 250 braucht es zehn Sekunden am Stueck, in denen es versagt.
+    wache_neustart_frames: int = Field(default=250, ge=0)
 
 
 class PersonModelConfig(BaseModel):

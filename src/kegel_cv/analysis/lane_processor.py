@@ -933,7 +933,11 @@ class LaneProcessor:
             gesehen,
           * die Strecke ist laenger als jede gemessene echte Verdeckung
             (118 Verdeckungen: Median 30 Frames, laengste 250; die Schwelle
-            steht auf 750).
+            steht seit 2026-09-17 auf 250 -- siehe
+            `detection.person_mask.wache_neustart_frames`. Sie kostet seit
+            BUG-030 keine Wuerfe mehr, weil die Verdeckungsbremse nicht mehr
+            an dieser Wache haengt; sie steuert nur noch, wie lange eine
+            festhaengende Referenz zu viel schwaerzt).
         """
         modell = self.personen_modell
         if (self._neustart_frames <= 0 or modell is None or not modell.bereit
