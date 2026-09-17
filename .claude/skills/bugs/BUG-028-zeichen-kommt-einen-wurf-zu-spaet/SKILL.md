@@ -14,7 +14,7 @@ description: >
 |---|---|
 | **Kategorie** | `STATE` / Spielwechsel |
 | **Gefunden** | 2026-09-17, vom Nutzer an seinem eigenen Lauf |
-| **Schweregrad** | **hoch** (der Spielstand einer Bahn bleibt für ein ganzes Spiel falsch) |
+| **Schweregrad** | **mittel** — siehe „Was NICHT betroffen ist" |
 | **Regressionstest** | `test_game_reset.py::TestWohinDasZeichenGeht` |
 
 ## Symptom
@@ -25,6 +25,26 @@ brach den Lauf ab: *„die Unterschiede waren zu groß"*.
 
 Die Würfe selbst waren dabei in Ordnung. Lampen und Kegelziffer stimmten in
 **358 von 360 Fällen (99,4 %)** überein.
+
+## Was NICHT betroffen ist
+
+Der Nutzer hat nachgefragt, und die Antwort mildert die Einstufung erheblich:
+*„Das ist ja aber nur ein Debug Problem, korrekt? An die Datenbank und in die
+csv am Ende einer Debuganalyse werden ja alle Würfe geschrieben?"*
+
+Die Datenbankzeile (`sinks/payload.py`) enthält `lane`, `pins_count`, `pins`,
+`video_time_s` und die Tafelwerte (`displayed_throw_number`,
+`displayed_pin_count`, `displayed_foul_count`, `displayed_total`). **Weder
+`running_total` noch `game_number` noch die eigene Wurfnummer fahren mit.**
+
+Also: **Jeder Wurf kommt an, mit richtiger Kegelzahl und richtigen
+Kegelnummern.** Falsch waren die Spielzuordnung und die laufende Summe — und
+die gibt es nur in der CSV, in der Debug-Auswertung und in der Live-Anzeige.
+Ein Spiel bekam 31 statt 30 Würfe.
+
+Die erste Fassung dieses Skills sprach von einem „für ein ganzes Spiel falschen
+Spielstand" und stufte hoch ein. Das galt für die interne Rechnung, nicht für
+das, was ausgeliefert wird.
 
 ## Die Spur
 

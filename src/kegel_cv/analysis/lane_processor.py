@@ -150,6 +150,7 @@ class LaneProcessor:
         self._reset_latch = False
         self._verlassen_observations = 0
         self._reset_seen = False        # im laufenden Fenster gesehen
+        self._reset_beginn = -1         # Frame, in dem der Nullzustand anfing
         self._reset_carry = False       # gilt dem naechsten ausgewerteten Wurf
         self._reset_pending = False     # gilt dem Wurf, der gerade ausgewertet wird
 
@@ -545,6 +546,11 @@ class LaneProcessor:
             return
 
         self._verlassen_observations = 0
+        if self._reset_observations == 0:
+            # WANN der Nullzustand ANFING, nicht wann wir ihn bemerkten.
+            # Daran haengt, zu welchem Spiel der laufende Wurf gehoert
+            # (siehe unten).
+            self._reset_beginn = frame.index
         self._reset_observations += 1
         # SPERRE gegen Doppelmeldungen. Der Nullzustand steht gemessen 40 bis
         # 91 Sekunden; die Pruefung trifft ihn in dieser Zeit vielfach. Ohne
@@ -586,7 +592,31 @@ class LaneProcessor:
             # konstantem Fehlbetrag ueber das ganze Spiel (-5 bis -9, genau
             # die Kegelzahl des verlorenen Wurfs). Die uebrigen begannen bei
             # Wurfnummer 1 und stimmten auf den Punkt.
-            if self._window_open:
+            # Zwei Fragen, nicht eine: Laeuft gerade ein Wurf -- und hat der
+            # Nullzustand VOR oder NACH dessen Beginn eingesetzt?
+            #
+            # Der Unterschied entscheidet, zu welchem Spiel der laufende Wurf
+            # gehoert:
+            #
+            #   Nullzustand begann NACH dem Fensterbeginn
+            #       Die Anlage hat waehrend des Wurfs zurueckgesetzt -- also
+            #       nachdem er geworfen war. Er gehoert noch zum ALTEN Spiel,
+            #       das Zeichen gilt dem naechsten.
+            #
+            #   Nullzustand begann VOR dem Fensterbeginn (oder gar kein Wurf)
+            #       Die Tafel stand schon auf null, als dieser Wurf begann.
+            #       Er ist bereits der ERSTE des neuen Spiels und bekommt das
+            #       Zeichen direkt.
+            #
+            # GEMESSEN auf Bahn 5 (Stream vom 2026-09-17): Wurf 31 wurde mit
+            # `SummeTafel 0` gebucht -- die Tafel hatte vor diesem Wurf
+            # zurueckgesetzt. Er landete trotzdem im alten Spiel, und das neue
+            # begann erst bei Wurf 2. Mit dem Fenster allein war das nicht zu
+            # unterscheiden, denn in beiden Faellen ist es offen.
+            im_alten_spiel = (self._window_open
+                              and self._green_off_frame is not None
+                              and self._reset_beginn >= self._green_off_frame)
+            if im_alten_spiel:
                 self._reset_seen = True
             else:
                 self._reset_carry = True
@@ -594,8 +624,8 @@ class LaneProcessor:
             log.info("Bahn %d: Anzeige steht bei Frame %d auf 000/0000 "
                      "-- die Anlage hat das Spiel beendet (%s)",
                      self.display_number, frame.index,
-                     "im Wurffenster" if self._window_open
-                     else "zwischen zwei Wuerfen")
+                     "waehrend des laufenden Wurfs" if im_alten_spiel
+                     else "vor diesem Wurf -- er zaehlt schon zum neuen Spiel")
 
     def _nullzustand_verlassen(self) -> None:
         """Die Anzeige zeigt etwas anderes als null -- aber sagt EINE Messung das?

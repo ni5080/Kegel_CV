@@ -179,7 +179,7 @@ class ThrowAnalyzer:
 
         # --- Wurfnummer bestimmen ---
         number = self._resolve_throw_number(throw_number, checks, decisions,
-                                            display_reset)
+                                            display_reset, displayed_total)
         spielwechsel_gebucht = len(self.score.game_totals) > spiele_vorher
         self._throws_since_game_change += 1
         if number is None:
@@ -840,7 +840,8 @@ class ThrowAnalyzer:
     def _resolve_throw_number(self, throw_number: int | None,
                               checks: list[PlausibilityCheck],
                               decisions: list[str],
-                              display_reset: bool = False) -> int | None:
+                              display_reset: bool = False,
+                              displayed_total: int | None = None) -> int | None:
         """Bestimmt die Wurfnummer und schuetzt vor Doppelzaehlung.
 
         Die Wurfnummer der Tafel ist die einzige Quelle, die Double Counting
@@ -866,6 +867,41 @@ class ThrowAnalyzer:
                 f"Neues Spiel (Anzeige auf 000/0000): voriges endete mit "
                 f"{endstand} Kegeln"
             )
+            number = throw_number if throw_number is not None else 1
+            self._last_throw_number = number
+            return number
+
+        # DRITTER ZEUGE: EINE NULL IN DER SUMME (BUG-029).
+        #
+        # Die Tafel traegt das Ergebnis verspaetet nach -- zum Meldezeitpunkt
+        # steht dort der Stand VOR diesem Wurf. Eine gelesene Null heisst
+        # deshalb: Vor diesem Wurf stand die Anlage auf null, sie hat also
+        # zurueckgesetzt. Das gilt UNABHAENGIG von der Wurfnummer.
+        #
+        # WARUM DAS GEBRAUCHT WIRD: Die beiden anderen Wege haengen beide an
+        # der Wurfnummer. Auf einer Bahn, deren Wurfnummernfeld schlecht
+        # lesbar ist, versagen sie gemeinsam. GEMESSEN auf Bahn 5 (Stream
+        # 2026-09-17): Der Nullzustand wurde nie erkannt (die Wurfnummer las
+        # nie dreimal 000), bei F51552 war sie unlesbar -- der Wurf wurde
+        # "fortgezaehlt auf 31" und landete im alten Spiel. Erst beim naechsten
+        # Wurf griff der Rueckfall, und das neue Spiel begann bei Wurf 2. Der
+        # erste Wurf und seine neun Kegel fehlten dem Spiel dauerhaft.
+        #
+        # WARUM DIE NULL TRAEGT, GEMESSEN am selben Lauf (315 Wuerfe): Genau
+        # 12 Wuerfe hatten `SummeTafel == 0`, und 11 davon waren der erste Wurf
+        # ihres Spiels. Der zwoelfte war der kaputte Fall von Bahn 5 -- also
+        # zwoelf von zwoelf, wenn man ihn als das zaehlt, was er haette sein
+        # sollen. Kein einziger Wurf mitten im Spiel zeigte eine Null.
+        if (displayed_total == 0 and self.cfg.scoring.game_reset_by_zero_total
+                and self._spielwechsel_erlaubt(decisions, "Summe der Tafel auf 0")):
+            endstand = self.score.start_new_game()
+            self._throws_since_game_change = 0
+            log.info("Bahn %d: Summe der Tafel steht auf 0 -- die Anlage hat "
+                     "vor diesem Wurf zurueckgesetzt, voriges Spiel endete "
+                     "mit %d Kegeln", self.display_number, endstand)
+            decisions.append(
+                f"Neues Spiel (Summe der Tafel auf 0): voriges endete mit "
+                f"{endstand} Kegeln")
             number = throw_number if throw_number is not None else 1
             self._last_throw_number = number
             return number

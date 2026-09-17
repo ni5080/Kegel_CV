@@ -432,23 +432,52 @@ class TestWohinDasZeichenGeht:
             "und fehlen im neuen Stand -- fuer den Rest des Spiels."
         )
 
-    def test_im_wurffenster_gilt_es_erst_dem_uebernaechsten(self, prozessor):
-        """Der andere Fall bleibt, wie er war: Der laufende Wurf gehört noch
-        zum alten Spiel."""
+    def test_waehrend_des_wurfs_zurueckgesetzt_gilt_es_dem_naechsten(self, prozessor):
+        """Die Anlage setzt zurück, WÄHREND der Wurf noch ausgewertet wird.
+
+        Dann war er schon geworfen, als die Anzeige umsprang — er gehört noch
+        zum alten Spiel.
+        """
         tafel = Tafel()
         prozessor.digit_reader = tafel
         prozessor._window_open = True
+        prozessor._green_off_frame = 0            # Fenster ging bei 0 auf
         tafel.summe, tafel.nummer = 0, 0
-        _laufen(prozessor, tafel, 0, 500)
+        _laufen(prozessor, tafel, 0, 500)         # Nullzustand ab Frame 0
 
         assert prozessor.reset_unterwegs
         prozessor._reset_weiterreichen()          # der laufende Wurf
         assert not prozessor.reset_pending, (
-            "Der Wurf, in dessen Fenster der Nullzustand lag, gehoert noch "
+            "Der Wurf, waehrend dessen die Anlage zuruecksetzte, gehoert noch "
             "zum alten Spiel"
         )
         prozessor._reset_weiterreichen()          # der naechste
         assert prozessor.reset_pending
+
+    def test_vor_dem_wurf_zurueckgesetzt_gilt_es_diesem_wurf(self, prozessor):
+        """GEMESSEN auf Bahn 5 (Stream 2026-09-17): Wurf 31 wurde mit
+        `SummeTafel 0` gebucht — die Tafel hatte VOR diesem Wurf
+        zurückgesetzt. Er landete trotzdem im alten Spiel, und das neue begann
+        erst bei Wurf 2.
+
+        Mit dem Fenster allein ist das nicht zu unterscheiden: Es ist in
+        beiden Fällen offen. Entscheidend ist, ob der Nullzustand vor oder
+        nach dem Fensterbeginn einsetzte.
+        """
+        tafel = Tafel()
+        prozessor.digit_reader = tafel
+        tafel.summe, tafel.nummer = 0, 0
+        _laufen(prozessor, tafel, 0, 300)         # Nullzustand ab Frame 0
+        # ... und ERST DANACH beginnt der Wurf
+        prozessor._window_open = True
+        prozessor._green_off_frame = 400
+
+        assert prozessor.reset_unterwegs
+        prozessor._reset_weiterreichen()
+        assert prozessor.reset_pending, (
+            "Die Tafel stand schon auf null, als dieser Wurf begann -- er ist "
+            "bereits der erste des neuen Spiels"
+        )
 
     def test_das_zeichen_geht_nicht_verloren(self, prozessor):
         """Zwischen Erkennung und Zustellung darf nichts dazwischenkommen."""

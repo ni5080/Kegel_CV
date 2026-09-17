@@ -1222,6 +1222,20 @@ class ScoringConfig(BaseModel):
     # tools/measure_display_reset.py): 20 bis 90 Sekunden Standzeit an jeder
     # Satzgrenze, kein einziger Treffer in 3000 Kontrollframes mitten im Satz.
     game_reset_by_zero_display: bool = True
+    # Ein Wurf, bei dem die Tafel die Summe 0 zeigt, beginnt ein neues Spiel.
+    #
+    # Die Tafel traegt verspaetet nach: Zum Meldezeitpunkt steht dort der Stand
+    # VOR diesem Wurf. Eine Null heisst also, dass die Anlage vor ihm
+    # zurueckgesetzt hat -- unabhaengig von der Wurfnummer.
+    #
+    # Gebraucht wird das, weil die beiden anderen Wege BEIDE an der Wurfnummer
+    # haengen und auf einer Bahn mit schlecht lesbarem Nummernfeld gemeinsam
+    # versagen (BUG-029, Bahn 5).
+    #
+    # GEMESSEN am Stream vom 2026-09-17, 315 Wuerfe: 12 Wuerfe mit Summe 0,
+    # davon 11 der erste Wurf ihres Spiels -- der zwoelfte war der Fehlerfall.
+    # Kein einziger Wurf mitten im Spiel zeigte eine Null.
+    game_reset_by_zero_total: bool = True
     # Wie viele Messungen (alle late_read_interval Frames) den Nullzustand
     # zeigen muessen. Bei 20 s kuerzester Standzeit und Messung alle 5 Frames
     # sind rund 100 Messungen zu erwarten -- 3 ist reichlich vorsichtig und
