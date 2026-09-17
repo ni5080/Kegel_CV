@@ -372,3 +372,69 @@ class TestGefuehrtGeleseneSumme:
         g.spur(2).kennt_wurfnummer(20)
         assert g.spur(3).wuerfe == 0
         assert g.spur(2) is not g.spur(3)
+
+
+class TestUnklareLampenWerdenAusgewiesen:
+    """BUG-027: Eine unklare Lampe fällt still aus der Kegelliste und wirkt
+    wie „steht". Beim ABRÄUMEN ist das Ergebnis die Differenz zweier
+    Messungen — eine unklare Lampe in der AUSGANGSLAGE wird dann abgezogen,
+    obwohl niemand weiß, ob der Kegel lag.
+
+    Gemessen wurde das am Einzelfall (Bahn 2 Wurf 21: 5 gebucht, Ziffer und
+    Summe sagten 4). Damit es über viele Würfe zählbar wird, steht es jetzt in
+    der Tabelle.
+    """
+
+    @dataclass
+    class WurfMitLampen(Wurf):
+        lamps_unknown: int = 0
+        baseline_unknown: int | None = None
+
+    def test_die_zahlen_stehen_im_befund(self):
+        g = Gegenprobe()
+        g.nimm(self.WurfMitLampen(throw_number=1, pins_count=5,
+                                  displayed_throw_number=1,
+                                  lamps_unknown=2, baseline_unknown=1))
+        g.nimm(self.WurfMitLampen(throw_number=2, pins_count=3,
+                                  displayed_throw_number=2))
+        assert g.befunde[0].lampen_unklar == 2
+        assert g.befunde[0].grundlage_unklar == 1
+
+    def test_sie_stehen_auch_in_der_tabelle(self):
+        g = Gegenprobe()
+        g.nimm(self.WurfMitLampen(throw_number=1, pins_count=5,
+                                  displayed_throw_number=1,
+                                  lamps_unknown=1, baseline_unknown=3))
+        g.nimm(self.WurfMitLampen(throw_number=2, pins_count=3,
+                                  displayed_throw_number=2))
+        zeile = g.befunde[0].als_zeile()
+        assert zeile["LampenUnklar"] == 1
+        assert zeile["GrundlageUnklar"] == 3
+
+    def test_der_bericht_nennt_die_gefaehrlichere_zuerst(self):
+        g = Gegenprobe()
+        g.nimm(self.WurfMitLampen(throw_number=1, pins_count=5,
+                                  displayed_throw_number=1,
+                                  baseline_unknown=2))
+        g.nimm(self.WurfMitLampen(throw_number=2, pins_count=3,
+                                  displayed_throw_number=2))
+        text = g.bericht()
+        assert "Unklare Kegellampen" in text
+        assert "in der Grundlage" in text
+        assert "Punktestand" in text
+
+    def test_ohne_unklare_lampen_schweigt_der_bericht(self):
+        """Eine Zeile mit lauter Nullen ist Rauschen."""
+        g = folge(
+            Wurf(throw_number=1, pins_count=5, displayed_throw_number=1),
+            Wurf(throw_number=2, pins_count=3, displayed_throw_number=2))
+        assert "Unklare Kegellampen" not in g.bericht()
+
+    def test_ein_wurf_ohne_die_felder_bleibt_lesbar(self):
+        """Alte Wurfobjekte kennen die Zaehler nicht -- das darf nicht
+        auffallen."""
+        g = folge(
+            Wurf(throw_number=1, pins_count=5, displayed_throw_number=1),
+            Wurf(throw_number=2, pins_count=3, displayed_throw_number=2))
+        assert g.befunde[0].lampen_unklar == 0
+        assert g.befunde[0].grundlage_unklar is None

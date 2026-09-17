@@ -670,6 +670,16 @@ class ThrowAnalyzer:
             # das laufende. Wird bei jedem Spielwechsel hochgezaehlt (siehe
             # LaneScore.start_new_game).
             game_number=len(self.score.game_totals) + 1,
+            # UNKLARE LAMPEN, getrennt nach Ergebnis und Ausgangslage. Eine
+            # unklare Lampe in der AUSGANGSLAGE ist die gefaehrlichere von
+            # beiden: Beim Abraeumen wird sie abgezogen, obwohl niemand weiss,
+            # ob sie lag (BUG-027).
+            lamps_unknown=sum(
+                1 for lamp in pins.lamps if not lamp.state.is_known),
+            baseline_unknown=(
+                None if baseline is None
+                else sum(1 for lamp in baseline.lamps
+                         if not lamp.state.is_known)),
             pins=pin_numbers,
             pins_count=count,
             displayed_pin_count=displayed_count,

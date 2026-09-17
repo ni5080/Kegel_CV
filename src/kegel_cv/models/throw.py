@@ -158,6 +158,19 @@ class ThrowResult:
     # Nummer waeren die vier Spiele einer Bahn in einer Tabelle nicht
     # auseinanderzuhalten.
     game_number: int = 1
+    # WIE VIELE KEGELLAMPEN WAREN UNKLAR -- im Ergebnis und in der Ausgangslage.
+    #
+    # WOFUER (BUG-027, 2026-09-16): Eine Lampe im Zustand UNKNOWN faellt still
+    # aus der Kegelliste und wirkt damit wie "steht". Beim Abraeumen ist das
+    # Ergebnis die DIFFERENZ zweier Messungen -- ein unklarer Kegel in der
+    # AUSGANGSLAGE schlaegt direkt auf den Punktestand durch, und zwar ohne
+    # dass am Ergebnis etwas verdaechtig aussieht. Genau so entstand ein Wurf
+    # mit 5 statt 4 Kegeln.
+    #
+    # Die Zahl stand bisher nur tief in `evidence.raw`. Hier steht sie, damit
+    # eine Auswertung ueber viele Wuerfe sie ohne Umweg zaehlen kann.
+    lamps_unknown: int = 0
+    baseline_unknown: int | None = None      # None = keine Ausgangslage noetig
     confidence: float = 0.0
     timestamp: float = 0.0
     source_frame: int | None = None   # Ausloeser-Frame

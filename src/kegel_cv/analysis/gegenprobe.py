@@ -132,6 +132,11 @@ class Befund:
     nummer_vorher: int | None
     nummer_danach: int | None
     urteil: str
+    # UNKLARE LAMPEN. Die in der AUSGANGSLAGE ist die gefaehrlichere: Beim
+    # Abraeumen wird sie abgezogen, obwohl niemand weiss, ob der Kegel lag
+    # (BUG-027, Bahn 2 Wurf 21 -- 5 gebucht, Ziffer und Summe sagten 4).
+    lampen_unklar: int = 0
+    grundlage_unklar: int | None = None
     bemerkung: str = ""
     # Hat der Fehlwurfzaehler getan, was er bei diesem Ergebnis tun muesste?
     # "ja", "nein" oder "" (nicht auf beiden Seiten gelesen).
@@ -156,6 +161,8 @@ class Befund:
             "Differenz": leer(self.differenz),
             "NummerVorher": leer(self.nummer_vorher),
             "NummerDanach": leer(self.nummer_danach),
+            "LampenUnklar": self.lampen_unklar,
+            "GrundlageUnklar": leer(self.grundlage_unklar),
             "Fehlwurfzaehler": self.fehlwurf_stimmt,
             "Urteil": self.urteil,
             "Bemerkung": self.bemerkung,
@@ -178,6 +185,9 @@ class _Offen:
     # Lampen nicht bestaetigen -- sonst zaehlte eine Messung doppelt.
     summe_art: str = "roh"
     summe_unabhaengig: bool = True
+    # Unklare Kegellampen -- im Ergebnis und in der Ausgangslage (BUG-027).
+    lampen_unklar: int = 0
+    grundlage_unklar: int | None = None
 
 
 @dataclass
@@ -222,6 +232,8 @@ class Gegenprobe:
             fehlwurf=wurf.displayed_foul_count,
             summe_art=art,
             summe_unabhaengig=unabhaengig,
+            lampen_unklar=getattr(wurf, "lamps_unknown", 0) or 0,
+            grundlage_unklar=getattr(wurf, "baseline_unknown", None),
         )
         self._offen[wurf.lane] = jetzt
         if vorher is None:
@@ -233,6 +245,8 @@ class Gegenprobe:
             summe_vorher=vorher.summe, summe_danach=jetzt.summe,
             nummer_vorher=vorher.nummer, nummer_danach=jetzt.nummer,
             urteil=urteil, bemerkung=bemerkung,
+            lampen_unklar=vorher.lampen_unklar,
+            grundlage_unklar=vorher.grundlage_unklar,
             fehlwurf_stimmt=self._fehlwurf(vorher, jetzt))
         self.befunde.append(befund)
         return befund
@@ -355,6 +369,35 @@ class Gegenprobe:
 
     # -------------------------------------------------------------- Bericht
 
+    def _unklare_lampen(self) -> list[str]:
+        """Wie oft war eine Kegellampe unklar -- und wo.
+
+        Die Zahl gehoert in den Bericht, weil sie einen Fehler sichtbar macht,
+        der sonst wie ein richtiges Ergebnis aussieht: Eine unklare Lampe
+        faellt aus der Kegelliste und wirkt wie "steht". Beim ABRAEUMEN ist
+        das Ergebnis die Differenz zweier Messungen -- eine unklare Lampe in
+        der AUSGANGSLAGE wird dann abgezogen, obwohl niemand weiss, ob der
+        Kegel lag. Genau so entstand BUG-027 (Bahn 2 Wurf 21: 5 gebucht,
+        Ziffer und Summe sagten 4).
+        """
+        mit_ergebnis = [b for b in self.befunde if b.lampen_unklar]
+        mit_grundlage = [b for b in self.befunde if b.grundlage_unklar]
+        if not mit_ergebnis and not mit_grundlage:
+            return []
+        zeilen = ["  Unklare Kegellampen:"]
+        zeilen.append(f"    im Ergebnis      {len(mit_ergebnis):4d} von "
+                      f"{len(self.befunde)} Wuerfen")
+        zeilen.append(f"    in der Grundlage {len(mit_grundlage):4d} von "
+                      f"{len(self.befunde)} Wuerfen  <- schlaegt beim "
+                      f"Abraeumen auf den Punktestand durch")
+        for b in mit_grundlage[:6]:
+            zeilen.append(f"      Bahn {b.bahn} Wurf {b.wurf} (Frame "
+                          f"{b.frame}): {b.grundlage_unklar} unklar, "
+                          f"Lampen {b.lampen}, Ziffer {b.ziffer}")
+        if len(mit_grundlage) > 6:
+            zeilen.append(f"      ... und {len(mit_grundlage) - 6} weitere")
+        return zeilen
+
     def _summenzeilen(self) -> list[str]:
         """Was das gefuehrte Lesen mit den Summen gemacht hat -- je Bahn.
 
@@ -413,6 +456,7 @@ class Gegenprobe:
                 f"({100 * passend / len(geprueft):4.1f} % von "
                 f"{len(geprueft)} lesbaren)")
 
+        zeilen.extend(self._unklare_lampen())
         zeilen.extend(self._summenzeilen())
 
         strittig = [b for b in self.befunde
