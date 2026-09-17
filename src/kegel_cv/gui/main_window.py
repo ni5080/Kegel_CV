@@ -141,6 +141,11 @@ class MainWindow(QMainWindow):
         # nicht zurueckgesetzt, die Wiedergabe bliebe sonst fuer immer
         # gesperrt. `isRunning()` waere kurz nach `start()` noch falsch.
         self._analyse_aktiv = False
+        # Das zuletzt vom Worker gelieferte Bild -- die EINZIGE frische Quelle,
+        # solange eine Analyse laeuft. Der Player ist dann geschlossen, und
+        # sein `current_frame` steht auf dem Stand von vorher.
+        self._analyse_bild = None
+        self._analyse_bild_index: int | None = None
         # Pfad der Vorschau, solange sie fuer die Analyse geschlossen ist.
         self._vorschau_pfad: str | None = None
         # Videodaten fuer die Dauer der Analyse. Bei einem
@@ -1553,7 +1558,14 @@ class MainWindow(QMainWindow):
         aus dem Worker (`_current_frame`). Nachziehen soll auch dann gehen:
         Genau im Lauf faellt auf, dass eine Tafel nicht sitzt.
         """
-        if self.player.current_frame is not None:
+        # REIHENFOLGE NACH FRISCHE, nicht nach Bequemlichkeit.
+        #
+        # Waehrend einer Analyse ist der Player geschlossen -- sein
+        # `current_frame` haelt aber das Bild von VOR dem Start und ist damit
+        # beliebig alt. Wer es zuerst fragt, bekommt fuer immer dasselbe.
+        if self._analyse_aktiv and self._analyse_bild is not None:
+            return self._analyse_bild
+        if self.player.is_loaded and self.player.current_frame is not None:
             return self.player.current_frame.image
         if self._current_frame is not None:
             return self._current_frame.image
@@ -1582,9 +1594,17 @@ class MainWindow(QMainWindow):
             (Bild, Frame-Nummer) -- die Nummer ist None, wenn die Quelle
             keine kennt. (None, None), wenn kein Bild zu holen war.
         """
+        if self._analyse_aktiv:
+            # Waehrend eines Laufs liefert der Worker das jeweils neueste Bild
+            # -- vorwaerts, wie beim Stream. Die Framenummer kennt er, also
+            # geht sie mit: Sie ist der Beleg, dass sich wirklich etwas
+            # geaendert hat.
+            bild = self._bild_zum_nachziehen()
+            if bild is None:
+                return None, None
+            return bild, self._analyse_bild_index
+
         if not self.player.is_loaded:
-            # Waehrend eines Laufs ist der Player zu; dann liefert der Worker
-            # das jeweils neueste Bild -- vorwaerts, wie beim Stream.
             bild = self._bild_zum_nachziehen()
             return (bild, None) if bild is not None else (None, None)
 
@@ -1635,7 +1655,9 @@ class MainWindow(QMainWindow):
             springer=self._springe_frames,
             # Rueckwaerts nur, wenn es eine Datei ist. Beim Stream gibt es
             # kein vergangenes Frame (siehe `_springe_frames`).
-            rueckwaerts=self.player.is_loaded and not self.player.is_live,
+            rueckwaerts=(not self._analyse_aktiv
+                         and self.player.is_loaded
+                         and not self.player.is_live),
             parent=self)
         if dialog.exec() != QDialog.Accepted:
             self.statusBar().showMessage("Nachkalibrieren abgebrochen", 3000)
@@ -2323,6 +2345,14 @@ class MainWindow(QMainWindow):
 
     def _on_preview(self, index: int, image) -> None:
         self.video_view.set_frame(image)
+        # MERKEN, NICHT NUR ZEIGEN. Ohne das war das Nachkalibrieren waehrend
+        # einer laufenden Analyse blind: `_current_frame` wird vom
+        # Player-Handler bei `_analyse_aktiv` gar nicht mehr gesetzt, und
+        # `player.current_frame` stand auf dem Bild von VOR dem Start. Der
+        # Knopf "frisches Bild" lieferte deshalb immer dasselbe alte Bild
+        # (Nutzerbefund 2026-09-17).
+        self._analyse_bild = image
+        self._analyse_bild_index = index
         # NICHT vom Player nehmen. Bei einem Livestream ist er fuer die Dauer
         # der Analyse GESCHLOSSEN -- `self.player.info` ist dann None, und die
         # Anzeige stand bei "Frame 12345 / 0    t = 0.00 s". Die Frames liefen,

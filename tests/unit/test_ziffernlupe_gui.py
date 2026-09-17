@@ -180,3 +180,86 @@ class TestDieLupeIstVerdrahtet:
         d._zeige_bereich("digit_total_b_3")
         assert d.lupe.minimumHeight() == vorher
         d.deleteLater()
+
+
+class TestNachkalibrierenWaehrendDerAnalyse:
+    """Der Nutzer (2026-09-17): *„Die Feinkalibrierung mit Standbild und
+    frisches Bild funktioniert btw nicht. Zumindest nicht, wenn man bereits in
+    der Analyse steckt."*
+
+    Zwei Fehler wirkten zusammen: `_on_preview` zeigte das Analysebild an, legte
+    es aber nirgends ab — und `_bild_zum_nachziehen` fragte trotzdem zuerst den
+    Player, dessen `current_frame` auf dem Stand VOR dem Start stand. „Frisches
+    Bild" lieferte deshalb für immer dasselbe alte Bild.
+    """
+
+    def fenster(self, monkeypatch):
+        from kegel_cv.gui import main_window as mw
+        w = mw.MainWindow.__new__(mw.MainWindow)      # ohne Qt-Aufbau
+        w._analyse_aktiv = False
+        w._analyse_bild = None
+        w._analyse_bild_index = None
+        w._current_frame = None
+
+        class Player:
+            is_loaded = False
+            is_live = False
+            current_frame = None
+        w.player = Player()
+        return w
+
+    def test_ohne_analyse_zaehlt_der_player(self, monkeypatch):
+        import numpy as np
+        w = self.fenster(monkeypatch)
+        alt = np.zeros((4, 4, 3), np.uint8)
+
+        class Frame:
+            image = alt
+        w.player.is_loaded = True
+        w.player.current_frame = Frame()
+        assert w._bild_zum_nachziehen() is alt
+
+    def test_ein_geschlossener_player_liefert_kein_altes_bild(self, monkeypatch):
+        """Der Kern: Nicht geladen heißt, sein letztes Bild ist beliebig alt."""
+        import numpy as np
+        w = self.fenster(monkeypatch)
+
+        class Frame:
+            image = np.zeros((4, 4, 3), np.uint8)
+        w.player.is_loaded = False
+        w.player.current_frame = Frame()
+        assert w._bild_zum_nachziehen() is None
+
+    def test_waehrend_der_analyse_kommt_das_bild_vom_worker(self, monkeypatch):
+        import numpy as np
+        w = self.fenster(monkeypatch)
+        altes = np.zeros((4, 4, 3), np.uint8)
+        frisches = np.ones((4, 4, 3), np.uint8)
+
+        class Frame:
+            image = altes
+        w.player.is_loaded = True
+        w.player.current_frame = Frame()
+        w._analyse_aktiv = True
+        w._analyse_bild = frisches
+        assert w._bild_zum_nachziehen() is frisches, (
+            "Waehrend der Analyse ist das Worker-Bild das einzig frische"
+        )
+
+    def test_der_sprung_meldet_die_framenummer_des_workers(self, monkeypatch):
+        import numpy as np
+        w = self.fenster(monkeypatch)
+        w._analyse_aktiv = True
+        w._analyse_bild = np.ones((4, 4, 3), np.uint8)
+        w._analyse_bild_index = 4711
+        bild, nummer = w._springe_frames(1)
+        assert bild is w._analyse_bild
+        assert nummer == 4711, (
+            "Die Framenummer ist der Beleg, dass sich wirklich etwas geaendert "
+            "hat -- ohne sie sieht ein frisches Bild aus wie gar keins"
+        )
+
+    def test_ohne_worker_bild_meldet_der_sprung_nichts(self, monkeypatch):
+        w = self.fenster(monkeypatch)
+        w._analyse_aktiv = True
+        assert w._springe_frames(1) == (None, None)
