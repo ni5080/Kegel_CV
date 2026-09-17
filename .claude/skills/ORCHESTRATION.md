@@ -2491,3 +2491,27 @@ lesbar 2 → **8** von 57; Bahn 2 liefert statt 2237/3813 jetzt 133/132/133;
 3. Die Führung selbst griff auf diesem Material **nie** (0 von 19) — die
    Summenlesungen sind eindeutig oder fehlen ganz. Der Pfad ist gebaut und
    getestet, aber hier kein Hebel.
+
+---
+
+## Geplant: Eine Bildquelle statt zweier (2026-09-17)
+
+Vollständiger Plan in **`docs/UMBAU_EINE_QUELLE.md`** — geschrieben, noch nicht
+begonnen.
+
+Nutzervorschlag: *„Wollen wir nicht Player und Analyse endgültig vereinen? ...
+Dann soll doch besser immer eine Analyse laufen, und erst wenn man auf 'Analyse
+starten' klickt, wie an Supabase geschrieben."*
+
+Heute öffnen `VideoPlayer` und `AnalysisWorker` **je eine eigene Videoquelle**
+und schließen einander aus. Daraus folgt eine Fehlerklasse, die am selben Tag
+zweimal zuschlug (eingefrorenes Bild beim Nachkalibrieren; zwei Zeitpunkte
+nebeneinander ohne Hinweis).
+
+Der Umbau ist kleiner als er klingt: `set_sending` und
+`uebernimm_kalibrierung` gibt es bereits. Zu tun ist die Vereinigung der
+Bildquelle — der Worker liest, der Player steuert.
+
+Der einzige echte Preis: Ein Sprung im Video muss den Analysezustand
+verwerfen, und die Auswertung läuft immer mit (rund 25–30 ms/Frame). Beides
+ist im Plan behandelt.
