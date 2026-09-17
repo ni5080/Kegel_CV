@@ -558,11 +558,44 @@ class LaneProcessor:
         # die Anlage stehen bleibt, entscheidet die Halle, nicht wir.
         if (not self._reset_latch
                 and self._reset_observations >= self.cfg.scoring.game_reset_min_frames):
-            self._reset_seen = True
+            # WOHIN DAS ZEICHEN GEHT, HAENGT DARAN, WANN ES GESEHEN WURDE.
+            #
+            # Diese Pruefung laeuft in EIGENEM Takt, unabhaengig vom
+            # Wurffenster -- sie trifft den Nullzustand also mal waehrend
+            # eines Wurfs und mal zwischen zweien. Das ist ein Unterschied:
+            #
+            #   im Fenster    Der Wurf, der gerade laeuft, gehoert noch zum
+            #                 ALTEN Spiel. Das Zeichen gilt dem naechsten --
+            #                 es geht nach `_reset_seen` und wird von
+            #                 `_reset_weiterreichen` eine Stufe geschoben.
+            #
+            #   dazwischen    Der letzte Wurf des alten Spiels ist laengst
+            #                 gebucht. Der naechste Wurf, der kommt, ist
+            #                 bereits der ERSTE des neuen Spiels -- das
+            #                 Zeichen gehoert ihm direkt, also nach
+            #                 `_reset_carry`.
+            #
+            # BIS 2026-09-17 GING BEIDES NACH `_reset_seen` (BUG-028). Ein
+            # zwischen zwei Wuerfen gesehener Nullzustand kostete dadurch
+            # einen Wurf extra: Er wurde behandelt, als haette er im Fenster
+            # des gerade fertigen Wurfs gelegen.
+            #
+            # GEMESSEN am Spieltag 2026-09-17 (477 Wuerfe, 25 Spiele): Jedes
+            # Spiel, dessen erster gebuchter Wurf die Nummer 2 trug, hatte
+            # genau einen Wurf verloren -- sieben von 25 Spielen, jeweils mit
+            # konstantem Fehlbetrag ueber das ganze Spiel (-5 bis -9, genau
+            # die Kegelzahl des verlorenen Wurfs). Die uebrigen begannen bei
+            # Wurfnummer 1 und stimmten auf den Punkt.
+            if self._window_open:
+                self._reset_seen = True
+            else:
+                self._reset_carry = True
             self._reset_latch = True
             log.info("Bahn %d: Anzeige steht bei Frame %d auf 000/0000 "
-                     "-- die Anlage hat das Spiel beendet",
-                     self.display_number, frame.index)
+                     "-- die Anlage hat das Spiel beendet (%s)",
+                     self.display_number, frame.index,
+                     "im Wurffenster" if self._window_open
+                     else "zwischen zwei Wuerfen")
 
     def _nullzustand_verlassen(self) -> None:
         """Die Anzeige zeigt etwas anderes als null -- aber sagt EINE Messung das?
@@ -725,6 +758,18 @@ class LaneProcessor:
     def reset_pending(self) -> bool:
         """Gilt fuer den Wurf, der gerade ausgewertet wird: neues Spiel?"""
         return self._reset_pending
+
+    @property
+    def reset_unterwegs(self) -> bool:
+        """Ist ein Spielwechsel-Zeichen erkannt und noch nicht zugestellt?
+
+        Es gibt zwei Briefkaesten, weil es zwei Zeitpunkte gibt: im
+        Wurffenster gesehen (`_reset_seen`, gilt dem naechsten Wurf) oder
+        zwischen zwei Wuerfen (`_reset_carry`, gilt direkt dem naechsten).
+        Wer nur wissen will, OB erkannt wurde, soll nicht wissen muessen,
+        welcher der beiden es war.
+        """
+        return self._reset_seen or self._reset_carry
 
     @property
     def window_was_occluded(self) -> bool:

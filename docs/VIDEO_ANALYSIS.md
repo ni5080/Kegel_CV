@@ -3437,3 +3437,65 @@ meldete: Dasselbe Skript über dieselben 13.530 Frames liefert 23,76 gegen
 
 Vollständige Herleitung samt der falschen Fährte („die Lampe flackert") in
 `.claude/skills/bugs/BUG-027-null-ist-nicht-aus/SKILL.md`.
+
+## 2026-09-17 — BUG-028: Der erste Wurf jedes zweiten Spiels fehlte
+
+Der Nutzer nach einem Spieltag mit 477 Würfen: *„da sind fast überall sehr
+große Unterschiede zwischen den Lampen und den Ziffern"* — und, nach dem ersten
+Messen: *„Es scheint mir aber auch bei späteren Sätzen, dass jeweils immer der
+erste gefehlt hat."* Der zweite Satz traf es.
+
+### Was NICHT das Problem war
+
+| Prüfung | Ergebnis |
+|---|---|
+| Lampen gegen Kegelziffer | **358 von 360 gleich (99,4 %)** |
+| Gegenprobe „einig" | 363 von 472 (76,9 %) |
+| Lampe hell, aber nicht als AN gemeldet | **1 von 226.404 Messungen** |
+| UNKNOWN-Lampen | 304 von 226.404 (0,13 %) |
+
+Die Feinkalibrierung der Ziffern hat getragen. Kaputt war der **Startwert** der
+laufenden Summe, nicht ihr Verlauf.
+
+### Die Spur: ein konstanter Fehler zeigt auf den Startwert
+
+Restfehler `(LaufendeSumme − SummeTafel) − Kegel`, nach Spielen gruppiert:
+
+| Bahn | Spiel | erster gebuchter Wurf | Rest |
+|---|---|---|---|
+| 2 | 2 und 5 | Wurfnummer **2** | konstant −7 |
+| 3 | 2 | Wurfnummer **2** | konstant −9 |
+| 4 | 2 | Wurfnummer **2** | konstant −5 |
+| 5 | 2, 4, 6 | Wurfnummer **2** | konstant −7 / −9 / −6 |
+| alle übrigen | | Wurfnummer **1** | **±0** |
+
+Sieben von 25 Spielen, jeweils über das ganze Spiel konstant — und der Betrag
+ist genau die Kegelzahl des verlorenen ersten Wurfs.
+
+### Ursache
+
+`_pruefe_nullzustand` läuft in eigenem Takt, unabhängig vom Wurffenster (das
+war A4, eine richtige frühere Korrektur). Damit kann der Nullzustand an zwei
+Zeitpunkten gesehen werden — **im** Wurffenster oder **zwischen** zwei Würfen —
+und beides ging in denselben Briefkasten. Der zweite Fall kam dadurch einen
+Wurf zu spät, und der erste Wurf des neuen Spiels landete im alten.
+
+Ob es auffiel, entschied der Wurfrhythmus. Deshalb waren 18 Spiele richtig.
+
+### Was das über die Gegenprobe sagt
+
+Sie war blind dafür — sie vergleicht **Differenzen**, und eine Differenz ist
+gegen einen falschen Startwert immun. Sie meldete 76,9 % „einig", während der
+Punktestand auf jeder Bahn danebenlag. Für einen Versatz braucht es den
+absoluten Vergleich `LaufendeSumme` gegen `SummeTafel`.
+
+### Stand der Prüfung
+
+Behoben und mit `test_game_reset.py::TestWohinDasZeichenGeht` festgenagelt; die
+Tests fallen nachweislich durch, wenn man die Korrektur zurücknimmt.
+
+**Am Hallenmitschnitt: 64 Würfe, unverändert** — das ist eine Regressionsprüfung,
+kein Beleg für die Wirkung. Der Lauf, an dem der Fehler sichtbar war, lief gegen
+einen Livestream und ist nicht wiederholbar. Der Beleg steht damit auf der
+Diagnose und den Tests, nicht auf einer Nachmessung. **Der nächste Spieltag
+zeigt es.**

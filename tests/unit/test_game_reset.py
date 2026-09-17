@@ -114,7 +114,7 @@ class TestNullzustandOhneWurffenster:
         tafel.summe, tafel.nummer = 0, 0
         _laufen(prozessor, tafel, 0, 500)
 
-        assert prozessor._reset_seen, (
+        assert prozessor.reset_unterwegs, (
             "000/0000 stand ueber 500 Frames -- das muss erkannt werden, "
             "auch wenn die gruene Lampe durchgehend an ist"
         )
@@ -125,7 +125,7 @@ class TestNullzustandOhneWurffenster:
 
         _laufen(prozessor, tafel, 0, 2000)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
     def test_nur_die_summe_auf_null_reicht_nicht(self, prozessor):
         """Eine Null in der Summe allein ist der Spielanfang, kein Spielende."""
@@ -135,7 +135,7 @@ class TestNullzustandOhneWurffenster:
         tafel.summe, tafel.nummer = 0, 3
         _laufen(prozessor, tafel, 0, 2000)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
     def test_unlesbare_anzeige_loest_nichts_aus(self, prozessor):
         tafel = Tafel()
@@ -144,7 +144,7 @@ class TestNullzustandOhneWurffenster:
         tafel.summe, tafel.nummer = None, None
         _laufen(prozessor, tafel, 0, 2000)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
     def test_die_wurfnummer_wird_nur_bei_summe_null_gelesen(self, prozessor):
         """Sonst kostete die Pruefung im laufenden Spiel drei Stellen je Takt."""
@@ -175,7 +175,7 @@ class TestNullzustandOhneWurffenster:
 
         # Der Takt ist aus -- process() ruft die Pruefung dann nie auf.
         assert p.cfg.scoring.game_reset_check_interval == 0
-        assert not p._reset_seen
+        assert not p.reset_unterwegs
 
 
 class TestVerdrahtungInProcess:
@@ -208,7 +208,7 @@ class TestVerdrahtungInProcess:
         assert not prozessor._window_open, (
             "Der Aufbau soll den Fall pruefen, in dem Gruen durchgehend an ist"
         )
-        assert prozessor._reset_seen, (
+        assert prozessor.reset_unterwegs, (
             "Bei durchgehend gruener Lampe wurde der Nullzustand frueher nie "
             "gelesen -- auf Bahn 2 blieben so 11 von 13 Spielenden unerkannt"
         )
@@ -223,15 +223,15 @@ class TestKeineDoppelmeldung:
         tafel.summe, tafel.nummer = 0, 0
 
         _laufen(prozessor, tafel, 0, 200)
-        assert prozessor._reset_seen
+        assert prozessor.reset_unterwegs
         # Wie nach einem gebuchten Wurf: Das Zeichen wird weitergereicht.
         prozessor._reset_weiterreichen()
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
         # Die Anzeige steht weiter auf null -- 91 Sekunden sind 2275 Frames.
         _laufen(prozessor, tafel, 200, 2500)
 
-        assert not prozessor._reset_seen, (
+        assert not prozessor.reset_unterwegs, (
             "Derselbe Nullzustand wurde ein zweites Mal gemeldet -- genau das "
             "erzeugte die Geisterlaeufe mit 'voriges Spiel endete mit 0 Kegeln'"
         )
@@ -242,7 +242,7 @@ class TestKeineDoppelmeldung:
 
         tafel.summe, tafel.nummer = 0, 0
         _laufen(prozessor, tafel, 0, 200)
-        assert prozessor._reset_seen
+        assert prozessor.reset_unterwegs
         prozessor._reset_weiterreichen()
 
         # Das neue Spiel laeuft an: Die Anzeige zeigt wieder etwas. Es braucht
@@ -259,7 +259,7 @@ class TestKeineDoppelmeldung:
         tafel.summe, tafel.nummer = 0, 0
         _laufen(prozessor, tafel, 900, 1100)
 
-        assert prozessor._reset_seen
+        assert prozessor.reset_unterwegs
 
     def test_ein_ausreisser_hebt_die_sperre_nicht_auf(self, prozessor):
         """Eine einzelne unlesbare Messung ist kein Verlassen des Zustands."""
@@ -274,7 +274,7 @@ class TestKeineDoppelmeldung:
         tafel.summe, tafel.nummer = 0, 0
         _laufen(prozessor, tafel, 300, 2000)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
     def test_eine_einzelne_fehllesung_hebt_die_sperre_nicht_auf(self, prozessor):
         """GEMESSEN auf Bahn 2: nur 184 von 273 Messungen lasen die Null.
@@ -287,7 +287,7 @@ class TestKeineDoppelmeldung:
         prozessor.digit_reader = tafel
         tafel.summe, tafel.nummer = 0, 0
         _laufen(prozessor, tafel, 0, 200)
-        assert prozessor._reset_seen
+        assert prozessor.reset_unterwegs
         prozessor._reset_weiterreichen()
 
         takt = prozessor.cfg.scoring.game_reset_check_interval
@@ -299,7 +299,7 @@ class TestKeineDoppelmeldung:
             tafel.summe, tafel.nummer = 0, 0
             _laufen(prozessor, tafel, start + 6 * takt, start + 400)
 
-        assert not prozessor._reset_seen, (
+        assert not prozessor.reset_unterwegs, (
             "Die laengste gemessene Straehne von Fehllesungen darf die Sperre "
             "nicht aufheben -- sonst meldet dieselbe Bahn denselben Wechsel "
             "mehrfach (Bahn 4: dreimal)"
@@ -345,7 +345,7 @@ class TestNurDieWurfnummer:
         tafel.summe, tafel.nummer = None, 0      # Summe unlesbar, Nummer null
         _laufen(prozessor, tafel, 0, 500)
 
-        assert prozessor._reset_seen, (
+        assert prozessor.reset_unterwegs, (
             "Mit `game_reset_number_only` darf eine unlesbare Summe den "
             "Spielwechsel nicht mehr verdecken"
         )
@@ -359,7 +359,7 @@ class TestNurDieWurfnummer:
         tafel.summe, tafel.nummer = None, 0
         _laufen(prozessor, tafel, 0, 500)
 
-        assert not prozessor._reset_seen, (
+        assert not prozessor.reset_unterwegs, (
             "Ohne den Schalter ist die unlesbare Summe weiterhin der "
             "Torwaechter -- das war der gemessene Ist-Zustand"
         )
@@ -377,7 +377,7 @@ class TestNurDieWurfnummer:
         tafel.summe, tafel.nummer = None, None
         _laufen(prozessor, tafel, 0, 2000)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
 
     def test_laufendes_spiel_loest_auch_ohne_summe_nichts_aus(self, prozessor):
         """Wurfnummer 001..030 ist der Normalfall und darf nie ausloesen."""
@@ -390,4 +390,77 @@ class TestNurDieWurfnummer:
             tafel.summe = None          # Summe durchgehend unlesbar
             _laufen(prozessor, tafel, nummer * 100, nummer * 100 + 100)
 
-        assert not prozessor._reset_seen
+        assert not prozessor.reset_unterwegs
+
+
+class TestWohinDasZeichenGeht:
+    """BUG-028: Ein zwischen zwei Würfen gesehener Nullzustand kostete einen Wurf.
+
+    Die Prüfung läuft in eigenem Takt, unabhängig vom Wurffenster. Sie trifft
+    den Nullzustand deshalb mal WÄHREND eines Wurfs und mal ZWISCHEN zweien —
+    und das ist ein Unterschied:
+
+        im Fenster    Der laufende Wurf gehört noch zum alten Spiel; das
+                      Zeichen gilt dem nächsten.
+        dazwischen    Der letzte Wurf des alten Spiels ist längst gebucht;
+                      der nächste ist bereits der erste des neuen Spiels.
+
+    Bis dahin ging beides in denselben Briefkasten. Der zweite Fall kam damit
+    einen Wurf zu spät, und der erste Wurf des neuen Spiels landete im alten —
+    seine Kegel fehlten ab da im ganzen Spielstand.
+
+    GEMESSEN am Spieltag 2026-09-17 (477 Würfe, 25 Spiele): Jedes Spiel, dessen
+    erster gebuchter Wurf die Nummer 2 trug, hatte genau einen Wurf verloren —
+    sieben von 25, jeweils mit konstantem Fehlbetrag über das ganze Spiel
+    (−5 bis −9, genau die Kegelzahl des verlorenen Wurfs).
+    """
+
+    def test_zwischen_zwei_wuerfen_gilt_es_dem_naechsten_wurf(self, prozessor):
+        """Der Fall aus dem Spieltag: Die Anlage setzt in der Pause zurück."""
+        tafel = Tafel()
+        prozessor.digit_reader = tafel
+        assert not prozessor._window_open
+        tafel.summe, tafel.nummer = 0, 0
+        _laufen(prozessor, tafel, 0, 500)
+
+        assert prozessor.reset_unterwegs
+        # Der naechste Wurf wird ausgewertet -- er MUSS das Zeichen bekommen.
+        prozessor._reset_weiterreichen()
+        assert prozessor.reset_pending, (
+            "Der erste Wurf nach der Pause ist der erste des neuen Spiels. "
+            "Bekommt er das Zeichen nicht, landen seine Kegel im alten Spiel "
+            "und fehlen im neuen Stand -- fuer den Rest des Spiels."
+        )
+
+    def test_im_wurffenster_gilt_es_erst_dem_uebernaechsten(self, prozessor):
+        """Der andere Fall bleibt, wie er war: Der laufende Wurf gehört noch
+        zum alten Spiel."""
+        tafel = Tafel()
+        prozessor.digit_reader = tafel
+        prozessor._window_open = True
+        tafel.summe, tafel.nummer = 0, 0
+        _laufen(prozessor, tafel, 0, 500)
+
+        assert prozessor.reset_unterwegs
+        prozessor._reset_weiterreichen()          # der laufende Wurf
+        assert not prozessor.reset_pending, (
+            "Der Wurf, in dessen Fenster der Nullzustand lag, gehoert noch "
+            "zum alten Spiel"
+        )
+        prozessor._reset_weiterreichen()          # der naechste
+        assert prozessor.reset_pending
+
+    def test_das_zeichen_geht_nicht_verloren(self, prozessor):
+        """Zwischen Erkennung und Zustellung darf nichts dazwischenkommen."""
+        tafel = Tafel()
+        prozessor.digit_reader = tafel
+        tafel.summe, tafel.nummer = 0, 0
+        _laufen(prozessor, tafel, 0, 500)
+        # Die Anzeige verlaesst den Nullzustand, bevor der Wurf kommt
+        tafel.summe, tafel.nummer = 42, 1
+        _laufen(prozessor, tafel, 500, 900)
+        prozessor._reset_weiterreichen()
+        assert prozessor.reset_pending, (
+            "Das Zeichen gilt dem naechsten Wurf, auch wenn die Anzeige "
+            "inzwischen weitergelaufen ist"
+        )
