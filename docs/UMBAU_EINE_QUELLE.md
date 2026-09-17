@@ -1,6 +1,7 @@
 # Umbauplan: Eine Bildquelle statt zweier
 
 **Stand: 2026-09-17 — geschrieben, noch nicht begonnen.**
+*Überarbeitet am selben Tag: Schritt 3 entfällt, siehe dort.*
 
 Nutzervorschlag: *„Wollen wir nicht Player und Analyse endgültig vereinen? Ich
 verstehe immer noch nicht den Mehrwert davon 2 Systeme zu haben... Dann soll
@@ -64,7 +65,7 @@ Kalibrierung, die Signalwege zur Oberfläche.
 
 `AnalysisWorker` öffnet die Quelle und liefert jeden Frame weiter. Der
 `VideoPlayer` liest nicht mehr selbst, sondern wird zur **Steuerung**:
-Abspielen, Pause, Springen, Tempo. Seine Signale (`frame_ready`, `opened`,
+Abspielen, Pause, Tempo. Seine Signale (`frame_ready`, `opened`,
 `finished`) bleiben — sie werden künftig vom Worker gespeist.
 
 Damit gibt es genau ein aktuelles Bild, und die Frage „welches ist das
@@ -76,22 +77,29 @@ Wer eine Datei oder einen Stream öffnet, sieht ab dem ersten Frame die
 Auswertung. Der Knopf heißt dann nicht mehr „Analyse starten", sondern trägt,
 was er wirklich tut: **an die Datenbank senden**.
 
-### 3. Springen setzt die Analyse zurück
+### 3. Springen entfällt in der Bedienung
 
-Das ist der einzige Punkt, an dem die Vereinigung etwas kostet.
+Der Nutzer dazu (2026-09-17): *„das springen ist glaube ich nicht wichtig, ich
+habe es noch nie benutzt."*
 
-Die Analyse ist zustandsbehaftet und läuft streng vorwärts: Grünphasen,
-Wurffenster, gleitende Schwellen, laufende Summen. Ein Sprung im Video macht
-diesen Zustand ungültig. Heute umgeht das Werkzeug das Problem, indem der
-Player springen darf und die Analyse nicht mitläuft.
+Damit fällt der teuerste Teil dieses Umbaus weg. Ursprünglich stand hier, ein
+Sprung müsse den Analysezustand verwerfen — die Auswertung läuft streng
+vorwärts (Grünphasen, Wurffenster, gleitende Schwellen), ein Rücksprung macht
+sie ungültig. Wird gar nicht gesprungen, gibt es das Problem nicht.
 
-Künftig gilt: **Ein Sprung verwirft den Analysezustand und beginnt an der neuen
-Stelle neu** — genau das, was heute beim Start ohnehin passiert. Die
-mitlaufenden Schwellen brauchen danach rund eine Minute, bis sie wieder
-tragen; das steht auch jetzt schon so in der Meldung nach einer
-Kalibrierungsänderung.
+**Was intern trotzdem springt, und weiter darf:**
 
-Beim Stream stellt sich die Frage nicht: Dort kann man nicht springen.
+* `AnalysisWorker._vorspulen` — spult beim Start auf einen Anfangsframe vor
+  (`--start-frame`). Der Worker besitzt die Quelle, also bleibt das, wie es
+  ist.
+* Die Sammlung mehrerer Frames für die automatische Tafelerkennung
+  (`main_window.py:1282`). Sie springt **nur bei einer Datei**; für einen
+  Stream nutzt dieselbe Funktion schon heute `step_forward()`. Nach dem Umbau
+  geht beides über das Vorwärtslaufen.
+
+Verloren geht damit nur das Frame-Springen der Ziffernlupe bei Dateien
+(∓1/10/100), das am selben Tag entstand. Für den Stream — den eigentlichen
+Betriebsfall — gab es dort ohnehin nur „frisches Bild".
 
 ### 4. Was ersatzlos verschwindet
 
@@ -138,9 +146,7 @@ Der Worker startet mit der Quelle, `sending` ist aus.
 *Geprüft:* Ein Test lädt eine Datei und erwartet Auswertungsergebnisse, ohne
 dass jemand einen Knopf gedrückt hat.
 
-**Schritt 3 — Springen setzt zurück.**
-*Geprüft:* Ein Test springt mitten in einer Auswertung zurück und erwartet,
-dass die Wurfzählung an der neuen Stelle neu beginnt statt Unsinn zu buchen.
+**Schritt 3 — entfällt.** Siehe oben: Es wird nicht gesprungen.
 
 **Schritt 4 — die Sonderfälle löschen.**
 Erst wenn 1 bis 3 stehen. Die heute dafür geschriebenen Tests
@@ -166,10 +172,10 @@ Bild gibt.
 
 ## Risiken, offen benannt
 
-**Der Player ist heute die einzige Stelle, die das Springen beherrscht.** Wird
-er zur Steuerung, muss das Springen durch den Worker hindurch — und der läuft
-in einem eigenen Thread. Fehler an dieser Naht sind sporadisch und schwer zu
-finden. Deshalb steht Schritt 3 mit einem eigenen Test dort, wo er steht.
+**~~Der Player ist heute die einzige Stelle, die das Springen beherrscht.~~**
+Entfallen: Es wird nicht gesprungen (siehe Punkt 3). Das war das größte Risiko
+dieses Umbaus, und es ist mit einem Satz des Nutzers weggefallen -- ein gutes
+Argument dafür, vor dem Bauen zu fragen, was tatsächlich benutzt wird.
 
 **Ein Stream hat kein Ende.** Läuft die Auswertung ab dem Laden, läuft sie auch
 stundenlang weiter, während jemand nur zusieht. Der Schalter aus Schritt 5 ist
