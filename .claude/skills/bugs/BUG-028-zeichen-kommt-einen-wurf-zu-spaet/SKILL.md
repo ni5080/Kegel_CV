@@ -107,6 +107,22 @@ Punktestand auf jeder Bahn danebenlag. Ein Prüfwerkzeug, das nur Differenzen
 sieht, kann einen Versatz nicht finden — dafür braucht es den absoluten
 Vergleich `LaufendeSumme` gegen `SummeTafel`.
 
+## Nachgemessen
+
+Die erste Fassung dieses Skills sagte, die Wirkung sei nicht nachmessbar, weil
+der Lauf gegen einen Livestream lief. **Das war falsch.** Die Stream-URL liefert
+von vorn, nicht vom Live-Rand; ein zweiter Lauf bucht dieselben Würfe. Über die
+ersten 98 Würfe, alle vier Bahnen:
+
+| | Rest = 0 (richtig) | Spiele mit konstantem Fehlbetrag |
+|---|---|---|
+| vorher | 22 von 96 (22,9 %) | 4 (−7, −9, −5, −7) |
+| **nachher** | **96 von 96 (100,0 %)** | **0** |
+
+Die Lehre daneben: Bevor man „nicht wiederholbar" in eine Doku schreibt, lohnt
+ein zweiter Lauf. Ich hatte es aus der Art der Quelle geschlossen statt es zu
+probieren.
+
 ## Offen
 
 Der Nutzer hat im selben Lauf beobachtet, dass auf Bahn 2 der Lampenkranz

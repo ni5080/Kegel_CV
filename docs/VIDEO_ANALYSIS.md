@@ -3494,8 +3494,30 @@ absoluten Vergleich `LaufendeSumme` gegen `SummeTafel`.
 Behoben und mit `test_game_reset.py::TestWohinDasZeichenGeht` festgenagelt; die
 Tests fallen nachweislich durch, wenn man die Korrektur zurücknimmt.
 
-**Am Hallenmitschnitt: 64 Würfe, unverändert** — das ist eine Regressionsprüfung,
-kein Beleg für die Wirkung. Der Lauf, an dem der Fehler sichtbar war, lief gegen
-einen Livestream und ist nicht wiederholbar. Der Beleg steht damit auf der
-Diagnose und den Tests, nicht auf einer Nachmessung. **Der nächste Spieltag
-zeigt es.**
+**Am Hallenmitschnitt: 64 Würfe, unverändert** — Regressionsprüfung, nichts
+kaputt.
+
+### Nachgemessen — die Annahme „nicht wiederholbar" war falsch
+
+Ich hatte geschrieben, der Lauf sei nicht nachmessbar, weil er gegen einen
+Livestream lief. **Das stimmt nicht:** Die Stream-URL liefert von vorn, nicht
+vom Live-Rand. Ein zweiter Lauf gegen dieselbe URL bucht dieselben Würfe (Bahn 4
+Kegel 5 mit `1 3 6 8 9`, Bahn 3 Kegel 9, Bahn 5 Kegel 7 mit `1 2 3 4 6 7 9` —
+Zeichen für Zeichen).
+
+Damit ist das Material wiederholbar, und die Wirkung ist gemessen. Über die
+ersten 98 Würfe, alle vier Bahnen, mit `1Spieltag_Neu_Feinkalibriert.json`:
+
+| | Rest = 0 (richtig) | Spiele mit konstantem Fehlbetrag |
+|---|---|---|
+| vorher | 22 von 96 (**22,9 %**) | 4 (−7, −9, −5, −7) |
+| **nachher** | **96 von 96 (100,0 %)** | **0** |
+
+Bahn 3 im Einzelnen — vorher begann Spiel 2 bei Wurf 2 und schleppte −9 mit,
+jetzt bleibt alles in Spiel 1 und die laufende Summe liegt genau einen Wurf vor
+der Tafel, wie es der Nachlauf verlangt:
+
+```
+vorher   Spiel 1 W1 Lauf  9 Tafel  0   Spiel 2 W2 Lauf  9 Tafel  9  Rest -9
+nachher  Spiel 1 W1 Lauf  9 Tafel  0   Spiel 1 W2 Lauf 18 Tafel  9  Rest +0
+```
