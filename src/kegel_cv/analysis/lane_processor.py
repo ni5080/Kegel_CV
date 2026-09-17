@@ -229,9 +229,18 @@ class LaneProcessor:
             lernrate=cfg.detection.person_mask.wache_lernrate,
             wachstum=cfg.detection.person_mask.wache_wachstum)
         self._wache_takt = cfg.detection.person_mask.wache_takt
-        # Meldet die Wache gerade etwas Fremdes auf der Tafel? Sie ist der
-        # dritte Zeuge der Verdeckungsbremse -- siehe `process`.
+        # Meldet die Wache gerade etwas Fremdes auf der Tafel?
+        #
+        # ZWEI FRAGEN, ZWEI SCHWELLEN (BUG-030). `_wache_meldet_fremdes` gilt
+        # dem SCHWAERZEN und der Erholung einer festhaengenden Referenz;
+        # `_wache_bremst` gilt dem ANHALTEN der Auswertung und verlangt sehr
+        # viel mehr. Die Wache sagt in ihrem eigenen Kopf: "Diese Wache
+        # entscheidet NICHTS ueber Wuerfe" -- mit einer Schwelle fuer beides
+        # tat sie es trotzdem.
         self._wache_meldet_fremdes = False
+        self._wache_bremst = False
+        self._wache_bremse_schwelle = (
+            cfg.detection.person_mask.wache_bremse_schwelle)
         # DAS PERSONENMODELL, der vierte Zeuge. Es gehoert der Pipeline, nicht
         # dieser Bahn -- alle vier Bahnen teilen sich EINEN Durchlauf je Frame
         # (siehe `detection/personen_modell.py`). Bis es gesetzt wird, arbeitet
@@ -941,6 +950,7 @@ class LaneProcessor:
                     self._wache_daueralarm, frame.index)
         self.wache.vergiss_referenz()
         self._wache_meldet_fremdes = False
+        self._wache_bremst = False
         self._wache_daueralarm = 0
 
     def fremdmaske(self, bild, frame_index: int | None = None) -> object:
@@ -1216,7 +1226,7 @@ class LaneProcessor:
         # sie in die Bremse geht -- sonst friert die Bahn dauerhaft ein.
         self._pruefe_festhaengende_wache(frame)
         if (green.score < self._verdeckungsschwelle() or self._extern_verdeckt
-                or self._wache_meldet_fremdes or self._modell_meldet_person):
+                or self._wache_bremst or self._modell_meldet_person):
             self._occlusion_frames += 1
         else:
             if self._occlusion_frames >= self.cfg.detection.green.occlusion_min_frames:
@@ -1470,8 +1480,24 @@ class LaneProcessor:
                 aus = self._crop(frame.image, box)
                 if aus is not None and aus.size:
                     abweichung = self.wache.beobachte(aus)
+                    # ZWEI SCHWELLEN, ZWEI FRAGEN (BUG-030).
+                    #
+                    # `_wache_meldet_fremdes` ist die Frage "soll dieses Bild
+                    # geschwaerzt werden" -- niedrige Schwelle, denn ein Bild
+                    # zu viel zu schwaerzen kostet nichts. Daran haengt auch
+                    # die Erholung der festhaengenden Referenz.
+                    #
+                    # `_wache_bremst` ist die Frage "soll die Auswertung
+                    # anhalten" -- und die verlangt viel mehr. Mit einer
+                    # Schwelle fuer beides hielt eine festhaengende Referenz
+                    # eine Bahn 1089 Frames an, waehrend zwei andere Zeugen
+                    # klar widersprachen. Die Messwerte stehen bei
+                    # `detection.person_mask.wache_bremse_schwelle`.
                     self._wache_meldet_fremdes = (
                         self.wache.bereit and abweichung >= self.wache.schwelle)
+                    self._wache_bremst = (
+                        self.wache.bereit
+                        and abweichung >= self._wache_bremse_schwelle)
 
         # Die Anzeige der gelesenen Ziffern -- nur fuers Auge, kein Einfluss
         # auf irgendeine Zaehlung.

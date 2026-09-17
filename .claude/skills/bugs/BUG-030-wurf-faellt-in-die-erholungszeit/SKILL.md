@@ -14,7 +14,7 @@ description: >
 | **Kategorie** | `DETECT` / Verdeckung |
 | **Gefunden** | 2026-09-17, auf Nutzerhinweis |
 | **Schweregrad** | **mittel** (0,8 % der Würfe; der Spielstand bleibt danach dauerhaft falsch) |
-| **Regressionstest** | offen — der Fehler ist diagnostiziert, nicht behoben |
+| **Regressionstest** | `test_wache_bremst_nicht_allein.py` |
 
 ## Symptom
 
@@ -85,23 +85,58 @@ Es sagten also zwei von drei Zeugen, dass nichts verdeckt ist:
 
 Die Wache allein hielt die Bahn 1089 Frames lang an.
 
-## Behebungsrichtung — NICHT umgesetzt
+## Behebung
 
-Zwei Wege, beide messbar:
+Der eigentliche Fund steckt im Kopf von `analysis/tafel_wache.py`, und er stand
+dort die ganze Zeit:
 
-**(a) Die Heilung früher auslösen, wenn die anderen Zeugen widersprechen.**
-Statt starrer 750 Frames: Wenn das Personenmodell niemanden sieht UND der
-Grün-Score deutlich über der Verdeckungsschwelle liegt, reicht eine viel
-kürzere Frist — die längste echte Verdeckung dauerte 250 Frames, aber bei ihr
-wäre der Grün-Score eingebrochen.
+> **WAS DAMIT NICHT GEMEINT IST**
+> Diese Wache entscheidet **nichts** über Würfe. Sie schwärzt Bilder, die das
+> Haus verlassen.
 
-**(b) Die Wache darf nicht allein einfrieren.** Das wäre der größere Eingriff
-und widerspricht der Absicht hinter den drei Zeugen („jeder sieht etwas, das
-die anderen nicht sehen"). Er braucht eine eigene Messung.
+In der Verdeckungsbremse stand sie trotzdem — und mit **derselben Schwelle**
+wie fürs Schwärzen (`wache_schwelle: 0.05`). Ein Wert für zwei sehr
+verschiedene Fragen.
 
-**Beides muss gegen die Phantomwürfe geprüft werden, für die die Bremse gebaut
-wurde** (Stream F42150–42350; Halle F3228 und F43514). Eine Bremse, die
-schneller löst, darf sie nicht wieder durchlassen.
+GEMESSEN am Stream vom 2026-09-17, Bahn 2, Referenz im Normalbetrieb gelernt:
+
+| Fall | Abweichung |
+|---|---|
+| Normalbetrieb | 0,000 |
+| **festhängende Referenz (dieser Fehler)** | **0,123 – 0,198** |
+| halb verdeckt | 0,246 |
+| alles schwarz | 0,551 |
+| **dunkle Tafel am Streamende** | **0,622** |
+
+Die beiden Gruppen liegen weit auseinander. `wache_bremse_schwelle: 0.40`
+trennt sie mit Abstand nach beiden Seiten. Das Schwärzen bleibt bei 0,05 — ein
+Bild zu viel zu schwärzen kostet nichts, ein Gesicht zu veröffentlichen schon.
+
+Die **Erholung** der festhängenden Referenz hängt weiter am Schwärzungs-Flag:
+Eine stehengebliebene Referenz soll geheilt werden, auch wenn sie nicht mehr
+bremst — sonst schwärzt sie dauerhaft zu viel.
+
+### Nachgemessen
+
+**Fall B — der verlorene Wurf (F96300–98600):**
+
+```
+vorher   Tafel war 1089 Frames verdeckt      -> kein Wurf
+nachher  Bahn 2: Wurf 8 erkannt -- 7 Kegel [1,2,3,4,6,7,9], VALID (0.80)
+```
+
+Genau die sieben Kegel, die Tafel (008/7/0054→0061) und Lampen gezeigt hatten.
+Die Bremse arbeitet weiter: Sie greift in demselben Ausschnitt mehrfach
+(Personenmodell 17–32 %), aber nur noch **5 bis 129 Frames** statt 1089.
+
+**Fall A — die dunkle Tafel (F305000–312700):** 7701 Frames, vier Grünzyklen,
+**0 Würfe**. Kein Phantomwurf ist durchgekommen.
+
+**Einschränkung, offen benannt:** Der ursprüngliche Fall A (Streamende
+2026-09-13, alles schwarz, Wache meldete 61–68 %) ist nicht mehr nachmessbar —
+jener Stream-Link ist abgelaufen. Geprüft wurde an der dunklen Tafel des
+heutigen Streams (0,622) und an einem künstlich geschwärzten Ausschnitt
+(0,551). Beide liegen über der neuen Schwelle.
 
 ## Was daraus zu lernen ist
 

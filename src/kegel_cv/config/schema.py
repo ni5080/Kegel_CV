@@ -959,6 +959,34 @@ class PersonMaskConfig(BaseModel):
     #     Mensch davor     11,9 bis 14,1 %   (zugleich das Maximum des Laufs)
     # 0,05 liegt in der Luecke. 0 schaltet die Wache ab.
     wache_schwelle: float = Field(default=0.05, ge=0.0, le=1.0)
+    # AB WANN DIE WACHE DIE AUSWERTUNG ANHAELT -- getrennt von der Schwelle
+    # zum Schwaerzen, und bewusst viel hoeher.
+    #
+    # DER GRUND (BUG-030): `wache_schwelle` ist fuer den Datenschutz gemessen
+    # und dafuer richtig. Die Wache selbst sagt dazu in ihrem Kopf: "Diese
+    # Wache entscheidet NICHTS ueber Wuerfe." In der Verdeckungsbremse stand
+    # sie trotzdem, mit derselben Schwelle -- und eine festhaengende Referenz
+    # hielt damit eine Bahn 1089 Frames an, waehrend Gruen-Score (75,0) und
+    # Personenmodell beide sagten, dass nichts verdeckt ist. Ein Wurf ging
+    # dabei verloren.
+    #
+    # GEMESSEN am Stream vom 2026-09-17, Bahn 2, Referenz im Normalbetrieb
+    # gelernt:
+    #
+    #     Normalbetrieb                       0,000
+    #     festhaengende Referenz (BUG-030)    0,123 bis 0,198
+    #     halb verdeckt                       0,246
+    #     alles schwarz                       0,551
+    #     dunkle Tafel am Streamende          0,622
+    #
+    # 0,40 trennt die beiden Gruppen mit Abstand nach beiden Seiten. Der Fall,
+    # fuer den die Wache ueberhaupt in die Bremse kam -- Streamende, wo
+    # Gruen-Score und Personenmaske beide blind sind und ohne sie drei Wuerfe
+    # gebucht wurden -- liegt bei 0,62 und bleibt gefangen.
+    #
+    # Die Schwelle zum SCHWAERZEN bleibt bei 0,05: Ein Bild zu viel zu
+    # schwaerzen kostet nichts, ein Gesicht zu veroeffentlichen schon.
+    wache_bremse_schwelle: float = Field(default=0.40, ge=0.0, le=1.0)
     # Nachgelernt wird nur unterhalb dieses Anteils -- der Kern des Verfahrens.
     wache_nachlernen_unter: float = Field(default=0.10, ge=0.0, le=1.0)
     wache_lernrate: float = Field(default=0.05, gt=0.0, le=1.0)
