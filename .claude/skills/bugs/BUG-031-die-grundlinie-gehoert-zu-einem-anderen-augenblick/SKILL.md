@@ -98,6 +98,16 @@ Gemessen über den ganzen Lauf: **2 von 933 Grünphasen sind kürzer als 25
 Frames** (4 und 15 Frames). Genau eine davon fällt mit einem gebuchten Wurf
 zusammen -- und das ist dieser.
 
+**Er ist exakt reproduzierbar.** Der Lauf vom 2026-09-18 07:30 über denselben
+Stream bucht bei Frame 47227 wieder Zeile für Zeile dasselbe:
+
+```
+31:29;47227;4;9;1 2 3 4 5 6 7 8 9;26;3;2;11;180;;VALID;0.45;2;...;0;...
+```
+
+Damit ist dieser Frame der Prüfstein für die Reparatur: Wer die Grundlinie
+repariert, muss hier 2 sehen und sonst nichts ändern.
+
 ### Fall 2 — die Grünphase war 87 Sekunden lang (bewiesen)
 
 Bahn 5, Wurf 16, Frame 60871:
