@@ -22,6 +22,21 @@ sondern dieser Zuwachs -- sofern er lesbar ist. Wo er fehlt, bleibt der Fall
 offen und wird auch so ausgewiesen. Eine Gegenprobe, die im Zweifel eine Seite
 zur Siegerin erklaert, waere keine.
 
+DIE BEWEISREGEL DES NUTZERS (2026-09-18):
+
+    "die Lampen luegen nie! Es ist immer unsere Auswertung... wenn die Ziffern
+     sich gegenseitig bestaetigen, dann wissen wir, der Algorithmus der Lampen
+     ausliest, ist kaputt"
+
+Der Kegelkranz ist Wirklichkeit, keine Meinung. Was der Bericht "Lampen" nennt,
+ist deshalb nie eine Aussage der Anlage, sondern IMMER unsere Rechnung darauf
+-- Schwellen, Grundlinie, Abzug beim Raeumen. Bestaetigen Ziffer und Summe
+einander, ist der Fall damit nicht unentschieden, sondern entschieden: Dann ist
+diese Rechnung kaputt, und zwar bei uns. Der Bericht sagt das auch so.
+
+Erster Fund mit dieser Regel: BUG-031 -- die Grundlinie wird beim Gruen-AN
+gemessen und beim Gruen-AUS verwendet.
+
 Aufruf:
 
     .venv/Scripts/python.exe tools/vergleiche_lampen_ziffern.py \
@@ -163,12 +178,15 @@ def bericht(wuerfe: list[Wurf], alle: bool) -> None:
         else:
             fuer_keinen += 1
 
-    print(f"\nWer hat recht, wenn die Summe mitreden kann "
-          f"({len(streit_gesamt)} Streitfaelle):")
-    print(f"  Summe stuetzt die LAMPEN : {fuer_lampen}")
-    print(f"  Summe stuetzt die ZIFFER : {fuer_ziffer}")
-    print(f"  Summe sagt etwas DRITTES : {fuer_keinen}")
-    print(f"  Summe schweigt           : {ohne_zeuge}")
+    print(f"\nWas die Summe zu den {len(streit_gesamt)} Streitfaellen sagt:")
+    print(f"  Ziffer + Summe einig -> UNSERE Lampenrechnung ist falsch : "
+          f"{fuer_ziffer}")
+    print(f"  Lampen + Summe einig -> die Ziffer ist falsch gelesen    : "
+          f"{fuer_lampen}")
+    print(f"  Summe sagt etwas Drittes -> alle drei fraglich           : "
+          f"{fuer_keinen}")
+    print(f"  Summe schweigt -> offen                                  : "
+          f"{ohne_zeuge}")
 
     # --- Und was sagt die Summe zu den Wuerfen, bei denen alle einig waren? ---
     # Ohne diese Zeile waere die Zahl darueber nicht einzuordnen: Erst wenn der
@@ -187,10 +205,10 @@ def bericht(wuerfe: list[Wurf], alle: bool) -> None:
               f"{'Sp':>2s} {'Lampen':>6s} {'Ziffer':>6s} {'Summe':>6s}  "
               f"{'Urteil':<14s} Status")
         for wurf, sagt in sorted(streit_gesamt, key=lambda p: p[0].frame):
-            urteil = ("Summe fehlt" if sagt is None
-                      else "-> Lampen" if sagt == wurf.lampen
-                      else "-> Ziffer" if sagt == wurf.ziffer
-                      else f"-> weder ({sagt})")
+            urteil = ("offen" if sagt is None
+                      else "Ziffer falsch" if sagt == wurf.lampen
+                      else "WIR falsch" if sagt == wurf.ziffer
+                      else f"weder ({sagt})")
             print(f"{wurf.zeit:>8s} {wurf.frame:>7d} {wurf.bahn:>4d} "
                   f"{'-' if wurf.nummer is None else wurf.nummer:>4} "
                   f"{'-' if wurf.spiel is None else wurf.spiel:>2} "
