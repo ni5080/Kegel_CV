@@ -219,12 +219,16 @@ def ein_fall(quelle: str, kal: Calibration, cfg, bahn: int, wurf_frame: int,
             f"Grundlinienfenster zu (+{fenster} Frames)")
     if gruen_aus is not None:
         marken[gruen_aus] = "GRUEN AUS -- jetzt gilt das Ergebnis"
-    marken[wurf_frame] = (
-        f"gebucht: {zeile['Kegel']} Kegel   |   Tafel sagt "
-        f"{zeile['Ziffer'] or '?'}   |   Grundlinie {zeile['Grundlinie'] or '0'}")
-
-    kopf = (f"Bahn {bahn} Wurf {zeile['Wurfnummer']}: gebucht "
-            f"{zeile['Kegel']}, Tafel {zeile['Ziffer'] or '?'}")
+    if zeile["Kegel"] == "KEIN WURF GEBUCHT":
+        marken[wurf_frame] = "HIER WURDE KEIN WURF GEBUCHT"
+        kopf = f"Bahn {bahn}: Gruenzyklus ohne Wurfergebnis"
+    else:
+        marken[wurf_frame] = (
+            f"gebucht: {zeile['Kegel']} Kegel   |   Tafel sagt "
+            f"{zeile['Ziffer'] or '?'}   |   Grundlinie "
+            f"{zeile['Grundlinie'] or '0'}")
+        kopf = (f"Bahn {bahn} Wurf {zeile['Wurfnummer']}: gebucht "
+                f"{zeile['Kegel']}, Tafel {zeile['Ziffer'] or '?'}")
 
     lane = next(l for l in kal.lanes if l.real_lane_number == bahn)
     kamera = cv2.VideoCapture(quelle)
@@ -334,6 +338,16 @@ def main() -> int:
     if a.bahn and a.frame:
         gewaehlt = [z for z in wuerfe
                     if int(z["Bahn"]) == a.bahn and int(z["Frame"]) == a.frame]
+        if not gewaehlt:
+            # KEIN GEBUCHTER WURF AN DIESER STELLE -- und genau das ist oft der
+            # Fehler, der belegt werden soll: ein verworfener Gruenzyklus. Ohne
+            # diesen Zweig liesse sich ausgerechnet der Verlust nicht zeigen.
+            print(f"Kein gebuchter Wurf auf Bahn {a.bahn} bei Frame {a.frame} "
+                  f"-- es wird der Gruenzyklus gezeigt, der keinen lieferte.\n")
+            gewaehlt = [{"Bahn": str(a.bahn), "Frame": str(a.frame),
+                         "Kegel": "KEIN WURF GEBUCHT", "Ziffer": "",
+                         "Wurfnummer": "-", "Grundlinie": "", "Spiel": "",
+                         "SummeTafel": "", "Kegelnummern": "", "Status": ""}]
     else:
         # Alle Wuerfe, bei denen Lampen und Ziffer auseinandergehen.
         gewaehlt = [z for z in wuerfe

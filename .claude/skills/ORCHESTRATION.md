@@ -26,6 +26,7 @@ vollautomatisch jeden Wurf erfasst: gefallene Kegel, Anzahl, Wurfnummer, Summen 
 | P6 | **Bahnen sind unabhängig** | Nie synchrone Ereignisse annehmen. Pro Bahn eigener Zustand. |
 | P7 | **Nicht raten — messen** | Bei Unklarheit: Frames extrahieren, anschauen, dann implementieren. Sonst TODO in `docs/OPEN_QUESTIONS.md`. |
 | P8 | **Fehler ≠ Abbruch** | Analyse läuft weiter, Fehler werden als Status gespeichert. |
+| P9 | **Fehler brauchen ein belastbares GIF** | Jeder untersuchte Fehler wird als GIF der Tafel belegt — Frame für Frame, mit ALLEN dort ausgelesenen Werten: Zeit, Framenummer, Grünzustand, jede Kegellampe einzeln, jedes Ziffernfeld. Werkzeug: `tools/streitfall_gif.py`. |
 
 ---
 

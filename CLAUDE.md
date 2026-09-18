@@ -15,7 +15,7 @@
 
 Der Nutzer liest Meldungen und Doku — Code folgt der Werkzeugkonvention.
 
-## Die sechs Regeln, die hier am meisten wiegen
+## Die sieben Regeln, die hier am meisten wiegen
 
 1. **Nicht raten — messen.** Bei Unklarheit über das Material: Frames extrahieren,
    ansehen, Ergebnis in `docs/VIDEO_ANALYSIS.md`. Bleibt es unklar →
@@ -30,6 +30,13 @@ Der Nutzer liest Meldungen und Doku — Code folgt der Werkzeugkonvention.
 5. **Jedes Ergebnis erklärt sich selbst.** `evidence` ist Pflicht, nicht Kür.
 6. **Fehler beenden die Analyse nicht.** `except: pass` ist verboten
    (wird von `tests/unit/test_architecture.py` automatisch geprüft).
+7. **Fehler brauchen ein belastbares GIF.** Jeder untersuchte Fehler wird als
+   GIF der Tafel belegt — Frame für Frame, mit ALLEN dort ausgelesenen Werten:
+   Zeit, Framenummer, Grünzustand, jede Kegellampe einzeln, jedes Ziffernfeld.
+   Werkzeug: `tools/streitfall_gif.py`. Ein GIF hat an diesem Projekt bisher
+   jedes Mal etwas aufgedeckt, das in Zahlen nicht zu sehen war — unter
+   anderem, dass eine „15 Frames kurze Grünphase" in Wahrheit eine 140 Frames
+   zu späte Erkennung war.
 
 ## Befehle
 
@@ -53,7 +60,8 @@ Die venv liegt unter `.venv/`. Unter Windows/Git-Bash immer
 - [ ] Tests geschrieben und die vollständige Suite grün
 - [ ] Neue Parameter in `config/default.yaml` statt im Code
 - [ ] Status in `.claude/skills/ORCHESTRATION.md` aktualisiert
-- [ ] Bei aufgetretenem Bug: BugSkill angelegt, `BUGS_INDEX.md` ergänzt
+- [ ] Bei aufgetretenem Bug: BugSkill angelegt, `BUGS_INDEX.md` ergänzt,
+      **GIF erzeugt und im SKILL verlinkt** (Regel 7)
 - [ ] Neue Messergebnisse in `docs/VIDEO_ANALYSIS.md`
 
 ## Was hier nicht passieren darf

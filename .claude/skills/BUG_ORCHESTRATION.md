@@ -35,6 +35,15 @@ Wenn ich denke *„das war ein Vertipper"* → kein BugSkill.
 └────────────────────────────┬────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
+│ 1b. GIF ERZEUGEN — bevor eine Erklaerung entsteht           │
+│    tools/streitfall_gif.py: die Tafel Frame fuer Frame, mit │
+│    ALLEN dort ausgelesenen Werten (Zeit, Frame, Gruen, jede  │
+│    Kegellampe, jedes Ziffernfeld). Regel 7 in CLAUDE.md.    │
+│    Wer ohne GIF erklaert, erklaert seine Zahlen, nicht die  │
+│    Tafel — und merkt nicht, wenn die Zahlen luegen.         │
+└────────────────────────────┬────────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
 │ 2. URSACHE FINDEN (nicht Symptom)                           │
 │    "5 Warum?" bis zur echten Ursache.                       │
 │    Symptom: "Wurf 17 doppelt gezählt"                       │
