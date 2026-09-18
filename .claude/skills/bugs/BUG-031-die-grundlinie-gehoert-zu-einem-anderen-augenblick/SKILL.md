@@ -13,7 +13,7 @@ description: >
 |---|---|
 | **Kategorie** | `ANALYSE` / Räumen |
 | **Gefunden** | 2026-09-18, aus dem Vergleich Lampen/Ziffer |
-| **Schweregrad** | **mittel** (3 von 910 Würfen = 0,3 %; jeder verfälscht den Spielstand dauerhaft) |
+| **Schweregrad** | **mittel** (2 von 910 Würfen; jeder verfälscht den Spielstand dauerhaft. Ein dritter Fall gehörte zu BUG-030 und ist behoben) |
 | **Regressionstest** | noch offen |
 
 ## Der Satz des Nutzers, der die Blickrichtung drehte
@@ -245,19 +245,97 @@ Zwei Dinge daran sind schlimmer als der Einzelfall:
 
 Beides ist noch nicht untersucht.
 
-## Das gemeinsame Muster
+## Nachtrag 2026-09-18: Fall 3 gehört gar nicht hierher
 
-Alle drei Fälle sind dieselbe Krankheit in zwei Richtungen:
+Der Nutzer, nachdem er die GIFs gesehen hatte:
 
-| | Grünphase | Grundlinie | Folge |
-|---|---|---|---|
-| Bahn 4 W26 | 15 Frames, zu kurz | zu klein (0 statt 7) | 9 statt 2 |
-| Bahn 5 W16 | 2167 Frames, zu lang | zu gross (7 statt 0) | 2 statt 9 |
-| Bahn 2 W17 | Bahn blind | zu klein (0 statt 7) | 9 statt 2 |
+> *„schau dir bitte den 3. Fall nochmal an... er macht doch deutlich das das
+> Problem systematisch ist und nicht auf verzögerte Grünphasen o.ä.
+> zurückzuführen ist, ich könnte mir vorstellen mit einer guten Analyse kommen
+> die anderen wieder zurück"*
 
-**Ein Messfenster hängt an einem Ereignis, dessen Dauer niemand zusichert.**
-Solange die Grünphase das tut, was der Regelfall vorsieht, stimmt alles. Die
-0,3 % sind genau die Zyklen, die es nicht taten.
+Beides trifft zu, und beides ist nachgemessen.
+
+**Fall 3 ist im Lauf vom 2026-09-18 verschwunden.** Derselbe Stream, dieselbe
+Kalibrierung, aber mit der Reparatur aus BUG-030:
+
+```
+alt (17.09.)   F58873 W15 ... | F60851 W17 Kegel 9 Ziffer 2 Grundl 0  ERROR
+neu (18.09.)   F58873 W15 ... | F60471 W16 Kegel 7 Ziffer 7 Grundl 0  VALID
+                              | F60851 W17 Kegel 2 Ziffer 2 Grundl 7  VALID
+```
+
+Der verlorene Wurf 16 ist zurück -- und mit ihm stimmt die Grundlinie von
+Wurf 17. Fall 3 war **keine eigene Krankheit, sondern eine Folge von BUG-030**:
+Die festhängende Wache fror Bahn 2 über den ganzen Zyklus von Wurf 16 ein,
+daher das 450-Frame-Loch in der Lampenspur, daher keine Grundlinie. Die Fälle
+1 und 2 sind im neuen Lauf unverändert vorhanden.
+
+## Das gemeinsame Muster -- und es ist nicht die Grünphase
+
+| | Grünphase | Grundlinie | Folge | im neuen Lauf |
+|---|---|---|---|---|
+| Bahn 4 W26 | 15 Frames (Ende einer 154er) | zu klein (0 statt 7) | 9 statt 2 | unverändert |
+| Bahn 5 W16 | 2167 Frames | zu gross (7 statt 0) | 2 statt 9 | unverändert |
+| Bahn 2 W17 | normal, 179 Frames | zu klein (0 statt 7) | 9 statt 2 | **behoben (BUG-030)** |
+
+Die Grünzeiten sind Auslöser, nicht Ursache. Sie entscheiden nur, **welcher
+falsche Augenblick** getroffen wird. Die Krankheit selbst ist einfacher:
+
+> **Die Grundlinie wird in einem einzigen schmalen Fenster gemessen, obwohl
+> nebenher die ganze Zeit Lampen gelesen werden.**
+
+Die Antwort stand in allen drei Fällen in unserer eigenen laufenden Messung:
+
+```
+Bahn 4   F47000-47125   liegend 7    <- die Grundlinie, 100 Frames vor dem Fenster
+Bahn 5   F60750         liegend 0    <- die Anlage stellte neu auf, wir sahen es
+Bahn 2   F60591/F60667  liegend 7    <- schon vor dem Gruen-AN gemessen
+```
+
+Wir schauen nur nie wieder hin.
+
+### Gemessen: die laufende Spur trägt besser
+
+Gegenprobe über den ganzen Lauf 2026-09-17 12:53, **874 Würfe mit lesbarer
+Kegelziffer**. Verglichen wird die gebuchte Kegelzahl gegen die Ziffer der
+Tafel. „Probe" nimmt als Grundlinie den **kleinsten Lampenstand seit dem
+vorigen Wurf**, aus der `lampenspur.csv` -- also aus Messungen, die ohnehin
+anfallen:
+
+| Weg | richtig | |
+|---|---|---|
+| heute (Fenster nach Grün-AN) | 870 | 99,54 % |
+| Probe, kleinster Stand | 871 | 99,66 % |
+| Probe, 2× bestätigt | 871 | 99,66 % |
+| **Probe, 3× bestätigt** | **872** | **99,77 %** |
+
+„3× bestätigt" heisst: Ein Stand zählt nur, wenn er dreimal hintereinander so
+gemessen wurde -- sonst bestimmt eine einzelne Lampe in der Dunkelphase des
+Blinkens die Grundlinie. Ohne diese Bedingung kippt die Probe zwei andere
+Würfe (Bahn 3 F43413, Bahn 2 F85720 mit einem negativen Ergebnis).
+
+Die beiden dann noch verbleibenden Fehler sind **keine Grundlinienfehler**:
+
+```
+Bahn 2 F60851   Ziffer 2, Probe 9   -- der verlorene Wurf (BUG-030, behoben)
+Bahn 5 F104524  Ziffer 0, Probe 8   -- die Ziffer ist falsch gelesen, nicht wir
+```
+
+**Beide Fälle dieses Bugs verschwinden, und es kommt keiner hinzu.**
+
+Zweite, unabhängige Messung am laufenden Lauf 2026-09-18 (erste 408 Würfe mit
+lesbarer Ziffer, also anderes Material als oben):
+
+```
+heute                406 richtig   99,51 %   2 falsch
+min                  408 richtig  100,00 %   0 falsch
+min, 2x bestaetigt   408 richtig  100,00 %   0 falsch
+min, 3x bestaetigt   408 richtig  100,00 %   0 falsch
+```
+
+Der Gedanke trägt also -- gebaut ist er noch nicht. Das Werkzeug dazu:
+`tools/messe_grundlinie.py <laufordner>`, gegen jeden Lauf wiederholbar.
 
 Und es fällt nicht auf, weil die Grundlinie **kein eigenes Ergebnis** ist: Sie
 verschwindet in einer Subtraktion. Ein falscher Abzug sieht aus wie eine
@@ -268,17 +346,23 @@ können.
 
 Noch nicht gebaut. Festgehalten ist die Richtung, nicht die Lösung:
 
-1. **`_pending_baseline` beim Grün-AN leeren.** Eine Grundlinie, deren Fenster
+1. **Die Grundlinie aus der laufenden Messung ziehen, nicht aus einem
+   Fenster.** Kleinster Lampenstand seit dem vorigen Wurf, dreimal bestätigt.
+   Zweimal gemessen (siehe oben), beide Male besser, nie schlechter. Das
+   Fenster nach dem Grün-AN kann als zweite Quelle bleiben -- aber nicht als
+   einzige.
+2. **`_pending_baseline` beim Grün-AN leeren.** Eine Grundlinie, deren Fenster
    nicht geschlossen hat, darf nicht die des Vorgängers sein. Lieber „unbekannt"
-   als falsch.
-2. **Eine unbekannte Grundlinie muss sichtbar bleiben.** `baseline_unknown`
+   als falsch. Unabhängig von 1. richtig.
+3. **Eine unbekannte Grundlinie muss sichtbar bleiben.** `baseline_unknown`
    steht bereits im `ThrowResult` -- der Status zieht daraus noch keine Folge.
-3. **Die Grundlinie an den Wurf binden, nicht an das Grün-AN.** Gebraucht wird
-   der Lampenstand kurz *bevor* die Kegel fallen. Bei einer 87 Sekunden langen
-   Grünphase ist das nicht deren Anfang.
 4. **Die Ziffer darf widersprechen.** In allen drei Fällen stand die richtige
    Zahl auf der Tafel, und die Summe bestätigte sie. Heute setzt sich die
    Lampenrechnung durch und die Gegenprobe notiert nur „gescheitert".
+
+Was **nicht** zu tun ist: an den Grünschwellen drehen, damit Bahn 4 früher
+schaltet. Das war meine erste Lesart, und sie hätte genau einen von drei
+Fällen berührt.
 
 ## Die Regel, die dieser Bug hinzufügt
 
