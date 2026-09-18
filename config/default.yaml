@@ -1023,6 +1023,29 @@ sampling:
   # Spanne wird jede brennende Lampe mehrfach getroffen.
   baseline_before_frames: 50
 
+  # DIE GRUNDLINIE AUS DER LAUFENDEN SPUR (BUG-031).
+  #
+  # Beide Wege oben haengen am ERKANNTEN Gruen-AN. Trifft das Fenster den
+  # falschen Augenblick, ist die Grundlinie falsch und die Kegelzahl mit ihr --
+  # dauerhaft, denn sie verschwindet in einer Subtraktion. An einem Spieltag
+  # dreimal gemessen: Fenster kuerzer als die Gruenphase, Fenster 87 Sekunden
+  # vor dem Wurf, Bahn waehrenddessen verdeckt.
+  #
+  # Fuer die Anzeige werden ohnehin alle paar Frames die Kegellampen gelesen.
+  # Beim Raeumen bleiben die alten Lampen an -- der KLEINSTE Stand seit dem
+  # vorigen Wurf ist die Grundlinie; nach dem Neuaufstellen faellt er auf null,
+  # und das ist dann die richtige Grundlinie.
+  #
+  # GEMESSEN gegen die Kegelziffer der Tafel (tools/messe_grundlinie.py):
+  #     Lauf 2026-09-17 12:53, 874 Wuerfe   Fenster 99,54 %  Spur  99,77 %
+  #     Lauf 2026-09-18 07:30, 421 Wuerfe   Fenster 99,51 %  Spur 100,00 %
+  baseline_from_trace: true
+
+  # Wie oft derselbe Stand hintereinander gemessen sein muss. Ohne das
+  # bestimmt eine einzelne Lampe in der Dunkelphase des Blinkens die
+  # Grundlinie. GEMESSEN: 1x und 2x je 99,66 %, 3x 99,77 %.
+  baseline_trace_confirm: 3
+
   # GRUNDLINIE AUCH VOR DEM GRUEN-AN LESEN (BUG-016, Nutzeridee 2026-09-01).
   #
   # Das Fenster `baseline_offsets` haengt am ERKANNTEN Gruen-AN. Meldet der
@@ -1054,6 +1077,29 @@ sampling:
   # 50 Frames = 2 s. Die Lampen blinken mit 28-30 Frames Periode, ueber diese
   # Spanne wird jede brennende Lampe mehrfach getroffen.
   baseline_before_frames: 50
+
+  # DIE GRUNDLINIE AUS DER LAUFENDEN SPUR (BUG-031).
+  #
+  # Beide Wege oben haengen am ERKANNTEN Gruen-AN. Trifft das Fenster den
+  # falschen Augenblick, ist die Grundlinie falsch und die Kegelzahl mit ihr --
+  # dauerhaft, denn sie verschwindet in einer Subtraktion. An einem Spieltag
+  # dreimal gemessen: Fenster kuerzer als die Gruenphase, Fenster 87 Sekunden
+  # vor dem Wurf, Bahn waehrenddessen verdeckt.
+  #
+  # Fuer die Anzeige werden ohnehin alle paar Frames die Kegellampen gelesen.
+  # Beim Raeumen bleiben die alten Lampen an -- der KLEINSTE Stand seit dem
+  # vorigen Wurf ist die Grundlinie; nach dem Neuaufstellen faellt er auf null,
+  # und das ist dann die richtige Grundlinie.
+  #
+  # GEMESSEN gegen die Kegelziffer der Tafel (tools/messe_grundlinie.py):
+  #     Lauf 2026-09-17 12:53, 874 Wuerfe   Fenster 99,54 %  Spur  99,77 %
+  #     Lauf 2026-09-18 07:30, 421 Wuerfe   Fenster 99,51 %  Spur 100,00 %
+  baseline_from_trace: true
+
+  # Wie oft derselbe Stand hintereinander gemessen sein muss. Ohne das
+  # bestimmt eine einzelne Lampe in der Dunkelphase des Blinkens die
+  # Grundlinie. GEMESSEN: 1x und 2x je 99,66 %, 3x 99,77 %.
+  baseline_trace_confirm: 3
 
 # -----------------------------------------------------------------------------
 # Zustandsmaschine

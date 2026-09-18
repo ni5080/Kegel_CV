@@ -26,8 +26,8 @@ from ..detection.digit_templates import TemplateDigitDetector
 from ..detection.lamp_detectors import HsvGreenDetector, WarmthLampDetector
 from ..detection.state_machine import EventType, LaneEvent, LaneState, LaneStateMachine
 from ..models.readings import (LampReading, LampState, PinLampReading,
-                              baseline_aus_zwei,
-                              aggregate_pin_readings)
+                              aggregate_pin_readings, baseline_aus_zwei,
+                              grundlinie_aus_spur)
 from ..video.source import Frame, FrameBuffer
 from .frame_sampler import FrameSampler, SampleEvent
 from .board_image import encode_board
@@ -214,6 +214,15 @@ class LaneProcessor:
         self._pause_samples: deque[PinLampReading] = deque(
             maxlen=max(1, cfg.sampling.baseline_before_frames // takt))
         self._before_pins: PinLampReading | None = None
+        # ALLE laufenden Lampenmessungen seit dem vorigen Wurf (BUG-031).
+        # Aus ihnen kommt die Grundlinie, wenn `baseline_from_trace` gilt: Das
+        # Fenster nach dem Gruen-AN trifft in seltenen Faellen einen ganz
+        # anderen Augenblick als den Wurf, diese Spur nicht.
+        #
+        # 600 Eintraege reichen weit: Bei einem Takt von 25 Frames sind das
+        # 15000 Frames = 10 Minuten. Die laengste gemessene Gruenphase eines
+        # Spieltags betrug 2167 Frames.
+        self._grundlinien_spur: deque[PinLampReading] = deque(maxlen=600)
         # Wird von der Pipeline gesetzt. None heisst: keine Spur.
         self.lamp_trace = None
         # WACHE UEBER DEN TAFELAUSSCHNITT. Sie haelt eine Referenz der eigenen
@@ -1419,9 +1428,34 @@ class LaneProcessor:
             self._display_pins = self._result_pins
             # Das Ergebnis gilt, nicht der geglaettete Verlauf davor.
             self._display_history.clear()
-            # Die Grundlinie dieses Wurfs wurde beim zugehoerigen GREEN_ON
-            # gemessen und wird jetzt festgeschrieben.
+            # Die Grundlinie dieses Wurfs wird jetzt festgeschrieben.
+            #
+            # ZWEI QUELLEN, und die laufende Spur hat Vorrang (BUG-031): Das
+            # Fenster nach dem Gruen-AN misst EINEN Augenblick, und wenn die
+            # Gruenerkennung spaet kommt, die Gruenphase ungewoehnlich lang ist
+            # oder die Bahn gerade verdeckt war, ist es nicht der Augenblick
+            # des Wurfs. Die Spur enthaelt alle Messungen seit dem vorigen
+            # Wurf; ihr kleinster mehrfach bestaetigter Stand IST die
+            # Grundlinie. Schweigt sie, gilt weiter das Fenster.
             self._baseline_pins = self._pending_baseline
+            if self.cfg.sampling.baseline_from_trace:
+                aus_spur = grundlinie_aus_spur(
+                    self._grundlinien_spur,
+                    self.cfg.sampling.baseline_trace_confirm)
+                if aus_spur is not None:
+                    if (self._pending_baseline is not None
+                            and set(aus_spur.pins)
+                            != set(self._pending_baseline.pins)):
+                        log.info(
+                            "Bahn %d: Grundlinie aus dem Fenster %s, aus der "
+                            "laufenden Spur %s -- es gilt die Spur",
+                            self.display_number,
+                            list(self._pending_baseline.pins),
+                            list(aus_spur.pins))
+                    self._baseline_pins = aus_spur
+            # Der naechste Wurf beginnt mit einer leeren Spur -- sonst truege
+            # er die Staende dieses Wurfs noch mit sich.
+            self._grundlinien_spur.clear()
             # Die Messungen der Gruenphase gehoeren zum Ergebnis: Waehrend ihr
             # sind die Kegel gefallen. Sie stehen VOR der Messung bei GREEN_OFF,
             # tragen aber zum selben Maximum bei.
@@ -1442,6 +1476,10 @@ class LaneProcessor:
             self._display_pins = self._read_pin_lamps(frame)
             if self._display_pins is not None:
                 self._display_history.append(self._display_pins)
+                # ... und in die Grundlinienspur (BUG-031). Dieselbe Messung,
+                # kein zusaetzlicher Aufwand -- nur wird sie jetzt auch
+                # aufgehoben, statt nach der Anzeige vergessen zu werden.
+                self._grundlinien_spur.append(self._display_pins)
             # Laeuft gerade ein Ereignis, zaehlt diese Messung zum Wurfergebnis.
             # Das kostet nichts zusaetzlich: Der Wert wurde soeben ohnehin fuer
             # die Anzeige gelesen.
@@ -1654,6 +1692,7 @@ class LaneProcessor:
         self._baseline_pins = None
         self._baseline_samples = []
         self._baseline_start = None
+        self._grundlinien_spur.clear()
         self._result_samples = []
         self._late_samples = {}
         self._green_phase_samples = []

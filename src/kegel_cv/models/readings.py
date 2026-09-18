@@ -11,6 +11,7 @@ Kernanforderung dieses Projekts.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -190,3 +191,50 @@ def aggregate_pin_readings(
     ))
     confidence = min((lamp.confidence for lamp in zusammen), default=0.0)
     return PinLampReading(lamps=tuple(zusammen), pins=pins, confidence=confidence)
+
+
+def grundlinie_aus_spur(messungen: Sequence["PinLampReading"],
+                        wie_oft: int) -> "PinLampReading | None":
+    """Grundlinie aus den laufenden Lampenmessungen seit dem vorigen Wurf.
+
+    WARUM ES DIESEN ZWEITEN WEG GIBT (BUG-031). `baseline_aus_zwei` misst in
+    einem einzigen Fenster von 25 Frames nach dem ERKANNTEN Gruen-AN. Trifft
+    dieses Fenster den falschen Augenblick, ist die Grundlinie falsch, und die
+    gebuchte Kegelzahl mit ihr -- dauerhaft, denn sie verschwindet in einer
+    Subtraktion. Gemessen an einem Spieltag geschah das dreimal: einmal war das
+    Fenster kuerzer als die Gruenphase, einmal lag es 87 Sekunden vor dem Wurf,
+    einmal war die Bahn waehrenddessen verdeckt.
+
+    Die Antwort stand jedes Mal in Messungen, die ohnehin anfallen: Fuer die
+    Anzeige werden alle paar Frames die Kegellampen gelesen. Beim RAEUMEN
+    bleiben die alten Lampen an -- der kleinste Stand seit dem vorigen Wurf IST
+    die Grundlinie. Nach dem Neuaufstellen faellt er auf null, und genau das
+    ist dann auch die Grundlinie.
+
+    `wie_oft` verlangt, dass derselbe Stand mehrfach hintereinander gemessen
+    wurde. Ohne diese Bedingung bestimmt eine einzelne Lampe in der Dunkelphase
+    des Blinkens die Grundlinie -- die Blinkperiode betraegt 28-30 Frames, die
+    Dunkelphase bis zu 15 (BUG-007a).
+
+    GEMESSEN gegen die Kegelziffer der Tafel, Grundlinie als ANZAHL:
+
+        Lauf 2026-09-17 12:53, 874 Wuerfe    Fenster 99,54 %  Spur 99,77 %
+        Lauf 2026-09-18 07:30, 421 Wuerfe    Fenster 99,51 %  Spur 100,00 %
+
+    Beide Faelle von BUG-031 verschwinden damit, ohne dass ein neuer entsteht.
+    Ob sich die MENGEN ebenso verhalten wie die Anzahlen, liess sich aus den
+    Spurdateien nicht nachrechnen -- das entscheidet der Lauf.
+
+    Gibt `None`, wenn kein Stand oft genug bestaetigt wurde. Dann gilt der
+    Fensterwert; eine Grundlinie zu raten waere schlimmer als der alte Weg.
+    """
+    beste: "PinLampReading | None" = None
+    lauf = 0
+    vorher: frozenset[int] | None = None
+    for messung in messungen:
+        jetzt = frozenset(messung.pins)
+        lauf = lauf + 1 if jetzt == vorher else 1
+        vorher = jetzt
+        if lauf >= wie_oft and (beste is None or len(jetzt) < len(beste.pins)):
+            beste = messung
+    return beste

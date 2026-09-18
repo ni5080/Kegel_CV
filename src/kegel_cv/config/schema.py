@@ -1165,6 +1165,37 @@ class SamplingConfig(BaseModel):
     # Pause steht der Stand still --, kostet aber Speicher je Bahn.
     baseline_before_frames: int = Field(default=50, ge=0)
 
+    # DIE GRUNDLINIE AUS DER LAUFENDEN SPUR (BUG-031).
+    #
+    # Beide Wege oben haengen am ERKANNTEN Gruen-AN. Trifft dieses Fenster den
+    # falschen Augenblick, ist die Grundlinie falsch und die Kegelzahl mit ihr.
+    # Gemessen an einem Spieltag dreimal: Fenster kuerzer als die Gruenphase,
+    # Fenster 87 Sekunden vor dem Wurf, Bahn waehrenddessen verdeckt.
+    #
+    # Fuer die Anzeige werden ohnehin alle paar Frames die Kegellampen gelesen.
+    # Beim Raeumen bleiben die alten Lampen an -- der KLEINSTE Stand seit dem
+    # vorigen Wurf ist die Grundlinie; nach dem Neuaufstellen faellt er auf
+    # null, und das ist dann die richtige Grundlinie.
+    #
+    # GEMESSEN gegen die Kegelziffer der Tafel (tools/messe_grundlinie.py):
+    #
+    #     Lauf 2026-09-17 12:53, 874 Wuerfe   Fenster 99,54 %  Spur  99,77 %
+    #     Lauf 2026-09-18 07:30, 421 Wuerfe   Fenster 99,51 %  Spur 100,00 %
+    #
+    # false stellt den alten Weg wieder her.
+    baseline_from_trace: bool = True
+
+    # Wie oft derselbe Stand hintereinander gemessen sein muss, damit er als
+    # Grundlinie gilt. Ohne diese Bedingung bestimmt eine einzelne Lampe in der
+    # Dunkelphase des Blinkens die Grundlinie (Periode 28-30 Frames,
+    # Dunkelphase bis 15, siehe BUG-007a).
+    #
+    # GEMESSEN am Lauf 2026-09-17 12:53 (874 Wuerfe, Grundlinie als Anzahl):
+    #     1x bestaetigt   99,66 %    kippt Bahn 3 F43413 und Bahn 2 F85720
+    #     2x bestaetigt   99,66 %
+    #     3x bestaetigt   99,77 %    beide kommen zurueck
+    baseline_trace_confirm: int = Field(default=3, ge=1)
+
     # WAEHREND der Gruenphase mitlesen. Vom Nutzer vorgeschlagen (2026-08-28):
     # "Ich messe in einer Gruenphase immer, wie viele Lampen leuchten -- jetzt?
     # und jetzt? -- und dann steigt die Zahl ja optimalerweise."
