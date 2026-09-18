@@ -14,7 +14,7 @@ description: >
 | **Kategorie** | `ANALYSE` / Räumen |
 | **Gefunden** | 2026-09-18, aus dem Vergleich Lampen/Ziffer |
 | **Schweregrad** | **mittel** (2 von 910 Würfen; jeder verfälscht den Spielstand dauerhaft. Ein dritter Fall gehörte zu BUG-030 und ist behoben) |
-| **Regressionstest** | noch offen |
+| **Regressionstest** | `test_grundlinie_aus_spur.py` |
 
 ## Der Satz des Nutzers, der die Blickrichtung drehte
 
@@ -342,7 +342,39 @@ verschwindet in einer Subtraktion. Ein falscher Abzug sieht aus wie eine
 falsche Messung -- und lenkt den Verdacht auf die Lampen, die nichts dafür
 können.
 
-## Was daraus für die Reparatur folgt
+## Behoben und nachgemessen (2026-09-18)
+
+Gebaut: Die Grundlinie kommt aus den laufenden Lampenmessungen
+(`grundlinie_aus_spur`, `baseline_from_trace: true`,
+`baseline_trace_confirm: 3`). Nachgemessen am Stream, mit dem neuen Code an
+dieselben Stellen gesprungen:
+
+| | vorher | nachher | Tafel |
+|---|---|---|---|
+| Bahn 4 W26 (F47227) | Kegel 9, Grundlinie 0 | **Kegel 2, Grundlinie 7** | Ziffer 2, Summe 171 |
+| Bahn 5 W16 (F60871) | Kegel 2, Grundlinie 7 | **Kegel 9, Grundlinie 0** | Ziffer 9 |
+
+Gegenprobe auf Verschlechterung, zwei Abschnitte gegen den alten Lauf:
+
+```
+F14000-20000   24 Wuerfe, 4 Bahnen   0 Unterschiede
+F43000-48500   40 Wuerfe, 4 Bahnen   genau 1 Unterschied -- der Zielwurf
+```
+
+### Wer hier nachmisst, braucht Vorlauf
+
+Der erste Anlauf startete bei F46000, also 1200 Frames vor dem Wurf -- und
+Wurf 26 fehlte danach ganz. Das sah nach einer Verschlechterung durch die
+Reparatur aus und war der Sprung selbst: Die Gruenschwellen lernen aus einem
+gleitenden Histogramm von `adaptive_window: 1500` Frames. Mit zu wenig Vorlauf
+stehen sie tiefer, der Score-Einbruch bei F47225 zaehlte als UNKNOWN statt OFF,
+und ohne GREEN_OFF gibt es keinen Wurf.
+
+Mit 5200 Frames Vorlauf ist die Gruenspur Frame fuer Frame dieselbe wie im
+vollen Lauf. **Ein Sprung braucht mehr als `adaptive_window` Frames Vorlauf,
+sonst misst man den Sprung und nicht die Aenderung.**
+
+## Was daraus für die Reparatur folgte
 
 Noch nicht gebaut. Festgehalten ist die Richtung, nicht die Lösung:
 
