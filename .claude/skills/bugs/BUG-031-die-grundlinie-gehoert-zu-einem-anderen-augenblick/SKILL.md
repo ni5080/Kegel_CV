@@ -374,6 +374,54 @@ Mit 5200 Frames Vorlauf ist die Gruenspur Frame fuer Frame dieselbe wie im
 vollen Lauf. **Ein Sprung braucht mehr als `adaptive_window` Frames Vorlauf,
 sonst misst man den Sprung und nicht die Aenderung.**
 
+## Die dritte Erscheinungsform: der Wurf verschwindet ganz (2026-09-18)
+
+Der volle Spieltagslauf verlor **5 von 1437 Würfen (0,35 %)**. Vier davon
+haben dieselbe Ursache wie dieser Bug -- nur dass die falsche Grundlinie den
+Wurf nicht verrechnet, sondern *löscht*:
+
+```
+Bahn 4: Gruenzyklus bei Frame  65852 ohne Veraenderung der Kegelraute ([1..9])
+Bahn 4: Gruenzyklus bei Frame 109579 ohne Veraenderung der Kegelraute ([1..9])
+Bahn 4: Gruenzyklus bei Frame 142289 ohne Veraenderung der Kegelraute ([1..9])
+Bahn 5: Gruenzyklus bei Frame 196821 ohne Veraenderung der Kegelraute ([1..9])
+```
+
+`discard_unchanged_cycles` wirft einen Zyklus weg, bei dem die Kegelraute am
+Ende dasselbe zeigt wie am Anfang -- zu Recht, denn ein Wurf ohne Veränderung
+erzeugt gar keinen Grünzyklus. Ist die Grundlinie aber zu spät gemessen, ist
+sie identisch mit dem Endstand, und die Regel greift auf einen echten Wurf zu.
+
+Die GIFs (`debug/verlorene/`) zeigen es in allen vieren gleich:
+
+| | Grün erkannt | Kegel fallen | Tafel zeigt |
+|---|---|---|---|
+| Bahn 4 F65852 | ab 65750 | **65755** → 9 | `025 / 2` |
+| Bahn 4 F109579 | ab 109514 | **109487** → 9 | `029 / 1` |
+| Bahn 4 F142289 | ab 142199 | **142189** → 9 | `025 / 1` |
+| Bahn 5 F196821 | ab 196696 | **196689** → 9 | `017 / 2` |
+
+Die rohe Grünmessung sieht die Lampe jedes Mal 70 bis 110 Frames früher.
+
+**Es trifft nicht zufällig.** Betroffen sind genau die Abräumwürfe, nach denen
+*alle neune* liegen -- nur dort kann eine zu späte Grundlinie mit dem Endstand
+zusammenfallen. Deshalb dreimal Bahn 4: die Bahn mit der schwächsten
+Grüntrennung (Abstand 14,8 gegen 26-33 anderswo).
+
+Mit der Grundlinie aus der laufenden Spur sind alle vier zurück, jedes Mal von
+der Kegelziffer bestätigt:
+
+```
+Bahn 4 Spiel  4  F65852  W25  Kegel 2, Ziffer 2, Grundlinie 7   51 Zyklen/51 Wuerfe
+Bahn 4 Spiel  6  F109579 W29  Kegel 1, Ziffer 1, Grundlinie 8   44 Zyklen/44 Wuerfe
+Bahn 4 Spiel  8  F142294 W25  Kegel 1, Ziffer 1, Grundlinie 8   48 Zyklen/48 Wuerfe
+Bahn 5 Spiel 11  F196804 W17  Kegel 2, Ziffer 2, Grundlinie 7   38 Zyklen/38 Wuerfe
+```
+
+In keinem der vier Abschnitte meldet der Lauf noch „Grünzyklen ohne
+Wurfergebnis". Der fünfte verlorene Wurf (Bahn 5 Spiel 5, Wurf 1, verworfen
+wegen `000/0000` bei F71033) gehört **nicht** hierher und ist offen.
+
 ## Was daraus für die Reparatur folgte
 
 Noch nicht gebaut. Festgehalten ist die Richtung, nicht die Lösung:
