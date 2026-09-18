@@ -82,6 +82,8 @@ Beides ist nicht garantiert -- und genau dort brach es.
 
 ### Fall 1 — die Grünphase war kürzer als das Fenster (bewiesen)
 
+GIF: `debug/streitfaelle/streit_bahn4_f47227.gif`
+
 Bahn 4, Wurf 26, Frame 47227:
 
 ```
@@ -93,6 +95,37 @@ Grundlinienfenster       25 Frames      -- schliesst nie
 `_pending_baseline` wird beim Grün-AN **nicht geleert**. Bei GREEN_OFF steht
 dort deshalb noch die Grundlinie des *vorigen* Wurfs -- und die war 0. Der
 Kranz zeigte neun, abgezogen wurde nichts, gebucht wurden 9 statt 2.
+
+**Die 15 Frames sind nicht die Grünphase der Anlage, sondern nur ihr Ende.**
+Das GIF zeigt es Bild für Bild:
+
+```
+F47007  Gruen OFF      liegend 7      Tafel  025 / 7 / 0171
+F47071  Gruen AN       liegend 7      Tafel  025 / ? / 0171   <- der Ball rollt
+F47135  Gruen AN       liegend 9      Tafel  026 / 2 / 0171   <- Tafel hat es
+F47210  GREEN_ON erkannt                                      <- 140 Frames spaeter
+F47225  GREEN_OFF
+```
+
+Die Anlage war ab F47071 grün, die Kegel fielen um F47100–47135, und die Tafel
+zeigte das Ergebnis sauber an. Unsere Zustandsmaschine meldete Grün-AN erst
+**140 Frames (5,6 Sekunden) später**. Der Grund steht in der Grünspur:
+
+```
+F47070  Score 50.0  -> OFF
+F47080  Score 52.8  -> UNKNOWN      Totzone
+...     Score kriecht 52 -> 58      108 Frames lang UNKNOWN
+F47210  Score 59.7  -> ON
+```
+
+Bahn 4 hat die schwächste Trennung aller vier Bahnen -- in `default.yaml`
+gemessen und dokumentiert: AUS 36,1/41,7 gegen AN 56,5/63,0, Abstand **14,8**,
+während die anderen Bahnen 26 bis 33 erreichen. Der Score braucht deshalb über
+hundert Frames, um die Totzone zu durchqueren.
+
+Die Kette ist damit vollständig, und keine ihrer Stufen ist eine Lampe:
+schwache Grüntrennung → späte Erkennung → Grundlinienfenster öffnet erst nach
+dem Wurf → es schliesst nicht mehr → Grundlinie des Vorgängers → 9 statt 2.
 
 Gemessen über den ganzen Lauf: **2 von 933 Grünphasen sind kürzer als 25
 Frames** (4 und 15 Frames). Genau eine davon fällt mit einem gebuchten Wurf
@@ -109,6 +142,8 @@ Damit ist dieser Frame der Prüfstein für die Reparatur: Wer die Grundlinie
 repariert, muss hier 2 sehen und sonst nichts ändern.
 
 ### Fall 2 — die Grünphase war 87 Sekunden lang (bewiesen)
+
+GIF: `debug/streitfaelle/streit_bahn5_f60871.gif`
 
 Bahn 5, Wurf 16, Frame 60871:
 
@@ -141,8 +176,20 @@ Fall, in dem sie am meisten schadet.
 
 ### Fall 3 — im Grundlinienfenster war die Bahn blind (wahrscheinlich)
 
+GIF: `debug/streitfaelle/streit_bahn2_f60851.gif`
+
 Bahn 2, Wurf 17, Frame 60851. Grundlinie 0, obwohl bei F60750 sieben Kegel
-liegen. In der `lampenspur.csv` klafft für diese Bahn ein Loch:
+liegen. Das GIF zeigt, dass sie schon **vor** dem Grün-AN lagen -- die
+Grundlinie hätte also gar nicht schwierig zu messen sein dürfen:
+
+```
+F60591  Gruen OFF   liegend 7   Tafel  016 / 7 / 0122
+F60667  Gruen AN    liegend 7   Tafel  --- unlesbar ---
+F60670  GREEN_ON erkannt, Grundlinienfenster beginnt
+F60761  Gruen AN    liegend 9   Tafel  017 / 2 / 0122
+```
+
+In der `lampenspur.csv` klafft für diese Bahn dennoch ein Loch:
 
 ```
 F60300 ... F60750    keine einzige Lampenmessung   (450 Frames)
@@ -163,6 +210,40 @@ Dieser Fall ist **nicht abschliessend belegt**: Die `lampenspur.csv` schreibt
 die Messungen des Grundlinienfensters nicht mit, das Loch beweist nur, dass
 dort nichts gelesen wurde. Was fehlt, ist eine Wiederholung mit
 mitgeschriebenem Fenster.
+
+### Der vierte Streitfall gehört nicht hierher — aber er gehört notiert
+
+GIF: `debug/streitfaelle/streit_bahn5_f104524.gif`
+
+Bahn 5, Wurf 20, Frame 104524: Lampen 8, Ziffer 0, und die Summe stützt die
+**Lampen**. Hier ist nicht die Grundlinie schuld, sondern das Ziffernfeld. Am
+Stream nachgemessen, Stelle 0 von `pin_count`:
+
+```
+F104480  gelesen '8'  conf 0.35 | 8: 86,2 %  0: 10,2 %
+         Segmente a..g = [1.00 0.77 0.62 0.50 0.56 0.28 0.44]
+F104510  gelesen '0'  conf 0.54 | 0: 88,4 %  8: 11,4 %
+         Segmente a..g = [1.00 0.77 0.62 0.37 0.56 0.40 0.27]
+F104520  gelesen '0'  conf 0.54 | 0: 98,3 %  8:  1,6 %
+         Segmente a..g = [1.00 0.77 0.62 0.37 0.56 0.40 0.18]
+```
+
+**Nur das Mittelsegment bewegt sich**: 0,44 → 0,27 → 0,18. Alles andere steht
+still. Eine 8 und eine 0 unterscheiden sich in genau diesem einen Segment -- es
+rutscht unter die Schwelle, und aus der 8 wird eine 0.
+
+Zwei Dinge daran sind schlimmer als der Einzelfall:
+
+1. **Die falsche Lesung kommt mit der höheren Confidence.** `0` trifft ein
+   gültiges Muster exakt und bekommt 0,54; `8` erreicht man nur über die
+   Verteilung und bekommt den Festwert 0,35. Wer nach Confidence sortiert,
+   sortiert hier falsch herum.
+2. **Das Mittelsegment liegt auf dieser Bahn schon im Normalfall knapp.** Bahn 5
+   hat im selben Lauf **35 von 228 unlesbaren Kegelziffern (15 %)**, während die
+   anderen drei Bahnen zusammen auf eine kommen. Das riecht nach der Geometrie
+   des Feldes, nicht nach diesem einen Wurf.
+
+Beides ist noch nicht untersucht.
 
 ## Das gemeinsame Muster
 
