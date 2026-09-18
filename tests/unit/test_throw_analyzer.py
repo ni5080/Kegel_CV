@@ -1223,10 +1223,25 @@ class TestWurfnummerNullIstKeinWurf:
         assert ergebnis.throw_number == 1
 
     def test_mit_kegeln_bleibt_der_wurf_trotz_wurfnummer_null(self, cfg):
-        """Fallen Kegel, ist es ein echter Wurf -- diese Regel prueft nur die
-        Wurfnummer, nicht die Kegelzahl. (Eine unwahrscheinliche Kombination
-        in der Praxis, aber die Regel soll nicht mehr behaupten, als sie
-        belegen kann.)"""
+        """Liegen Kegel, bleibt der Wurf -- SEIT BUG-032.
+
+        Hier stand bis zum 2026-09-18 das Gegenteil: *"Die Regel ist bewusst
+        absolut: throw_number==0 heisst IMMER kein Wurf, unabhaengig von der
+        Kegelzahl."* Der Spieltagslauf hat das widerlegt.
+
+        Bahn 5, Spiel 5, Frame 71033: Sechs Kegel fielen sichtbar um, die
+        Kegelziffer zeigte 6, die Summe des naechsten Wurfs bestaetigte 6 --
+        und der Wurf wurde verworfen, weil Wurfnummer und Summe auf 000/0000
+        standen. Genau das tun sie beim ERSTEN Wurf eines Spiels: Die Anlage
+        hat ihn noch nicht gebucht (dieselbe Verspaetung wie BUG-010). Die
+        beiden Zeugen sind also getrennt gelesen und trotzdem abhaengig -- sie
+        schweigen aus demselben Grund.
+
+        GEMESSEN ueber alle 18 Verwerfungen dieser Regel im Lauf vom
+        2026-09-18, gegen die Lampenspur: 17 mal fiel nichts um (zu Recht
+        verworfen), einmal fielen sechs Kegel. Die Kegelraute trennt die
+        Faelle vollstaendig.
+        """
         analyzer = ThrowAnalyzer(lane_id=1, cfg=cfg, display_number=4)
         self._zwanzig_wuerfe(analyzer)
 
@@ -1236,11 +1251,44 @@ class TestWurfnummerNullIstKeinWurf:
                                     throw_number_majority=(0, 1.0),
                                     total_majority=(0, 1.0))
 
-        assert ergebnis is None, (
-            "Die Regel ist bewusst absolut: throw_number==0 heisst IMMER "
-            "kein Wurf, unabhaengig von der Kegelzahl -- die Anlage kann "
-            "keinen Wurf mit dieser Nummer melden."
+        assert ergebnis is not None, (
+            "Liegen am Ende des Zyklus Kegel, ist etwas umgefallen -- die "
+            "Anzeige darf das nicht ueberstimmen (BUG-032)"
         )
+        assert any("BUG-032" in d for d in ergebnis.evidence.decisions), (
+            "Der knapp vermiedene Verwurf gehoert in den Beweis (P1)"
+        )
+
+    def test_ohne_kegel_wird_weiter_verworfen(self, cfg):
+        """Die Gegenprobe: Der eigentliche Zweck der Regel bleibt.
+
+        Ohne diesen Test waere nicht belegt, dass BUG-032 die Regel nur
+        einschraenkt und nicht abschaltet -- sie griff an einem Spieltag
+        17 von 18 Mal richtig.
+        """
+        analyzer = ThrowAnalyzer(lane_id=1, cfg=cfg, display_number=4)
+        self._zwanzig_wuerfe(analyzer)
+
+        ergebnis = analyzer.analyze(make_event(trigger=2100), make_pins(()),
+                                    throw_number=0, throw_number_confidence=1.0,
+                                    throw_number_majority=(0, 1.0),
+                                    total_majority=(0, 1.0))
+
+        assert ergebnis is None
+
+    def test_schalter_stellt_das_alte_verhalten_her(self, cfg):
+        """`discard_zero_requires_empty_diamond: false` -- ohne Codeaenderung."""
+        cfg.scoring.discard_zero_requires_empty_diamond = False
+        analyzer = ThrowAnalyzer(lane_id=1, cfg=cfg, display_number=4)
+        self._zwanzig_wuerfe(analyzer)
+
+        ergebnis = analyzer.analyze(make_event(trigger=2100),
+                                    make_pins((1, 2)),
+                                    throw_number=0, throw_number_confidence=1.0,
+                                    throw_number_majority=(0, 1.0),
+                                    total_majority=(0, 1.0))
+
+        assert ergebnis is None
 
     def _ein_wurf(self, analyzer):
         """Nur EIN vorheriger Wurf -- nicht zwanzig.

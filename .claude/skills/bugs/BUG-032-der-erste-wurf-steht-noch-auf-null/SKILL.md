@@ -14,7 +14,7 @@ description: >
 | **Kategorie** | `COUNT` / Spielwechsel |
 | **Gefunden** | 2026-09-18, beim Nachgehen der Grünzyklen ohne Wurfergebnis |
 | **Schweregrad** | **niedrig** (1 von 1437 Würfen; der Spielstand bleibt danach dauerhaft um diesen Wurf falsch) |
-| **Regressionstest** | noch offen |
+| **Regressionstest** | `test_throw_analyzer.py::TestWurfnummerNullIstKeinWurf` |
 | **GIF** | `debug/verlorene/streit_bahn5_f71033.gif` |
 
 ## Symptom
@@ -100,7 +100,47 @@ Die Lampen trennen die Fälle also **vollständig**. Eine Bedingung „nur
 verwerfen, wenn nichts umgefallen ist" hätte an diesem Spieltag genau eine von
 achtzehn Entscheidungen geändert — und zwar die eine falsche.
 
-## Was zu tun wäre (noch nicht gebaut)
+## Behoben und nachgemessen (2026-09-18)
+
+`discard_zero_requires_empty_diamond: true` — die Regel verwirft nur noch,
+wenn am Ende des Zyklus keine Kegel liegen. Greift sie deshalb *nicht*, steht
+das als Entscheidung im Beweis (P1), nicht nur im Log.
+
+```
+vorher   F71033  verworfen, Spiel 5 beginnt bei Wurf 2
+nachher  F71033  W1  Kegel 6, Ziffer 6, Grundlinie 0, VALID
+         F71521  W2  Kegel 9, SummeTafel 6   <- bestaetigt die 6
+```
+
+Gegenprobe F26500–32400, ein Abschnitt mit einer *richtigen* Verwerfung
+(Bahn 5 F29432, Kegelraute leer): **27 Würfe vorher, 27 nachher, 0
+Unterschiede.** Die Verwerfung dort greift weiterhin.
+
+### Zwei Dinge, die beim Bauen auffielen
+
+**Ein Test sagte ausdrücklich das Gegenteil.** In
+`test_throw_analyzer.py` stand seit dem 2026-09-03: *„Die Regel ist bewusst
+absolut: throw_number==0 heisst IMMER kein Wurf, unabhängig von der
+Kegelzahl."* Das war eine bewusste Entscheidung, keine Nachlässigkeit. Sie ist
+umgeschrieben, mit der Messung im Docstring — und um zwei Tests ergänzt: dass
+ohne Kegel weiter verworfen wird, und dass der Schalter das alte Verhalten
+herstellt.
+
+**Der Fix legte einen zweiten, bis dahin unerreichbaren Fehler frei.** An drei
+Stellen in `_resolve_throw_number` wurde eine gelesene `0` als Wurfnummer
+durchgereicht:
+
+```python
+number = throw_number if throw_number is not None else 1
+```
+
+`score.register(0)` wirft dann `ValueError: Wurfnummer 0 ist nicht groesser
+als die zuletzt gebuchte 0`. Erreichbar war das nie, weil solche Zyklen immer
+vorher verworfen wurden — ohne den Regressionstest wäre es erst im Lauf
+aufgefallen. `000` heisst *noch nicht gebucht*, nicht *Wurf null*; an allen
+drei Stellen korrigiert.
+
+## Was zuvor zu tun war
 
 Die Regel um den dritten Zeugen ergänzen: Fiel im Zyklus etwas um, ist
 `000/0000` kein Beleg für „kein Wurf", sondern ein noch nicht gebuchter erster

@@ -1347,6 +1347,20 @@ scoring:
   # Damit muessten zwei getrennt gelesene Felder gleichzeitig falsch sein.
   discard_zero_requires_zero_total: true
 
+  # BUG-032: Die zwei Felder oben sind getrennt gelesen und trotzdem NICHT
+  # unabhaengig -- beim ERSTEN Wurf eines Spiels stehen beide legitim auf null,
+  # solange die Anlage den Wurf noch nicht gebucht hat (dieselbe Verspaetung
+  # wie BUG-010). Sie schweigen aus demselben Grund.
+  #
+  # Der dritte Zeuge haengt an keinem Ziffernfeld: Liegen am Ende des Zyklus
+  # Kegel, ist etwas umgefallen -- was auch immer die Anzeige zeigt.
+  #
+  # GEMESSEN am Spieltagslauf 2026-09-18, alle 18 Verwerfungen dieser Regel
+  # gegen die Lampenspur:
+  #     17 x  nichts gefallen   -- zu Recht verworfen
+  #      1 x  sechs Kegel gefallen (Bahn 5, F71033)  -- verlorener Wurf
+  discard_zero_requires_empty_diamond: true
+
   # TAFEL-VERDECKUNG WAEHREND DES FENSTERS (BUG-017, Nutzerbeobachtung
   # 2026-09-03: "könnte man Live nicht Personen detektieren, und wenn ein
   # Mensch durch die Gruenphase laeuft...").

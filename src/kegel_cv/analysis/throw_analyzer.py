@@ -387,14 +387,25 @@ class ThrowAnalyzer:
         schwelle = self.cfg.scoring.throw_number_min_agreement
         summe_null = (not self.cfg.scoring.discard_zero_requires_zero_total
                       or (summe_mehrheit == 0 and summe_einigkeit >= schwelle))
+        # DER DRITTE ZEUGE (BUG-032). Wurfnummer und Summe sind getrennt
+        # gelesen und trotzdem nicht unabhaengig: Beim ERSTEN Wurf eines Spiels
+        # stehen beide legitim auf null, solange die Anlage nicht gebucht hat.
+        # Genau dort verlor der Spieltagslauf einen Wurf -- sechs Kegel lagen
+        # sichtbar, die Kegelziffer zeigte 6, und verworfen wurde trotzdem.
+        #
+        # Die Kegelraute haengt an keinem Ziffernfeld. Liegt am Ende des Zyklus
+        # etwas, ist etwas umgefallen.
+        raute_leer = (not self.cfg.scoring.discard_zero_requires_empty_diamond
+                      or not end_pins)
         if (self.cfg.scoring.discard_zero_throw_number
                 and nummer_mehrheit == 0
                 and nummer_einigkeit >= schwelle
-                and summe_null):
+                and summe_null
+                and raute_leer):
             log.warning(
                 "Bahn %d: Anzeige steht bei Frame %d auf 000/0000 "
-                "(Wurfnummer %d%% einig, Summe %s) -- kein Wurf hat "
-                "stattgefunden. Wird verworfen.",
+                "(Wurfnummer %d%% einig, Summe %s, Kegelraute leer) -- kein "
+                "Wurf hat stattgefunden. Wird verworfen.",
                 self.display_number, event.trigger_frame,
                 round(nummer_einigkeit * 100),
                 "nicht geprueft" if not self.cfg.scoring.discard_zero_requires_zero_total
@@ -403,6 +414,23 @@ class ThrowAnalyzer:
                                          spielwechsel_gebucht)
             return None
 
+        if (self.cfg.scoring.discard_zero_throw_number
+                and nummer_mehrheit == 0
+                and nummer_einigkeit >= schwelle
+                and summe_null and not raute_leer):
+            # Nicht verworfen -- und das muss im Beweis stehen (P1). Sonst
+            # sieht man einem gebuchten Wurf nicht an, dass er knapp an einer
+            # Verwerfung vorbeigekommen ist.
+            decisions.append(
+                f"Anzeige stand auf 000/0000, aber {len(end_pins)} Kegel lagen "
+                f"({sorted(end_pins)}) -- erster Wurf eines Spiels, noch nicht "
+                f"gebucht (BUG-032)"
+            )
+            log.info(
+                "Bahn %d: Anzeige steht bei Frame %d auf 000/0000, aber %d "
+                "Kegel liegen -- das ist der erste Wurf eines Spiels, den die "
+                "Anlage noch nicht gebucht hat. Wird NICHT verworfen.",
+                self.display_number, event.trigger_frame, len(end_pins))
 
         # NULL KEGEL BRAUCHT EINEN ZEUGEN.
         #
@@ -867,7 +895,13 @@ class ThrowAnalyzer:
                 f"Neues Spiel (Anzeige auf 000/0000): voriges endete mit "
                 f"{endstand} Kegeln"
             )
-            number = throw_number if throw_number is not None else 1
+            # EINE GELESENE NULL IST KEINE WURFNUMMER (BUG-032). Die
+            # Anlage zaehlt ab 1; 000 heisst 'noch nicht gebucht', nicht
+            # 'Wurf null'. Wurde sie frueher trotzdem durchgereicht,
+            # scheiterte `score.register` an '0 ist nicht groesser als
+            # 0'. Erreichbar war das bis BUG-032 nie, weil solche Zyklen
+            # vorher immer verworfen wurden.
+            number = throw_number if throw_number else 1
             self._last_throw_number = number
             return number
 
@@ -902,7 +936,13 @@ class ThrowAnalyzer:
             decisions.append(
                 f"Neues Spiel (Summe der Tafel auf 0): voriges endete mit "
                 f"{endstand} Kegeln")
-            number = throw_number if throw_number is not None else 1
+            # EINE GELESENE NULL IST KEINE WURFNUMMER (BUG-032). Die
+            # Anlage zaehlt ab 1; 000 heisst 'noch nicht gebucht', nicht
+            # 'Wurf null'. Wurde sie frueher trotzdem durchgereicht,
+            # scheiterte `score.register` an '0 ist nicht groesser als
+            # 0'. Erreichbar war das bis BUG-032 nie, weil solche Zyklen
+            # vorher immer verworfen wurden.
+            number = throw_number if throw_number else 1
             self._last_throw_number = number
             return number
 
@@ -940,8 +980,11 @@ class ThrowAnalyzer:
                 f"Neues Spiel: voriges endete mit {endstand} Kegeln "
                 f"nach {last} Wuerfen"
             )
-            self._last_throw_number = throw_number
-            return throw_number
+            # Auch hier gilt: Eine gelesene 0 ist keine Wurfnummer, sondern
+            # ein noch nicht gebuchter erster Wurf (BUG-032).
+            number = throw_number if throw_number else 1
+            self._last_throw_number = number
+            return number
 
         if throw_number <= last:
             # KEIN Verwerfen. Der Gruenzyklus hat bereits BEWIESEN, dass geworfen

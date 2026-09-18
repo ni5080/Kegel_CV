@@ -1410,6 +1410,21 @@ class ScoringConfig(BaseModel):
     # ein echter Wurf hat dagegen eine Summe > 0. Zwei unabhaengige Felder
     # muessten gleichzeitig falsch gelesen werden.
     discard_zero_requires_zero_total: bool = True
+    # BUG-032: Die zwei Felder oben sind getrennt gelesen und trotzdem NICHT
+    # unabhaengig -- beim ERSTEN Wurf eines Spiels stehen beide legitim auf
+    # null, solange die Anlage den Wurf noch nicht gebucht hat (dieselbe
+    # Verspaetung wie BUG-010). Sie schweigen also aus demselben Grund.
+    #
+    # Der dritte Zeuge haengt an keinem Ziffernfeld: Liegen am Ende des
+    # Zyklus Kegel, ist etwas umgefallen -- was auch immer die Anzeige zeigt.
+    #
+    # GEMESSEN am Spieltagslauf 2026-09-18, alle 18 Verwerfungen dieser Regel
+    # gegen die Lampenspur:
+    #     17 x  nichts gefallen (max 0 liegende Kegel)  -- zu Recht verworfen
+    #      1 x  sechs Kegel gefallen (Bahn 5, F71033)   -- verlorener Wurf
+    # Die Lampen trennen die Faelle vollstaendig; die Bedingung aendert genau
+    # eine von achtzehn Entscheidungen, und zwar die falsche.
+    discard_zero_requires_empty_diamond: bool = True
     # BUG-017: Ein Gruenzyklus, der irgendwann zwischen GREEN_OFF und
     # GREEN_ON von einer erkannten Tafel-Verdeckung durchlaufen wurde, darf
     # als Ergebnis "0 Kegel" keine Messung sein -- die Kamera hat schlicht
