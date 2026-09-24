@@ -1,0 +1,84 @@
+# Baut den Liveticker zu EINER Datei und veroeffentlicht sie ueber GitHub Pages.
+#
+# WARUM ALS WORKFLOW UND NICHT ALS DATEI IM REPO: Die gebaute Seite traegt den
+# Supabase-Schluessel im Klartext. Er ist der publishable Schluessel und darf
+# nur lesen -- nachgemessen am 2026-09-24: Lesen 200, Loeschen 401 mit
+# "insufficient privilege". Trotzdem gehoert er nicht in den Verlauf eines
+# oeffentlichen Repositories, denn dort bleibt jede Fassung fuer immer stehen,
+# auch die von vor einem Schluesselwechsel. Gebaut wird deshalb hier, aus
+# einem Secret, und nur das Ergebnis wird veroeffentlicht.
+#
+# NOETIGE SECRETS (Settings -> Secrets and variables -> Actions):
+#     SUPABASE_URL        Projekt-URL
+#     SUPABASE_READ_KEY   der publishable/anon Schluessel -- NIE der geheime
+#
+# Ohne sie laeuft der Bau trotzdem: `--ohne-schluessel` erzeugt die Fassung,
+# die beim ersten Aufruf nach der Verbindung fragt. Lieber eine Seite, die
+# fragt, als ein Workflow, der stumm fehlschlaegt.
+
+name: Liveticker veroeffentlichen
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/liveticker/**"
+      - ".github/workflows/liveticker.yml"
+  workflow_dispatch:
+
+# Nur lesen, plus was Pages braucht. Mehr Rechte hat ein Bau nicht noetig.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Zwei Laeufe duerfen sich nicht ins Gehege kommen; der neuere gewinnt.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ERST DIE TESTS. Eine Seite, die eine kaputte Abfrage stellt, ist
+      # schlimmer als gar keine -- sie sieht richtig aus.
+      - name: Liveticker-Tests
+        working-directory: apps/liveticker
+        run: node --test test/*.test.js
+
+      - name: Seite bauen
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_READ_KEY: ${{ secrets.SUPABASE_READ_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_READ_KEY" ]; then
+            python apps/liveticker/build.py --bahnen 2,3,4,5
+          else
+            echo "Kein Secret hinterlegt -- die Seite fragt beim ersten Aufruf."
+            python apps/liveticker/build.py --bahnen 2,3,4,5 --ohne-schluessel
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/liveticker/dist
+
+  veroeffentlichen:
+    needs: bauen
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - id: pages
+        uses: actions/deploy-pages@v4
