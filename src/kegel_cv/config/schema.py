@@ -1185,16 +1185,21 @@ class SamplingConfig(BaseModel):
     # false stellt den alten Weg wieder her.
     baseline_from_trace: bool = True
 
-    # Wie oft derselbe Stand hintereinander gemessen sein muss, damit er als
-    # Grundlinie gilt. Ohne diese Bedingung bestimmt eine einzelne Lampe in der
-    # Dunkelphase des Blinkens die Grundlinie (Periode 28-30 Frames,
-    # Dunkelphase bis 15, siehe BUG-007a).
+    # Ueber wie viele FRAMES die laufenden Messungen zusammengefasst werden,
+    # bevor der kleinste Stand gesucht wird. Muss laenger sein als eine
+    # Blinkperiode (28-30 Frames, Dunkelphase bis 15 -- BUG-007a), sonst
+    # erfindet eine Dunkelphase eine leere Grundlinie.
     #
-    # GEMESSEN am Lauf 2026-09-17 12:53 (874 Wuerfe, Grundlinie als Anzahl):
-    #     1x bestaetigt   99,66 %    kippt Bahn 3 F43413 und Bahn 2 F85720
-    #     2x bestaetigt   99,66 %
-    #     3x bestaetigt   99,77 %    beide kommen zurueck
-    baseline_trace_confirm: int = Field(default=3, ge=1)
+    # IN FRAMES, NICHT IN MESSUNGEN. Der erste Anlauf zaehlte Messungen ("drei
+    # gleiche hintereinander") und war an der `lampenspur.csv` geeicht, die nur
+    # alle 25 Frames schreibt -- dort sind drei Messungen 75 Frames. Im Betrieb
+    # werden die Lampen alle 5 Frames gelesen (`live_preview_interval`), drei
+    # Messungen sind also 15 Frames: genau die maximale Dunkelphase. Der
+    # Spieltagslauf 2026-09-18 verlor dadurch zwei zuvor richtige Wuerfe
+    # (Bahn 4 F180292 und F198502). Siehe BUG-031.
+    #
+    # 40 Frames = 1,6 s, mehr als eine Blinkperiode, mit Puffer.
+    baseline_trace_window_frames: int = Field(default=40, ge=1)
 
     # WAEHREND der Gruenphase mitlesen. Vom Nutzer vorgeschlagen (2026-08-28):
     # "Ich messe in einer Gruenphase immer, wie viele Lampen leuchten -- jetzt?

@@ -859,9 +859,10 @@ class LaneProcessor:
         """Liest die Kegellampen eines beliebigen Frames.
 
         Wird fuer die Aggregation ueber die Sample-Frames gebraucht -- siehe
-        `AnalysisPipeline._aggregate_pins`.
+        `AnalysisPipeline._aggregate_pins`. Geht also ins Wurfergebnis ein und
+        gehoert deshalb ungekuerzt in die Spur.
         """
-        return self._read_pin_lamps(frame, is_result=False)
+        return self._read_pin_lamps(frame, is_result=False, anlass="abtastung")
 
     def setze_personenmodell(self, modell) -> None:
         """Das von der Pipeline geteilte Personenmodell uebernehmen."""
@@ -1383,7 +1384,7 @@ class LaneProcessor:
         if self._baseline_start is not None:
             versatz = frame.index - self._baseline_start
             if versatz in self.cfg.sampling.baseline_offsets:
-                messung = self._read_pin_lamps(frame)
+                messung = self._read_pin_lamps(frame, anlass="grundlinie")
                 if messung is not None:
                     self._baseline_samples.append(messung)
             if versatz >= max(self.cfg.sampling.baseline_offsets):
@@ -1414,7 +1415,7 @@ class LaneProcessor:
                 and self._baseline_start is None
                 and self._pending_baseline is not None
                 and frame.index % raster == 0):
-            messung = self._read_pin_lamps(frame)
+            messung = self._read_pin_lamps(frame, anlass="gruenphase")
             if messung is not None:
                 self._green_phase_samples.append(messung)
 
@@ -1438,10 +1439,47 @@ class LaneProcessor:
             # Wurf; ihr kleinster mehrfach bestaetigter Stand IST die
             # Grundlinie. Schweigt sie, gilt weiter das Fenster.
             self._baseline_pins = self._pending_baseline
+
+            # ZUERST DIE PFLICHT, DANN DIE KUER.
+            #
+            # Alles, was den naechsten Wurf sauber beginnen laesst, steht VOR
+            # jeder abgeleiteten Rechnung. Am 2026-09-19 stand es andersherum:
+            # Die Grundlinie aus der Spur wurde zuerst berechnet, warf einen
+            # TypeError -- und weil P8 die Ausnahme auffaengt, lief die Bahn
+            # weiter, ohne dass die Ergebnisliste je zurueckgesetzt wurde. Jeder
+            # Wurf erbte danach das Raeumbild des Vorgaengers mit allen neun
+            # Lampen. Ueber einen ganzen Spieltag war jeder zweite Wurf zu hoch.
+            #
+            # Eine aufgefangene Ausnahme heisst nicht, dass der Zustand heil
+            # ist. Reihenfolge ist deshalb kein Stil, sondern Schutz.
+            self._result_samples = list(self._green_phase_samples)
+            if self._result_pins is not None:
+                self._result_samples.append(self._result_pins)
+            # Neues Fenster: Die Mitlesungen des vorigen Wurfs sind verbraucht.
+            # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
+            # vorletzten -- genau der Versatz, der behoben werden soll.
+            self._late_samples = {}
+            spur = list(self._grundlinien_spur)
+            # Der naechste Wurf beginnt mit einer leeren Spur -- sonst truege
+            # er die Staende dieses Wurfs noch mit sich.
+            self._grundlinien_spur.clear()
+
+            # ERST JETZT das Abgeleitete: die Grundlinie aus der laufenden Spur
+            # (BUG-031). Das Fenster nach dem Gruen-AN misst EINEN Augenblick,
+            # und wenn die Gruenerkennung spaet kommt, die Gruenphase
+            # ungewoehnlich lang ist oder die Bahn gerade verdeckt war, ist es
+            # nicht der Augenblick des Wurfs. Die Spur enthaelt alle Messungen
+            # seit dem vorigen Wurf; ihr kleinster Stand ueber eine Blinkperiode
+            # IST die Grundlinie. Schweigt sie, gilt weiter das Fenster.
             if self.cfg.sampling.baseline_from_trace:
-                aus_spur = grundlinie_aus_spur(
-                    self._grundlinien_spur,
-                    self.cfg.sampling.baseline_trace_confirm)
+                # Die Gruppengroesse ergibt sich aus dem Lesetakt: Sie muss
+                # mehr als eine Blinkperiode abdecken, und der Takt steht erst
+                # zur Laufzeit fest.
+                takt = max(1, self._live_interval)
+                gruppe = max(
+                    2,
+                    -(-self.cfg.sampling.baseline_trace_window_frames // takt))
+                aus_spur = grundlinie_aus_spur(spur, gruppe)
                 if aus_spur is not None:
                     if (self._pending_baseline is not None
                             and set(aus_spur.pins)
@@ -1453,19 +1491,6 @@ class LaneProcessor:
                             list(self._pending_baseline.pins),
                             list(aus_spur.pins))
                     self._baseline_pins = aus_spur
-            # Der naechste Wurf beginnt mit einer leeren Spur -- sonst truege
-            # er die Staende dieses Wurfs noch mit sich.
-            self._grundlinien_spur.clear()
-            # Die Messungen der Gruenphase gehoeren zum Ergebnis: Waehrend ihr
-            # sind die Kegel gefallen. Sie stehen VOR der Messung bei GREEN_OFF,
-            # tragen aber zum selben Maximum bei.
-            self._result_samples = list(self._green_phase_samples)
-            if self._result_pins is not None:
-                self._result_samples.append(self._result_pins)
-            # Neues Fenster: Die Mitlesungen des vorigen Wurfs sind verbraucht.
-            # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
-            # vorletzten -- genau der Versatz, der behoben werden soll.
-            self._late_samples = {}
 
         # 2. ANZEIGE -- regelmaessig, damit in der Oberflaeche sichtbar ist, was
         #    die Tafel gerade zeigt. Ohne das bliebe die Kegelraute waehrend des
@@ -1610,7 +1635,8 @@ class LaneProcessor:
         return max(fest, anteil * rand)
 
     def _read_pin_lamps(self, frame: Frame,
-                        is_result: bool = False) -> PinLampReading | None:
+                        is_result: bool = False,
+                        anlass: str = "live") -> PinLampReading | None:
         """Liest die neun Kegellampen.
 
         Args:
@@ -1629,7 +1655,8 @@ class LaneProcessor:
         # zweite, unabhaengig entstandene Messung.
         if self.lamp_trace is not None:
             self.lamp_trace.add(frame.index, frame.timestamp,
-                                self.display_number, reading, self.lamp_detector)
+                                self.display_number, reading, self.lamp_detector,
+                                anlass="ergebnis" if is_result else anlass)
 
         if not reading.is_complete:
             if is_result:

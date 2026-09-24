@@ -194,7 +194,7 @@ def aggregate_pin_readings(
 
 
 def grundlinie_aus_spur(messungen: Sequence["PinLampReading"],
-                        wie_oft: int) -> "PinLampReading | None":
+                        gruppe: int) -> "PinLampReading | None":
     """Grundlinie aus den laufenden Lampenmessungen seit dem vorigen Wurf.
 
     WARUM ES DIESEN ZWEITEN WEG GIBT (BUG-031). `baseline_aus_zwei` misst in
@@ -211,30 +211,45 @@ def grundlinie_aus_spur(messungen: Sequence["PinLampReading"],
     die Grundlinie. Nach dem Neuaufstellen faellt er auf null, und genau das
     ist dann auch die Grundlinie.
 
-    `wie_oft` verlangt, dass derselbe Stand mehrfach hintereinander gemessen
-    wurde. Ohne diese Bedingung bestimmt eine einzelne Lampe in der Dunkelphase
-    des Blinkens die Grundlinie -- die Blinkperiode betraegt 28-30 Frames, die
-    Dunkelphase bis zu 15 (BUG-007a).
+    DAS BLINKEN (BUG-007a) MACHT DEN KLEINSTEN STAND UNBRAUCHBAR, wenn man ihn
+    aus Einzelmessungen nimmt: Die Lampen blinken mit 28-30 Frames Periode, die
+    Dunkelphase dauert bis zu 15 Frames. Eine einzelne Messung in der
+    Dunkelphase zeigt NICHTS -- und das waere dann die Grundlinie.
 
-    GEMESSEN gegen die Kegelziffer der Tafel, Grundlinie als ANZAHL:
+    Deshalb wird nicht ueber Einzelmessungen minimiert, sondern ueber GRUPPEN:
+    Je `gruppe` aufeinanderfolgende Messungen werden mit
+    `aggregate_pin_readings` zusammengefasst (eine Lampe gilt als AN, wenn sie
+    in MINDESTENS EINER leuchtete -- eine Lampe kann faelschlich aus erscheinen,
+    nie faelschlich an), und erst diese Gruppen werden verglichen. Deckt eine
+    Gruppe mehr als eine Blinkperiode ab, kann keine Dunkelphase mehr eine
+    Grundlinie erfinden.
 
-        Lauf 2026-09-17 12:53, 874 Wuerfe    Fenster 99,54 %  Spur 99,77 %
-        Lauf 2026-09-18 07:30, 421 Wuerfe    Fenster 99,51 %  Spur 100,00 %
+    WAS DIESE FUNKTION BIS ZUM 2026-09-18 STATTDESSEN TAT -- und warum es
+    schieflief: Sie verlangte, dass derselbe Stand N-mal HINTEREINANDER
+    gemessen wurde. Geeicht war das an der `lampenspur.csv`, die nur alle 25
+    Frames schreibt; dort sind drei Messungen 75 Frames und damit blinkfest.
+    Im Betrieb werden die Lampen aber alle 5 Frames gelesen -- drei Messungen
+    sind 15 Frames, exakt die maximale Dunkelphase. Der volle Spieltagslauf
+    verlor dadurch zwei zuvor richtige Wuerfe (Bahn 4 F180292 und F198502).
+    Eine Zaehlung von MESSUNGEN traegt nicht; nur eine von FRAMES traegt.
 
-    Beide Faelle von BUG-031 verschwinden damit, ohne dass ein neuer entsteht.
-    Ob sich die MENGEN ebenso verhalten wie die Anzahlen, liess sich aus den
-    Spurdateien nicht nachrechnen -- das entscheidet der Lauf.
-
-    Gibt `None`, wenn kein Stand oft genug bestaetigt wurde. Dann gilt der
+    Gibt `None`, wenn keine vollstaendige Gruppe zustande kommt. Dann gilt der
     Fensterwert; eine Grundlinie zu raten waere schlimmer als der alte Weg.
     """
+    # ERST IN EINE LISTE. Der Aufrufer reicht eine `deque` herein, und die
+    # laesst sich nicht schneiden -- `messungen[i:i+gruppe]` warf dort
+    # TypeError. Weil der Aufruf in der GREEN_OFF-Behandlung steht, blieb
+    # danach die Ergebnisliste des VORIGEN Wurfs stehen: Jeder Wurf erbte das
+    # Raeumbild mit allen neun Lampen. Am Spieltag 2026-09-19 war dadurch
+    # jeder zweite Wurf zu hoch.
+    folge = list(messungen)
+    if gruppe < 1 or len(folge) < gruppe:
+        return None
     beste: "PinLampReading | None" = None
-    lauf = 0
-    vorher: frozenset[int] | None = None
-    for messung in messungen:
-        jetzt = frozenset(messung.pins)
-        lauf = lauf + 1 if jetzt == vorher else 1
-        vorher = jetzt
-        if lauf >= wie_oft and (beste is None or len(jetzt) < len(beste.pins)):
-            beste = messung
+    for i in range(len(folge) - gruppe + 1):
+        zusammen = aggregate_pin_readings(folge[i:i + gruppe])
+        if zusammen is None:
+            continue
+        if beste is None or len(zusammen.pins) < len(beste.pins):
+            beste = zusammen
     return beste

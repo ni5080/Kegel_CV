@@ -1041,10 +1041,16 @@ sampling:
   #     Lauf 2026-09-18 07:30, 421 Wuerfe   Fenster 99,51 %  Spur 100,00 %
   baseline_from_trace: true
 
-  # Wie oft derselbe Stand hintereinander gemessen sein muss. Ohne das
-  # bestimmt eine einzelne Lampe in der Dunkelphase des Blinkens die
-  # Grundlinie. GEMESSEN: 1x und 2x je 99,66 %, 3x 99,77 %.
-  baseline_trace_confirm: 3
+  # Ueber wie viele FRAMES die laufenden Messungen zusammengefasst werden,
+  # bevor der kleinste Stand gesucht wird. Muss laenger sein als eine
+  # Blinkperiode (28-30 Frames, Dunkelphase bis 15), sonst erfindet eine
+  # Dunkelphase eine leere Grundlinie.
+  #
+  # IN FRAMES, NICHT IN MESSUNGEN: Der erste Anlauf zaehlte Messungen und war
+  # an der lampenspur.csv geeicht (Takt 25), waehrend der Code alle 5 Frames
+  # liest. Drei Messungen waren dort 75 Frames, hier 15 -- genau die
+  # Dunkelphase. Zwei Wuerfe gingen dadurch verloren (BUG-031).
+  baseline_trace_window_frames: 40
 
   # GRUNDLINIE AUCH VOR DEM GRUEN-AN LESEN (BUG-016, Nutzeridee 2026-09-01).
   #
@@ -1096,10 +1102,16 @@ sampling:
   #     Lauf 2026-09-18 07:30, 421 Wuerfe   Fenster 99,51 %  Spur 100,00 %
   baseline_from_trace: true
 
-  # Wie oft derselbe Stand hintereinander gemessen sein muss. Ohne das
-  # bestimmt eine einzelne Lampe in der Dunkelphase des Blinkens die
-  # Grundlinie. GEMESSEN: 1x und 2x je 99,66 %, 3x 99,77 %.
-  baseline_trace_confirm: 3
+  # Ueber wie viele FRAMES die laufenden Messungen zusammengefasst werden,
+  # bevor der kleinste Stand gesucht wird. Muss laenger sein als eine
+  # Blinkperiode (28-30 Frames, Dunkelphase bis 15), sonst erfindet eine
+  # Dunkelphase eine leere Grundlinie.
+  #
+  # IN FRAMES, NICHT IN MESSUNGEN: Der erste Anlauf zaehlte Messungen und war
+  # an der lampenspur.csv geeicht (Takt 25), waehrend der Code alle 5 Frames
+  # liest. Drei Messungen waren dort 75 Frames, hier 15 -- genau die
+  # Dunkelphase. Zwei Wuerfe gingen dadurch verloren (BUG-031).
+  baseline_trace_window_frames: 40
 
 # -----------------------------------------------------------------------------
 # Zustandsmaschine
