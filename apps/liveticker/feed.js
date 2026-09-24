@@ -14,20 +14,26 @@
 
 /** Fortlaufend groesste bereits geholte id -- die Marke, ab der weitergelesen wird. */
 export class ThrowFeed {
-    constructor({ url, key, table = "throws", lanes = [], since = null, pageSize = 1000 }) {
+    constructor({ url, key, table = "throws", lanes = [], since = null, until = null, pageSize = 1000 }) {
         if (!url || !key) throw new Error("Liveticker braucht Projekt-URL und Schluessel");
         this.endpoint = `${url.replace(/\/+$/, "")}/rest/v1/${table}`;
         this.key = key;
         this.lanes = [...lanes];
         this.since = since;
+        // Obere Zeitgrenze -- null heisst "bis jetzt", also live weiterlesen.
+        // Gebraucht zum Abgleichen: Wer eine Summe gegen die Ergebnistafel
+        // haelt, will genau das Zeitfenster eines Satzes sehen und nicht
+        // alles, was seither dazugekommen ist (Nutzer, 2026-09-24).
+        this.until = until;
         this.pageSize = pageSize;
         this.lastId = 0;
     }
 
     /** Setzt die Leseposition zurueck -- noetig, wenn sich Zeitpunkt oder Bahnen aendern. */
-    reset({ lanes, since } = {}) {
+    reset({ lanes, since, until } = {}) {
         if (lanes) this.lanes = [...lanes];
         if (since !== undefined) this.since = since;
+        if (until !== undefined) this.until = until;
         this.lastId = 0;
     }
 
@@ -37,7 +43,11 @@ export class ThrowFeed {
         p.set("order", "id.asc");
         p.set("limit", String(this.pageSize));
         if (this.lanes.length) p.set("lane", `in.(${this.lanes.join(",")})`);
-        if (this.since) p.set("recorded_at", `gte.${this.since}`);
+        // BEIDE Zeitgrenzen stehen auf DERSELBEN Spalte, deshalb `append` und
+        // nicht `set`: PostgREST verknuepft mehrfach genannte Spalten mit UND,
+        // `set` wuerde die erste Bedingung ueberschreiben.
+        if (this.since) p.append("recorded_at", `gte.${this.since}`);
+        if (this.until) p.append("recorded_at", `lte.${this.until}`);
         // Die id ist die Leseposition, nicht der Zeitstempel: Nachgelieferte
         // Wuerfe aus dem Versandpuffer haben alte Zeitstempel, aber neue ids.
         // Nach Zeit zu lesen wuerde sie ueberspringen.

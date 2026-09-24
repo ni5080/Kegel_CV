@@ -549,6 +549,32 @@ class MainWindow(QMainWindow):
         self.btn_analyze.clicked.connect(self._on_toggle_analysis)
         analysis_layout.addWidget(self.btn_analyze)
 
+        # DER NAME DER PARTIE. Geht als `game_name` mit in die Datenbank und
+        # benennt den Debug-Ordner. Im Multisensor-Aufbau -- Stream fuer zwei
+        # Bahnen, Telefon fuer die anderen -- muss auf ALLEN Geraeten derselbe
+        # Name stehen; daran finden die Wuerfe wieder zusammen.
+        spiel_zeile = QHBoxLayout()
+        spiel_zeile.addWidget(QLabel("Spiel:"))
+        self.txt_spielname = QLineEdit()
+        self.txt_spielname.setPlaceholderText("z. B. 2. Spieltag Herren")
+        self.txt_spielname.setToolTip(
+            "Name dieser Partie. Wird als `game_name` gespeichert und benennt "
+            "den Debug-Ordner. Bei mehreren Geraeten (Stream + Handy) auf "
+            "allen DENSELBEN Namen setzen -- daran finden die Wuerfe wieder "
+            "zusammen. Die Herkunft bleibt trotzdem unterscheidbar."
+        )
+        spiel_zeile.addWidget(self.txt_spielname, 1)
+        analysis_layout.addLayout(spiel_zeile)
+
+        # WELCHE BAHNEN DIESES GERAET UEBERNIMMT. Leer angekreuzt = alle.
+        # Die Kaestchen werden erst gefuellt, wenn eine Kalibrierung geladen
+        # ist -- vorher weiss niemand, welche Bahnen es gibt.
+        self.bahn_zeile = QHBoxLayout()
+        self.bahn_zeile.addWidget(QLabel("Bahnen:"))
+        self.chk_bahnen: dict[int, QCheckBox] = {}
+        self.bahn_zeile.addStretch(1)
+        analysis_layout.addLayout(self.bahn_zeile)
+
         # Ab der aktuellen Stelle auswerten. Vor einem Spiel wird warmgespielt,
         # und diese Wuerfe gehoeren nicht in die Auswertung.
         self.chk_ab_hier = QCheckBox("ab aktueller Stelle starten")
@@ -865,6 +891,38 @@ class MainWindow(QMainWindow):
             panel = LanePanel(lane_id, display_number)
             self.lane_panels[lane_id] = panel
             self.lane_layout.addWidget(panel)
+
+        self._bahn_kaestchen_aufbauen([d for _, d in entries])
+
+    def _bahn_kaestchen_aufbauen(self, bahnnummern: list[int]) -> None:
+        """Ein Kaestchen je Bahn -- welche uebernimmt dieses Geraet?
+
+        WOZU (Nutzer, 2026-09-24): Im Multisensor-Aufbau nimmt der Stream die
+        Bahnen 2 und 3, ein Telefon die anderen. Ohne diese Auswahl schriebe
+        jedes Geraet alles, was es lesen kann, und die Tabelle haette jeden
+        Wurf doppelt.
+
+        Alle angehakt ist die Vorgabe. Eine leere Vorauswahl waere "nichts
+        erfassen" -- das faellt erst nach einem ganzen Spieltag auf.
+        """
+        vorher = {nr: box.isChecked() for nr, box in self.chk_bahnen.items()}
+        while self.bahn_zeile.count() > 1:
+            item = self.bahn_zeile.takeAt(1)
+            if item.widget():
+                item.widget().deleteLater()
+        self.chk_bahnen.clear()
+        for nummer in sorted(set(bahnnummern)):
+            box = QCheckBox(str(nummer))
+            box.setChecked(vorher.get(nummer, True))
+            box.setToolTip(
+                f"Bahn {nummer} von diesem Geraet erfassen und senden. "
+                "Abgewaehlt: Die Bahn wird gar nicht ausgewertet -- sie kostet "
+                "dann auch keine Rechenzeit. Auf einem zweiten Geraet die "
+                "jeweils anderen Bahnen anhaken, dann kommt kein Wurf doppelt "
+                "in der Datenbank an."
+            )
+            self.chk_bahnen[nummer] = box
+            self.bahn_zeile.insertWidget(self.bahn_zeile.count() - 1, box)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&Datei")
@@ -2202,9 +2260,21 @@ class MainWindow(QMainWindow):
             log.info("Livestream: 'ab hier' wird uebergangen -- in einer "
                      "Live-Uebertragung ist der aktuelle Frame der Anfang.")
 
+        # WELCHE BAHNEN DIESES GERAET UEBERNIMMT. Abgehakte Kaestchen werden
+        # erfasst; nicht erfasst heisst auch: nicht gesendet, denn was nicht
+        # gemessen wurde, kann nicht abgegeben werden. Alle angehakt = alle,
+        # dann bleibt die Einstellung leer und alles verhaelt sich wie bisher.
+        gewaehlt = [nr for nr, box in self.chk_bahnen.items() if box.isChecked()]
+        alle = sorted(self.chk_bahnen)
+        self.cfg.processing.lanes = [] if gewaehlt == alle else gewaehlt
+        if self.cfg.processing.lanes:
+            log.info("Dieses Geraet erfasst die Bahnen %s",
+                     self.cfg.processing.lanes)
+
         self._worker = AnalysisWorker(video_path, calibration, self.cfg,
                                       start_frame=start_frame,
                                       sending_enabled=self.chk_senden.isChecked(),
+                                      spielname=self.txt_spielname.text(),
                                       parent=self)
         self._worker.frame_processed.connect(self._on_frame_processed)
         self._worker.preview_ready.connect(self._on_preview)

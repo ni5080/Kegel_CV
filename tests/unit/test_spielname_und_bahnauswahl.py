@@ -165,3 +165,44 @@ class TestErfassungsfilter:
         cfg.processing.lanes = []
         pipe = AnalysisPipeline(kalibrierung, cfg)
         assert len(pipe.processors) == len(kalibrierung.lanes)
+
+
+class TestOberflaeche:
+    """Ein Feld, das niemand ausliest, ist Zierrat -- genau diese Luecke war
+    BUG-023."""
+
+    @pytest.fixture
+    def fenster(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        from kegel_cv.calibration.model import Calibration
+        from kegel_cv.gui import main_window as mw
+        QApplication.instance() or QApplication([])
+        f = mw.MainWindow(load_config())
+        try:
+            f.session.calibration = Calibration.load(
+                "data/calibrations/2Spieltag.json")
+            f._rebuild_lane_panels()
+        except Exception:
+            pytest.skip("Kalibrierung nicht ladbar")
+        yield f
+        f.close()
+
+    def test_es_gibt_ein_kaestchen_je_bahn_und_alle_sind_an(self, fenster):
+        """Eine leere Vorauswahl hiesse 'nichts erfassen' -- das faellt erst
+        nach einem ganzen Spieltag auf."""
+        assert sorted(fenster.chk_bahnen) == [2, 3, 4, 5]
+        assert all(b.isChecked() for b in fenster.chk_bahnen.values())
+
+    def test_das_spielnamensfeld_ist_da_und_leer(self, fenster):
+        assert fenster.txt_spielname.text() == ""
+
+    def test_kaestchen_ueberleben_einen_neuaufbau(self, fenster):
+        """Wer Bahn 4 und 5 abwaehlt und dann eine Kalibrierung nachlaedt,
+        soll seine Auswahl wiederfinden."""
+        fenster.chk_bahnen[4].setChecked(False)
+        fenster.chk_bahnen[5].setChecked(False)
+        fenster._rebuild_lane_panels()
+        assert [nr for nr, b in fenster.chk_bahnen.items() if b.isChecked()] \
+            == [2, 3]

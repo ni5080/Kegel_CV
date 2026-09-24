@@ -22,6 +22,7 @@ const zustand = {
     gewaehlt: new Set(),
     fokus: null,
     since: null,               // ISO-Zeitpunkt, ab dem gelesen wird
+    until: null,               // ISO-Zeitpunkt, bis zu dem gelesen wird (null = live)
     ticker: new Map(),         // Bahnnummer -> LaneTicker
     feed: null,
     ordner: null,              // FileSystemDirectoryHandle
@@ -93,6 +94,7 @@ function sichere() {
             gewaehlt: [...zustand.gewaehlt],
             fokus: zustand.fokus,
             since: zustand.since,
+            until: zustand.until,
             segmente,
             phasen,
             korrekturen,
@@ -497,6 +499,7 @@ function neueAbfrage() {
         table: zustand.cfg.table,
         lanes: [...zustand.gewaehlt],
         since: zustand.since,
+        until: zustand.until,
     });
     // Die Wuerfe neu einlesen, die Abschnitte behalten: Der Zeitpunkt aendert,
     // WAS gelesen wird, nicht, wann das Spiel begonnen hat.
@@ -555,11 +558,13 @@ function insEingabefeld(iso) {
 
 function ausAdresse() {
     // Zeitpunkt und Bahnen lassen sich auch in der Adresse uebergeben:
-    //   index.html?ab=2026-09-07T19:00&bahnen=2,3
+    //   index.html?ab=2026-09-07T19:00&bis=2026-09-07T20:30&bahnen=2,3
     const p = new URLSearchParams(window.location.search);
     const ab = p.get("ab");
+    const bis = p.get("bis");
     const bahnen = p.get("bahnen");
     if (ab) zustand.since = ausEingabefeld(ab) || ab;
+    if (bis) zustand.until = ausEingabefeld(bis) || bis;
     if (bahnen) {
         const liste = bahnen.split(",").map((s) => Number(s.trim())).filter(Boolean);
         if (liste.length) {
@@ -595,8 +600,11 @@ function start() {
     const heute = new Date();
     heute.setHours(0, 0, 0, 0);
     zustand.since = gespeichert.since || heute.toISOString();
+    // Ohne obere Grenze laeuft der Ticker live weiter -- das ist der Regelfall.
+    zustand.until = gespeichert.until || null;
     ausAdresse();
     $("#ab-zeit").value = insEingabefeld(zustand.since);
+    $("#bis-zeit").value = zustand.until ? insEingabefeld(zustand.until) : "";
 
     // Ist die Verbindung fest eingebaut, geht es hinter dem Knopf nur noch
     // um die Bahnen -- dann soll er auch das sagen.
@@ -631,11 +639,19 @@ function start() {
 
     const zeitGeaendert = () => {
         zustand.since = ausEingabefeld($("#ab-zeit").value);
+        // Leeres Feld heisst OFFEN, nicht "bis 1970": `ausEingabefeld` liefert
+        // bei leerer Eingabe null, und genau das soll hier ankommen.
+        zustand.until = ausEingabefeld($("#bis-zeit").value) || null;
         neueAbfrage();
         zeichne();
         sichere();
     };
     $("#ab-zeit").addEventListener("change", zeitGeaendert);
+    $("#bis-zeit").addEventListener("change", zeitGeaendert);
+    $("#btn-offen").addEventListener("click", () => {
+        $("#bis-zeit").value = "";
+        zeitGeaendert();
+    });
     $("#btn-jetzt").addEventListener("click", () => {
         $("#ab-zeit").value = insEingabefeld(new Date().toISOString());
         zeitGeaendert();

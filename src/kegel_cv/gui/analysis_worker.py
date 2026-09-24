@@ -52,9 +52,14 @@ class AnalysisWorker(QThread):
 
     def __init__(self, video_path: str, calibration: Calibration, cfg: AppConfig,
                  preview_every: int = 2, start_frame: int = 0,
-                 sending_enabled: bool = True, parent=None) -> None:
+                 sending_enabled: bool = True, spielname: str = "",
+                 parent=None) -> None:
         super().__init__(parent)
         self._video_path = video_path
+        # Der Name, den der Nutzer der Partie gegeben hat. Geht als `game_name`
+        # mit in die Datenbank und benennt den Debug-Ordner. Bei mehreren
+        # Geraeten auf allen denselben -- daran finden die Wuerfe zusammen.
+        self._spielname = spielname.strip()
         self._calibration = calibration
         self._cfg = cfg
         self._preview_every = max(1, preview_every)
@@ -174,12 +179,14 @@ class AnalysisWorker(QThread):
 
     def run(self) -> None:  # noqa: C901
         pipeline = AnalysisPipeline(self._calibration, self._cfg,
-                                    video_id=source_label(self._video_path))
+                                    video_id=source_label(self._video_path),
+                                    game_name=self._spielname)
         # Wohin die Ergebnisse gehen. Der Versand haengt bewusst HIER und nicht
         # in der Analyse: Die Auswertung soll nicht wissen muessen, ob ihre
         # Ergebnisse in eine Datenbank, eine Datei oder ins Nichts gehen
         # (Schichtenregel, siehe tests/unit/test_architecture.py).
-        sink = build_sink(self._cfg, video_id=source_label(self._video_path))
+        sink = build_sink(self._cfg, video_id=source_label(self._video_path),
+                          game_name=self._spielname)
         # Datei oder Stream -- die Entscheidung faellt in der Fabrik, nicht hier.
         source = open_source(self._video_path, self._cfg)
 

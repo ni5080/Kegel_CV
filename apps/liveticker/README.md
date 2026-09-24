@@ -201,8 +201,14 @@ Datei sich hierzulande ohne Importdialog in Excel öffnet.
 ### Adresse mit Parametern
 
 ```
-http://localhost:8000/?ab=2026-09-07T19:00&bahnen=2,3
+http://localhost:8000/?ab=2026-09-07T19:00&bis=2026-09-07T20:30&bahnen=2,3
 ```
+
+`bis` ist optional. Ohne diesen Wert läuft der Ticker live weiter; mit ihm
+zeigt er genau ein Zeitfenster. Das ist zum **Abgleichen** gedacht: Wer eine
+Summe gegen die Ergebnistafel hält, will den einen Satz sehen und nicht alles,
+was seither dazugekommen ist. In der Oberfläche steht das Feld als „Würfe bis"
+neben „Würfe ab"; der Knopf `offen` hebt die Grenze wieder auf.
 
 ---
 

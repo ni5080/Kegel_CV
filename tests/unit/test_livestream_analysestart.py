@@ -83,9 +83,11 @@ class UnechterWorker:
     letzte: dict = {}
 
     def __init__(self, video_path, calibration, cfg, start_frame=0,
-                 sending_enabled=False, parent=None) -> None:
+                 sending_enabled=False, spielname="", parent=None) -> None:
         UnechterWorker.letzte = {"video_path": video_path,
-                                 "start_frame": start_frame}
+                                 "start_frame": start_frame,
+                                 "spielname": spielname,
+                                 "bahnen": list(cfg.processing.lanes)}
         for name in ("frame_processed", "preview_ready", "progress",
                      "seeking", "finished_analysis", "error"):
             setattr(self, name, _Signal())
