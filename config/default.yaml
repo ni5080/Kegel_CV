@@ -136,6 +136,16 @@ processing:
   # Der Green-Check kostet nur ca. 0.1 ms, daher ist 1 vertretbar.
   green_check_interval: 1
 
+  # WELCHE BAHNEN DIESES GERAET ERFASST -- Bahnnummern wie auf der Anlage
+  # (2, 3, 4, 5), nicht der laufende Index. Leer = alle aus der Kalibrierung.
+  #
+  # Fuer ein Multisensor-System (Nutzer, 2026-09-24): Der Livestream nimmt
+  # Bahn 2 und 3, ein Telefon die Bahnen 4 und 5. Eine nicht erfasste Bahn
+  # bekommt gar keinen Prozessor und kostet deshalb auch keine Rechenzeit.
+  #
+  #   lanes: [2, 3]
+  lanes: []
+
 # -----------------------------------------------------------------------------
 # Kalibrierung
 # -----------------------------------------------------------------------------
@@ -1631,6 +1641,15 @@ output:
   # festgelegt (2026-09-07), nachdem zwei andere Zeitpunkte beide ein
   # Bild lieferten, auf dem das Ergebnis schon stand.
   send_board_before_image: true
+  # WELCHE BAHNEN GESENDET WERDEN -- leer = alle erfassten.
+  #
+  # Getrennt von `processing.lanes`, weil beides verschiedene Gruende hat:
+  # Erfassen spart Rechenzeit, Senden entscheidet, welches Geraet fuer welche
+  # Bahn zustaendig ist. Wer eine Bahn mitrechnen, aber nicht senden will --
+  # etwa um zwei Kameras zu vergleichen -- laesst sie oben drin und nimmt sie
+  # hier heraus.
+  lanes: []
+
   supabase:
     # Aus, solange nichts eingerichtet ist. Dann laeuft alles wie bisher.
     enabled: true

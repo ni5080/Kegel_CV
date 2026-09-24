@@ -19,7 +19,9 @@ from ..models.throw import ThrowResult
 
 def throw_to_row(throw: ThrowResult, video_id: str = "",
                  mit_bild: bool = True,
-                 mit_vorher: bool = False) -> dict[str, Any]:
+                 mit_vorher: bool = False,
+                 game_name: str = "",
+                 game_name_column: str = "game_name") -> dict[str, Any]:
     """Baut die Datenbankzeile eines Wurfs -- bewusst KNAPP.
 
     Uebertragen wird nur, was GEMESSEN ist:
@@ -87,4 +89,13 @@ def throw_to_row(throw: ThrowResult, video_id: str = "",
         row["board_jpeg"] = throw.board_image
     if mit_bild and mit_vorher and throw.board_image_before:
         row["board_before_jpeg"] = throw.board_image_before
+    # DER SPIELNAME, den der Nutzer vergeben hat -- neben `video_id`, nicht
+    # an deren Stelle. `video_id` sagt, WELCHER SENSOR geliefert hat, der
+    # Spielname, WELCHE PARTIE es war. Im Multisensor-Aufbau schreiben beide
+    # Geraete denselben Namen und bleiben trotzdem unterscheidbar.
+    #
+    # Nur wenn einer vergeben wurde: Eine leere Spalte mitzuschicken hiesse,
+    # eine Aussage zu machen, wo keine ist.
+    if game_name and game_name_column:
+        row[game_name_column] = game_name
     return row

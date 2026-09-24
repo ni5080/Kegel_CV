@@ -40,12 +40,16 @@ class QueuedSink(ResultSink):
     def __init__(self, inner: ResultSink, spool_file: Path | None = None,
                  max_retries: int = 3, retry_delay_s: float = 2.0,
                  queue_size: int = 500, video_id: str = "",
-                 mit_bild: bool = True, mit_vorher: bool = False) -> None:
+                 mit_bild: bool = True, mit_vorher: bool = False,
+                 game_name: str = "",
+                 game_name_column: str = "game_name") -> None:
         self.inner = inner
         self.spool_file = Path(spool_file) if spool_file else None
         self.max_retries = max_retries
         self.retry_delay_s = retry_delay_s
         self.video_id = video_id
+        self.game_name = game_name
+        self.game_name_column = game_name_column
         # Tafelbild mitschicken? Aus der Konfiguration durchgereicht,
         # damit sich der Versand ohne Codeaenderung abspecken laesst.
         self.mit_bild = mit_bild
@@ -65,6 +69,8 @@ class QueuedSink(ResultSink):
         try:
             self._queue.put_nowait(throw_to_row(
                 throw, video_id=self.video_id, mit_bild=self.mit_bild,
+                game_name=self.game_name,
+                game_name_column=self.game_name_column,
                 mit_vorher=self.mit_vorher))
         except queue.Full:
             # Lieber in die Datei als verlieren. Dass die Schlange volllaeuft,
@@ -74,6 +80,8 @@ class QueuedSink(ResultSink):
                         throw.lane, throw.pins_count)
             self._puffern(throw_to_row(
                 throw, video_id=self.video_id, mit_bild=self.mit_bild,
+                game_name=self.game_name,
+                game_name_column=self.game_name_column,
                 mit_vorher=self.mit_vorher))
 
     def flush(self) -> None:

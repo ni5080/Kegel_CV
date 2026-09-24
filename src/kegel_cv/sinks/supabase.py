@@ -41,7 +41,9 @@ class SupabaseSink(ResultSink):
     """
 
     def __init__(self, url: str, table: str, api_key: str,
-                 timeout_s: float = 5.0, video_id: str = "") -> None:
+                 timeout_s: float = 5.0, video_id: str = "",
+                 game_name: str = "",
+                 game_name_column: str = "game_name") -> None:
         if not url or not table:
             raise ValueError("Supabase braucht URL und Tabellenname")
         if not api_key:
@@ -53,9 +55,16 @@ class SupabaseSink(ResultSink):
         self.api_key = api_key
         self.timeout_s = timeout_s
         self.video_id = video_id
+        self.game_name = game_name
+        self.game_name_column = game_name_column
+        # Die Meldung ueber eine fehlende Spalte darf nur EINMAL kommen --
+        # sonst steht sie bei 1700 Wuerfen 1700 mal im Log.
+        self._spalte_gemeldet = False
 
     def send(self, throw: ThrowResult) -> None:
-        self.send_rows([throw_to_row(throw, video_id=self.video_id)])
+        self.send_rows([throw_to_row(
+            throw, video_id=self.video_id, game_name=self.game_name,
+            game_name_column=self.game_name_column)])
 
     def send_rows(self, rows: list[dict[str, Any]]) -> None:
         """Schickt mehrere Zeilen in EINEM Aufruf.
@@ -87,6 +96,21 @@ class SupabaseSink(ResultSink):
             # abgelehnt hat (fehlende Spalte, Rechte, Format). Ohne diesen Text
             # bleibt nur eine nackte Zahl.
             text = exc.read().decode("utf-8", errors="replace")[:300]
+            # DIE FEHLENDE SPALTE IM KLARTEXT. Sie ist der wahrscheinlichste
+            # Grund, wenn zum ersten Mal mit einem Spielnamen gesendet wird,
+            # und aus "HTTP 400: PGRST204" liest das niemand heraus.
+            if (self.game_name and self.game_name_column
+                    and self.game_name_column in text
+                    and not self._spalte_gemeldet):
+                self._spalte_gemeldet = True
+                log.error(
+                    "Die Tabelle kennt die Spalte '%s' nicht -- der Spielname "
+                    "kann nicht gespeichert werden und die ganze Zeile wird "
+                    "abgelehnt. In Supabase einmal anlegen: "
+                    "alter table %s add column %s text; -- "
+                    "bis dahin hilft ein Lauf ohne Spielnamen.",
+                    self.game_name_column,
+                    self.endpoint.rsplit("/", 1)[-1], self.game_name_column)
             raise SupabaseError(f"HTTP {exc.code}: {text}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise SupabaseError(f"nicht erreichbar: {exc}") from exc

@@ -80,6 +80,20 @@ class ProcessingConfig(BaseModel):
     buffer_roi_only: bool = False
     green_check_interval: int = Field(default=1, ge=1)
 
+    # WELCHE BAHNEN DIESES GERAET ERFASST -- als Bahnnummern, wie sie auf der
+    # Anlage stehen (2, 3, 4, 5), nicht als laufender Index.
+    #
+    # Leer heisst: alle, die die Kalibrierung hergibt. So verhaelt sich alles
+    # wie bisher, solange niemand etwas einstellt.
+    #
+    # WOZU (Nutzer, 2026-09-24): *"Mein Gedanke ist gerade fuer eine Bahn die
+    # vielleicht schwer zu lesen ist, einfach eine zusaetzliche Kamera durch
+    # mein Handy einzusetzen. Dann soll unser Livestream quasi nur noch Bahn 2
+    # und 3 uebertragen und Bahn 3 und 4 kommen vom Handy."* Eine nicht
+    # erfasste Bahn bekommt gar keinen Prozessor -- sie kostet dann auch keine
+    # Rechenzeit, was auf einem Telefon der eigentliche Punkt ist.
+    lanes: list[int] = Field(default_factory=list)
+
 
 class CalibrationConfig(BaseModel):
     directory: str = "data/calibrations"
@@ -1621,6 +1635,20 @@ class SupabaseConfig(BaseModel):
     url: str = ""                       # z. B. https://abcdefgh.supabase.co
     url_env: str = "SUPABASE_URL"
     table: str = "throws"
+    # Spalte fuer den SPIELNAMEN, den der Nutzer vergibt.
+    #
+    # Sie steht NEBEN `video_id`, nicht an deren Stelle: `video_id` benennt die
+    # Quelle (welcher Sensor hat geliefert), `game_name` die Partie (was
+    # gehoert zusammen). Im Multisensor-Aufbau -- Stream fuer zwei Bahnen,
+    # Telefon fuer die anderen zwei -- ist genau diese Trennung der Punkt:
+    # Beide Geraete schreiben denselben Spielnamen, bleiben aber
+    # unterscheidbar, wenn eine Bahn auffaellig wird.
+    #
+    # Die Spalte muss in der Tabelle existieren:
+    #     alter table throws add column game_name text;
+    # Fehlt sie, lehnt PostgREST die ganze Zeile ab. Der Versand meldet das
+    # einmal im Klartext, statt stumm nichts zu schreiben.
+    game_name_column: str = "game_name"
     # Der Schluessel steht in einer UMGEBUNGSVARIABLEN, nicht hier.
     # Konfigurationsdateien landen in der Versionsverwaltung, Zugangsdaten nie.
     api_key_env: str = "SUPABASE_KEY"
@@ -1638,6 +1666,16 @@ class OutputConfig(BaseModel):
     """Wohin die Ergebnisse gehen (Auftrag Paragraph 26)."""
 
     supabase: SupabaseConfig = Field(default_factory=SupabaseConfig)
+
+    # WELCHE BAHNEN GESENDET WERDEN -- Bahnnummern wie auf der Anlage.
+    #
+    # Leer heisst: alle, die erfasst werden. Getrennt von `processing.lanes`,
+    # weil beides verschiedene Gruende hat: Erfassen spart Rechenzeit, Senden
+    # entscheidet, welches Geraet in einem Multisensor-Aufbau fuer welche Bahn
+    # zustaendig ist. Wer eine Bahn mitrechnen, aber nicht senden will -- etwa
+    # zum Vergleich zweier Kameras -- stellt sie hier heraus und laesst sie
+    # oben drin.
+    lanes: list[int] = Field(default_factory=list)
 
     # Das Tafelbild je Wurf mitschicken -- der Beleg zum Ergebnis.
     #

@@ -71,6 +71,19 @@ def argumente() -> argparse.Namespace:
                         "moeglich (Standard)")
     p.add_argument("--send", action="store_true",
                    help="Wurfergebnisse an Supabase senden")
+    p.add_argument("--spielname", default="",
+                   help="Name der Partie. Geht als `game_name` mit in die "
+                        "Datenbank und benennt den Debug-Ordner. Bei mehreren "
+                        "Geraeten auf ALLEN denselben Namen setzen -- daran "
+                        "finden die Wuerfe wieder zusammen.")
+    p.add_argument("--bahnen", default="",
+                   help="Nur diese Bahnen erfassen, z. B. '2,3'. Leer = alle "
+                        "aus der Kalibrierung. Nicht erfasste Bahnen kosten "
+                        "keine Rechenzeit.")
+    p.add_argument("--sende-bahnen", dest="sende_bahnen", default="",
+                   help="Nur diese Bahnen senden, z. B. '2,3'. Leer = alle "
+                        "erfassten. Getrennt von --bahnen, damit sich eine "
+                        "Bahn mitrechnen, aber nicht senden laesst.")
     p.add_argument("--config", type=Path, default=None,
                    help="Konfigurationsdatei (Vorgabe: config/default.yaml). "
                         "Fuer die direkte Hallenkamera: "
@@ -88,14 +101,34 @@ def main() -> int:
     signal.signal(signal.SIGINT, _auf_signal)
 
     cfg = load_config(a.config)
+
+    def bahnliste(text: str, wofuer: str) -> list[int]:
+        """'2,3' zu [2, 3]. Ein Tippfehler soll sofort auffallen, nicht erst
+        daran, dass eine Bahn stumm bleibt."""
+        werte = []
+        for teil in text.replace(";", ",").split(","):
+            teil = teil.strip()
+            if not teil:
+                continue
+            if not teil.isdigit():
+                raise SystemExit(f"--{wofuer}: '{teil}' ist keine Bahnnummer")
+            werte.append(int(teil))
+        return werte
+
+    if a.bahnen:
+        cfg.processing.lanes = bahnliste(a.bahnen, "bahnen")
+    if a.sende_bahnen:
+        cfg.output.lanes = bahnliste(a.sende_bahnen, "sende-bahnen")
+
     if not a.send:
         cfg.output.supabase.enabled = False
         print("   Versand AUS (mit --send einschalten)")
 
     kennung = source_label(a.source)
     cal = Calibration.load(a.calibration)
-    pipe = AnalysisPipeline(cal, cfg, video_id=kennung)
-    sink = build_sink(cfg, video_id=kennung)
+    pipe = AnalysisPipeline(cal, cfg, video_id=kennung,
+                            game_name=a.spielname)
+    sink = build_sink(cfg, video_id=kennung, game_name=a.spielname)
 
     src = open_source(a.source, cfg)
     src.open()
@@ -103,6 +136,12 @@ def main() -> int:
     print(f"Quelle       : {kennung}")
     print(f"               {info.width}x{info.height}, {info.fps:.1f} fps")
     print(f"Kalibrierung : {a.calibration.name}")
+    if a.spielname:
+        print(f"Spiel        : {a.spielname}")
+    if cfg.processing.lanes:
+        print(f"Erfasst      : Bahnen {sorted(cfg.processing.lanes)}")
+    if cfg.output.lanes:
+        print(f"Gesendet     : Bahnen {sorted(cfg.output.lanes)}")
     print(f"Tempo        : "
           + (f"{a.fps:g} fps" if a.fps > 0 else "so schnell wie moeglich"))
 

@@ -11,14 +11,30 @@ import os
 from pathlib import Path
 
 from ..config.schema import AppConfig
-from .base import NullSink, ResultSink
+from .base import BahnFilterSink, NullSink, ResultSink
 from .queued import QueuedSink
 from .supabase import SupabaseSink
 
 log = logging.getLogger(__name__)
 
 
-def build_sink(cfg: AppConfig, video_id: str = "") -> ResultSink:
+def build_sink(cfg: AppConfig, video_id: str = "",
+               game_name: str = "") -> ResultSink:
+    """Baut den Abnehmer und legt den Bahnfilter darum.
+
+    Der Filter liegt GANZ AUSSEN und gilt auch dann, wenn gar nicht gesendet
+    wird: Im Probelauf soll im Log stehen, dass die Auswahl verstanden wurde --
+    sonst faellt eine vertippte Bahnnummer erst am Spieltag auf.
+    """
+    innen = _baue_abnehmer(cfg, video_id, game_name)
+    if cfg.output.lanes:
+        log.info("Gesendet werden nur die Bahnen %s", sorted(cfg.output.lanes))
+        return BahnFilterSink(innen, cfg.output.lanes)
+    return innen
+
+
+def _baue_abnehmer(cfg: AppConfig, video_id: str,
+                   game_name: str) -> ResultSink:
     """Liefert den konfigurierten Abnehmer -- oder einen, der nichts tut.
 
     Faellt IMMER auf `NullSink` zurueck, wenn etwas fehlt. Eine unvollstaendige
@@ -54,6 +70,7 @@ def build_sink(cfg: AppConfig, video_id: str = "") -> ResultSink:
         innerer = SupabaseSink(
             url=adresse, table=supabase.table, api_key=schluessel,
             timeout_s=supabase.timeout_s, video_id=video_id,
+            game_name=game_name, game_name_column=supabase.game_name_column,
         )
     except ValueError as exc:
         log.error("Supabase-Versand nicht moeglich: %s", exc)
@@ -68,6 +85,8 @@ def build_sink(cfg: AppConfig, video_id: str = "") -> ResultSink:
         video_id=video_id,
         mit_bild=cfg.output.send_board_image,
         mit_vorher=cfg.output.send_board_before_image,
+        game_name=game_name,
+        game_name_column=supabase.game_name_column,
     )
 
     # Was beim letzten Lauf liegengeblieben ist, zuerst nachliefern.
@@ -78,5 +97,7 @@ def build_sink(cfg: AppConfig, video_id: str = "") -> ResultSink:
     except Exception as exc:  # noqa: BLE001
         log.warning("Nachliefern fehlgeschlagen: %s", exc)
 
-    log.info("Wurfergebnisse gehen an %s/rest/v1/%s", supabase.url, supabase.table)
+    log.info("Wurfergebnisse gehen an %s/rest/v1/%s%s", supabase.url,
+             supabase.table,
+             f" als Spiel '{game_name}'" if game_name else "")
     return sink

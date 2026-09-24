@@ -88,7 +88,7 @@ class AnalysisPipeline:
     """Verarbeitet Frames und fuehrt alle Bahnen unabhaengig voneinander."""
 
     def __init__(self, calibration: Calibration, cfg: AppConfig,
-                 video_id: str = "unbenannt") -> None:
+                 video_id: str = "unbenannt", game_name: str = "") -> None:
         # DAS ANLAGENPROFIL ZUERST. Was die Kalibrierung ueber ihre Anlage
         # weiss -- Lampenfarbe, Kegelzahl, Zyklus -- gilt fuer diesen Lauf und
         # nichts anderes. Ohne Profil bleibt `cfg` unveraendert; eine
@@ -96,8 +96,29 @@ class AnalysisPipeline:
         cfg = wende_an(cfg, calibration.anlage)
         self.cfg = cfg
         self.calibration = calibration
+        # WELCHE BAHNEN DIESES GERAET ERFASST (`processing.lanes`).
+        #
+        # Gefiltert wird ueber die Bahnnummer der ANLAGE, nicht ueber den
+        # Index: Der Nutzer denkt in "Bahn 2 und 3", und genau das soll er
+        # eintragen. Leer heisst alle -- sonst waere die Vorgabe "nichts
+        # auswerten".
+        #
+        # Eine nicht erfasste Bahn bekommt gar keinen Prozessor. Das ist der
+        # Punkt: Auf einem Telefon, das nur zwei Bahnen sieht, soll es auch nur
+        # zwei Bahnen kosten.
+        gewaehlt = set(cfg.processing.lanes or ())
+        bahnen = [l for l in calibration.lanes
+                  if not gewaehlt or l.real_lane_number in gewaehlt]
+        if gewaehlt:
+            log.info("Erfasst werden nur die Bahnen %s -- %d von %d "
+                     "kalibrierten Bahnen", sorted(gewaehlt), len(bahnen),
+                     len(calibration.lanes))
+            fehlt = gewaehlt - {l.real_lane_number for l in calibration.lanes}
+            if fehlt:
+                log.warning("Bahn(en) %s sollen erfasst werden, stehen aber "
+                            "nicht in der Kalibrierung", sorted(fehlt))
         self.processors: list[LaneProcessor] = [
-            LaneProcessor(lane, cfg) for lane in calibration.lanes
+            LaneProcessor(lane, cfg) for lane in bahnen
         ]
 
         # PERSONENMASKE. Schwaerzt bewegte Menschen, bevor irgendetwas
@@ -127,7 +148,11 @@ class AnalysisPipeline:
             processor.setze_personenmodell(self.personen_modell)
         self.buffer = FrameBuffer(cfg.processing.frame_buffer_size)
         self.performance = PerformanceMonitor()
-        self.frame_logger = FrameLogger(cfg.debug, cfg.project_root, video_id)
+        # Der Debug-Ordner traegt den SPIELNAMEN, wenn es einen gibt --
+        # `manifest-oci-us-ashburn-1-vop1.edgemv.mux.com_rendition.m3u8`
+        # findet niemand wieder, "2. Spieltag Herren" schon.
+        self.frame_logger = FrameLogger(cfg.debug, cfg.project_root,
+                                        game_name or video_id)
         # Spur der gruenen Lampe -- landet im Ordner DIESES Laufs, damit sie
         # sich den Bildern eindeutig zuordnen laesst.
         self.green_trace = GreenTrace(self.frame_logger.root / "gruenspur.csv",
