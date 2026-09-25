@@ -206,3 +206,22 @@ class TestOberflaeche:
         fenster._rebuild_lane_panels()
         assert [nr for nr, b in fenster.chk_bahnen.items() if b.isChecked()] \
             == [2, 3]
+
+    def test_kein_kaestchen_bleibt_uebrig(self, fenster):
+        """Nutzer, 2026-09-25, mit Bildschirmfoto: *„Warum gibt es hier Bahn 2
+        2x?"* -- die Reihe zeigte `2 3 4 5 2`.
+
+        Der Test muss die LEISTE prüfen, nicht `chk_bahnen`. Das Wörterbuch
+        ist nach Bahnnummer geschlüsselt; das übriggebliebene Kästchen fiel
+        beim Neuaufbau einfach heraus und war dort nie zu sehen. Genau deshalb
+        blieb der Fehler unbemerkt, obwohl der Neuaufbau getestet war.
+        """
+        from PySide6.QtWidgets import QCheckBox, QLabel
+        for _ in range(3):
+            fenster._rebuild_lane_panels()
+        leiste = fenster.bahn_zeile
+        widgets = [leiste.itemAt(i).widget() for i in range(leiste.count())]
+        assert isinstance(widgets[0], QLabel), "die Beschriftung steht vorn"
+        kaestchen = [w for w in widgets if isinstance(w, QCheckBox)]
+        assert [k.text() for k in kaestchen] == ["2", "3", "4", "5"]
+        assert widgets[-1] is None, "am Ende der Dehnungsplatz, nicht ein Widget"

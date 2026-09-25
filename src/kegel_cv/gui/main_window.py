@@ -906,9 +906,20 @@ class MainWindow(QMainWindow):
         erfassen" -- das faellt erst nach einem ganzen Spieltag auf.
         """
         vorher = {nr: box.isChecked() for nr, box in self.chk_bahnen.items()}
+        # ALLES HINTER DER BESCHRIFTUNG RAEUMEN -- auch den Dehnungsplatz am
+        # Ende; er wird unten neu gesetzt.
+        #
+        # WARUM NICHT MIT `insertWidget(count() - 1)` VOR DEN DEHNUNGSPLATZ
+        # (Nutzer, 2026-09-25: *"Warum gibt es hier Bahn 2 2x?"*): Diese
+        # Schleife nimmt den Dehnungsplatz mit weg. Danach setzte
+        # `count() - 1` die Kaestchen VOR die Beschriftung, die Reihe wurde zu
+        # `[2, 3, 4, 5, Bahnen:]`. Beim naechsten Aufbau stand an Index 0 dann
+        # kein Label mehr, sondern das Kaestchen der ersten Bahn -- es
+        # ueberlebte das Raeumen, fiel aus `chk_bahnen` heraus und blieb als
+        # fuenftes, totes Kaestchen stehen.
         while self.bahn_zeile.count() > 1:
             item = self.bahn_zeile.takeAt(1)
-            if item.widget():
+            if item.widget() is not None:
                 item.widget().deleteLater()
         self.chk_bahnen.clear()
         for nummer in sorted(set(bahnnummern)):
@@ -922,7 +933,10 @@ class MainWindow(QMainWindow):
                 "in der Datenbank an."
             )
             self.chk_bahnen[nummer] = box
-            self.bahn_zeile.insertWidget(self.bahn_zeile.count() - 1, box)
+            self.bahn_zeile.addWidget(box)
+        # Der Dehnungsplatz zuletzt -- so drueckt er die Kaestchen nach links,
+        # ohne dass irgendwo mit Indizes gerechnet werden muss.
+        self.bahn_zeile.addStretch(1)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&Datei")
