@@ -16,7 +16,7 @@ description: >
 | **Schweregrad** | hoch (2 Spiele je +10 Kegel) |
 | **Belege** | `debug/streitfaelle/streit_bahn5_f137732.gif` (Nachbarfall), Messung in `docs/VIDEO_ANALYSIS.md`, 2026-09-25 |
 | **Werkzeug** | `tools/messe_blinken.py` |
-| **Noch nicht behoben** | ja — die Erkennung ist gemessen, aber nicht gebaut |
+| **Stand** | **bewusst nicht behoben** — sechs Gegenmassnahmen gemessen, alle teurer als der Fehler |
 
 ## Symptom
 
@@ -150,3 +150,32 @@ wo es höchstens ein paar Dutzend geben kann.
 Fassung dieser Unterscheidung fiel sofort, als der Nutzer „Alle Achte"
 einwarf — und stand erst, nachdem er erklärt hatte, dass die 5 dabei **aus**
 ist und nicht dauerleuchtet.
+
+
+## Warum nichts gebaut wurde (2026-09-25)
+
+Sechs Varianten gegen die Kegelziffer gemessen, 1243 Wuerfe
+(`tools/vergleiche_ergebnisfenster.py`, Einzelheiten in
+`docs/VIDEO_ANALYSIS.md`):
+
+```
+E1 Vereinigung alles (heute)   1160   93,3%
+E2 nur bis Gruen-AUS           1140   91,7%
+E3 letzter Stand                816   65,6%
+E4 Mehrheit                      97    7,8%
+E5 letztes Plateau              751   60,4%
+E6 alles, ausser Fehlercode    1157   93,1%
+```
+
+Der Fehler kostet zwei Spiele mit je +10 Kegeln. Die billigste Gegenmassnahme
+kostet 20 Wuerfe. **Der Befund bleibt stehen, die Analyse bleibt, wie sie
+ist.** Die betroffenen Spiele werden von Hand korrigiert; die Tafel meldet die
+Stoerung ja selbst.
+
+Liegt die Erkennung damit brach? Nein -- sie ist gemessen und einsatzbereit
+(0 Fehlalarme auf 1169 gesunden Wuerfen). Wird eine Bahn stoerungsanfaellig,
+ist die Abwaegung neu zu treffen.
+
+Nebenbefund derselben Messung: **E4 ist der Zahlenbeleg fuer die Praemisse des
+Nutzers.** Wer statt der Vereinigung die Mehrheit nimmt, faellt von 93 auf
+8 Prozent -- beim Blinken ist jede Lampe die halbe Zeit aus.

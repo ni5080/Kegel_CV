@@ -3756,3 +3756,46 @@ Blinken erkannt.
    Lampe brennt. In den Vollen ist der Satz frisch gestellt, alle Lampen aus —
    dieser Zustand fehlte ganz, und das Einschwingen schien erst mit dem ersten
    fallenden Kegel zu beginnen (Median 140 statt 2).
+
+## 2026-09-25 — Sechs Varianten fuer Grundlinie und Ergebnis, keine gewinnt
+
+Nutzer: *„miss das noch... und miss bitte weitere Moeglichkeiten das zu
+loesen"*. Alle gegen die Kegelziffer, 1243 Wuerfe mit lesbarer Ziffer.
+
+```
+Ergebnisfenster            G1 Vereinigung     G2 Plateau
+E1 Vereinigung alles        1160   93,3%   1160   93,3%    <- heute
+E2 nur bis Gruen-AUS        1140   91,7%   1140   91,7%
+E3 letzter Stand             816   65,6%    815   65,6%
+E4 Mehrheit                   97    7,8%    101    8,1%
+E5 letztes Plateau           751   60,4%    750   60,3%
+E6 alles, ausser Fehlercode 1157   93,1%   1157   93,1%
+```
+
+G1 ist die Grundlinie von heute (Vereinigung ueber `baseline_offsets`), G2 das
+erste Plateau, nach dem keine Lampe mehr ausgeht. **Die Grundlinienvariante
+macht keinen Unterschied** — G1 und G2 liegen ueberall gleichauf; ueber alle
+Wuerfe gerechnet 2 besser, 2 schlechter.
+
+**Der heutige Stand ist der beste gemessene.** Die Einzelbefunde:
+
+* **Das Fenster bei Gruen-AUS abzuschneiden kostet 20 Wuerfe**, um 2 zu
+  retten. Die Messungen nach Gruen-AUS tragen echte Information -- eine Lampe,
+  die vorher zu dunkel war, wird dort noch erkannt.
+* **Die Mehrheit statt der Vereinigung ist katastrophal** (7,8 %). Erwartbar:
+  Beim Blinken ist jede Lampe die halbe Zeit aus. Das ist der Zahlenbeleg fuer
+  die Praemisse des Nutzers, an der nicht geruettelt werden darf.
+* **Auch die chirurgische Variante verliert.** E6 nimmt das Fenster nach
+  Gruen-AUS nur dann heraus, wenn dort das Fehlercode-Muster steht -- und
+  kommt trotzdem auf 1157 statt 1160.
+
+### Was das fuer BUG-036 heisst
+
+Die zwei Fehlercodes kosten auf Bahn 4 zwei Spiele mit je +10 Kegeln. Jede
+gemessene Gegenmassnahme kostet mehr. **Empfehlung: nichts aendern**, den
+Befund stehenlassen und die betroffenen Spiele von Hand korrigieren -- die
+Tafel meldet die Stoerung ja selbst, sie ist an der Anzeige erkennbar.
+
+Falls Fehlercodes haeufiger werden (etwa an einer stoerungsanfaelligen Bahn),
+liegt die Erkennung fertig gemessen vor: 0 Fehlalarme auf 1169 gesunden
+Wuerfen. Dann waere neu abzuwaegen.
