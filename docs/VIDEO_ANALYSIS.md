@@ -3601,14 +3601,47 @@ Bahn   Frame  Phase Ziffer gebucht  dauerleuchtend  blinkend
    4  139069    bis      -       9  [6, 7, 8, 9]    [1, 2, 3, 4, 5]
 ```
 
-### Der Befund, mit dem nicht zu rechnen war
+### Zwei der vier Treffer sind Fehlalarme des Messwerkzeugs
 
-Bei zwei der vier steht der Code in der Phase **`bis`**, also *während* einer
-Grünphase. Der Code beginnt zwar nach Grün-AUS — aber er **läuft weiter**, bis
-die Störung behoben ist, und damit in den nächsten Wurf hinein.
+**Korrektur, noch am selben Tag.** Zuerst stand hier, der Code laufe in den
+nächsten Wurf hinein, weil zwei der vier Treffer in der Phase `bis` lagen.
+Der Nutzer hat widersprochen: *„Bevor der nächste Wurf freigegeben wird, ist
+das Problem IMMER behoben!"* — und die Frames geben ihm recht:
 
-**Folge:** Ein Lampenfenster, das bei Grün-AUS endet, hätte nur zwei der vier
-Fälle gerettet. Der Zeitpunkt allein trägt nicht, das Verhaltensmuster schon.
+```
+Zyklus vor Wurf 23: Grün-AN 47103, Grün-AUS 47674
+  letzter AN/AUS-Wechsel bei Frame 47605 -- 25,1 s nach Grün-AN,
+  danach 3,5 s ruhig, Stand [1,2,3,4,6,7,8,9]
+
+Zyklus vor Wurf 21: Grün-AN 138731, Grün-AUS 139069
+  letzter AN/AUS-Wechsel bei Frame 139000 -- 13,4 s nach Grün-AN,
+  danach 3,5 s ruhig, Stand [1,2,3,4,6,7,8,9]
+```
+
+Der letzte Wechsel ist jeweils **kein Blinken, sondern der fallende Kegel**
+(7 wird zu 8). Alle übrigen Wechsel dieser Zyklen liegen in den ersten rund 30
+Frames nach Grün-AN — dort, wo die Anzeige vom vorigen Stand auf den neuen
+umschaltet. Genau deshalb wird die Räum-Grundlinie erst *kurz nach* Grün-AN
+gemessen und nicht bei Grün-AN selbst.
+
+**Der Klassifikator kann den Umschaltmoment nicht vom Fehlercode trennen**,
+weil beide „etwas fest, etwas wechselnd" ergeben. Echte Fehlercodes stehen nur
+in den beiden `nach`-Fenstern.
+
+**Was daraus folgt:**
+
+* Die Regel „Fehlercodes beginnen erst nach Grün-AUS und sind vor der Freigabe
+  des nächsten Wurfs behoben" ist **nicht** widerlegt.
+* Ein Blinkerkenner braucht einen **Anlauf nach Grün-AN**, sonst meldet er bei
+  jedem Wurf den Umschaltmoment. Wie lang der sein muss, ist ungemessen.
+* Ob dann noch vier, zwei oder mehr Treffer übrig bleiben, ist damit offen.
+  Die Zahl „vier Treffer, null Fehlalarme" gilt nur für das Werkzeug in seiner
+  jetzigen, zu groben Form.
+
+**Lehre daraus:** Ein Klassifikator, der in genau den vier gesuchten Fällen
+anschlägt, sieht nach einem Volltreffer aus — auch dann, wenn er aus zwei
+verschiedenen Gründen anschlägt. Vier von vier ist kein Beweis, solange nicht
+geprüft ist, *warum* er jeweils anschlug.
 
 ### Zwei Dinge, die dabei nebenbei widerlegt wurden
 

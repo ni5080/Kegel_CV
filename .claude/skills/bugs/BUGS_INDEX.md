@@ -310,3 +310,11 @@ später weg.
 **Zwei Werkzeuge haben dieselbe Logik nachgebaut und liefen auseinander** (39
 gegen 38 Korrekturen), weil sie zwei Durchgänge getrennt implementierten.
 Gemeinsame Funktion, ein Test.
+
+**Vier von vier Treffern sind kein Beweis, solange nicht geprüft ist, WARUM
+der Erkenner anschlug.** Der Blinkerkenner aus BUG-036 traf genau die vier
+gesuchten Würfe — aber aus zwei verschiedenen Gründen: zweimal wegen eines
+echten Fehlercodes, zweimal wegen des Umschaltmoments kurz nach Grün-AN. Erst
+der Widerspruch des Nutzers (*„Bevor der nächste Wurf freigegeben wird, ist
+das Problem IMMER behoben!"*) hat das aufgedeckt. Ein Erkenner, der aus dem
+falschen Grund richtig liegt, fällt beim nächsten Material um.
