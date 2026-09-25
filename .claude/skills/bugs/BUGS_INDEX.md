@@ -277,3 +277,36 @@ Ein Signalname ist keine Zusage über den Zustand.
 
 Prüfmuster daraus: Wer einen Rechenkern testet, hat noch nicht getestet, dass
 ihn jemand aufruft. Die Verdrahtung braucht ihren eigenen Test.
+
+## BUG-034 bis BUG-036 — der 2. Spieltag (2026-09-24/25)
+
+Drei Fehler, alle drei vom Nutzer an der Tafel bemerkt, bevor irgendeine
+Prüfung anschlug.
+
+| | Was | Schaden | Stand |
+|---|---|---|---|
+| [BUG-034](BUG-034-eine-lampe-die-nie-hell-genug-wird/SKILL.md) | Bahn 5 Kegel 8: ROI sitzt zwei Pixel zu tief | 39 Würfe falsch, 1 Wurf verloren | Daten korrigiert, Kalibrierung offen |
+| [BUG-035](BUG-035-ein-wurf-ohne-eigene-gruenphase/SKILL.md) | „Eine Grünphase = ein Wurf" gilt nicht immer | im Lauf null, Lücke ohne Alarm | offen |
+| [BUG-036](BUG-036-ein-fehlercode-sieht-aus-wie-alle-neune/SKILL.md) | Störungsanzeige der Tafel wird als Ergebnis gelesen | 2 Spiele je +10 | gemessen, nicht gebaut |
+
+### Was diese drei dem Muster hinzufügen
+
+**Ein Beleg, der aus dem geprüften Verfahren stammt, ist kein Beleg.** Regel 7
+verlangt ein GIF. Bei BUG-034 zeigte das GIF neun Lampen, weil der Detektor
+neun meldete — beschriftet mit genau der Information, die falsch war. Der
+Nutzer: *„Die GIFs zeigen doch immer nur an, dass Lampe 8 fehlt?"* Erst die
+unbeschriftete Pixelgegenüberstellung (`tools/lampe_pixel.py`) hat die Frage
+entschieden. **Bei jeder Lampenfrage gehört sie dazu.**
+
+**Eine adaptive Schwelle verbirgt einen Kalibrierfehler.** Lampe 8 hatte eine
+plausible Schwelle, nur keine Luft darüber. Sichtbar wird so etwas nur im
+Vergleich der Lampen **untereinander**.
+
+**Es fehlte nicht Abtastung, sondern Buchführung.** Die Frage „blinkt diese
+Lampe?" war die ganze Zeit beantwortbar — die Einzelmessungen stehen in der
+Spur. Die Aggregation über das Maximum wirft die Zeitstruktur eine Zeile
+später weg.
+
+**Zwei Werkzeuge haben dieselbe Logik nachgebaut und liefen auseinander** (39
+gegen 38 Korrekturen), weil sie zwei Durchgänge getrennt implementierten.
+Gemeinsame Funktion, ein Test.

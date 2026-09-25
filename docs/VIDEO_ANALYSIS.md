@@ -3521,3 +3521,117 @@ der Tafel, wie es der Nachlauf verlangt:
 vorher   Spiel 1 W1 Lauf  9 Tafel  0   Spiel 2 W2 Lauf  9 Tafel  9  Rest -9
 nachher  Spiel 1 W1 Lauf  9 Tafel  0   Spiel 1 W2 Lauf 18 Tafel  9  Rest +0
 ```
+
+## 2026-09-25 — Fehlercodes der Tafel, und warum sie wie ein Ergebnis aussehen
+
+Nutzer, nach dem 2. Spieltag: *„Bei Wurf 22 auf Bahn 4 nach ca. 39:05 sek
+fallen 7 Kegel während der Grünphase... Danach fängt die Anzeige an mit den
+Kegeln 1,2,3,4,5,8 zu blinken, während 6,7,9 dauerleuchten... das ist ein
+Fehlercode, den die Tafel an den Spieler sendet. Es gibt verschiedene
+Fehlercodes [immer bestehend aus dauerleuchtenden und blinkenden Lampen]
+(dieser bedeutet, ein Kegel befindet sich im Kugelkran)."*
+
+### Was die Lampenspur dazu sagt
+
+Bahn 4, Wurf 22, Grün-AUS bei Frame 46676. Je Lampe über das Fenster gezählt:
+
+```
+WÄHREND der Grünphase (F46600–46676)      NACH Grün-AUS (F46678–46760)
+Kegel 1  20x AN,  0x AUS,  0 Wechsel      Kegel 1   8x AN,  6x AUS,  5 Wechsel
+Kegel 2  20x AN,  0x AUS,  0 Wechsel      Kegel 2   8x AN,  6x AUS,  5 Wechsel
+Kegel 3  20x AN,  0x AUS,  0 Wechsel      Kegel 3   8x AN,  6x AUS,  5 Wechsel
+Kegel 4   0x AN, 20x AUS                  Kegel 4   5x AN,  9x AUS,  4 Wechsel
+Kegel 5   0x AN, 20x AUS                  Kegel 5   5x AN,  9x AUS,  4 Wechsel
+Kegel 6  20x AN,  0x AUS,  0 Wechsel      Kegel 6  14x AN,  0x AUS,  0 Wechsel
+Kegel 7  20x AN,  0x AUS,  0 Wechsel      Kegel 7  14x AN,  0x AUS,  0 Wechsel
+Kegel 8  20x AN,  0x AUS,  0 Wechsel      Kegel 8   8x AN,  6x AUS,  5 Wechsel
+Kegel 9  20x AN,  0x AUS,  0 Wechsel      Kegel 9  14x AN,  0x AUS,  0 Wechsel
+```
+
+Während der Grünphase steht das Ergebnis ruhig da: sieben Lampen an, Kegel 4
+und 5 aus, **null Wechsel**. Der erste Wechsel kommt bei Frame 46683, sieben
+Frames nach Grün-AUS. Die Tafelsumme bestätigt die sieben.
+
+### Die Semantik des Blinkens (vom Nutzer erklärt)
+
+Blinken bedeutet genau drei Dinge, und die ersten beiden setzen **einen
+einzigen Wurf** voraus:
+
+| Anzeige | dauerleuchtend | blinkend | aus |
+|---|---|---|---|
+| Alle Neune, 1 Wurf | leer | alle neun | leer |
+| 8er Kranz, 1 Wurf | leer | 1,2,3,4,6,7,8,9 | Kegel 5 (er steht) |
+| Räumen über mehrere Würfe | die gefallenen | **nichts blinkt** | die stehenden |
+| **Fehlercode** | **nicht leer** | **nicht leer** | ggf. leer |
+
+Der Kern: Bei den beiden Jubel-Effekten blinkt **alles, was leuchtet** — die
+dauerleuchtende Menge ist leer. Nur ein Fehlercode hat beide Mengen zugleich
+besetzt. Damit lässt er sich **ohne Codekatalog** erkennen.
+
+Das korrigiert einen älteren Eintrag: „8→0→8→0 über ~100 Frames" war kein
+allgemeines Lampenverhalten und auch nicht nur „alle Neune", sondern ein
+8er Kranz.
+
+### Gegenprobe über den ganzen Spieltag (`tools/messe_blinken.py`)
+
+Je Wurf und Lampe die AN/AUS-Wechsel gezählt, getrennt nach Grünphase (`bis`)
+und den 120 Frames danach (`nach`). Ab zwei Wechseln gilt eine Lampe als
+blinkend — ein einzelnes AUS reicht bewusst nicht, sonst wäre Bahn 5 Kegel 8
+(ROI sitzt zwei Pixel zu tief) ein Dauerblinker.
+
+```
+Phase  Muster                                Anzahl
+bis    FEST UND BLINKEND (Fehlercode)             2
+bis    alles Leuchtende blinkt (Jubel)          750
+bis    nichts blinkt                            946
+nach   FEST UND BLINKEND (Fehlercode)             2
+nach   alles Leuchtende blinkt (Jubel)          711
+nach   nichts blinkt                            978
+```
+
+**Vier Treffer im ganzen Lauf, und es sind genau die vier bekannten
+Fehlbuchungen** — die beiden +10-Spiele auf Bahn 4. Null Fehlalarme über rund
+3300 geprüfte Fenster. Zwei verschiedene Codes:
+
+```
+Bahn   Frame  Phase Ziffer gebucht  dauerleuchtend  blinkend
+   4   46676   nach      -       9  [6, 7, 9]       [1, 2, 3, 4, 5, 8]
+   4   47674    bis      3       9  [6, 7, 9]       [1, 2, 3, 4, 5, 8]
+   4  138158   nach      -       9  [6, 7, 8, 9]    [1, 2, 3, 4, 5]
+   4  139069    bis      -       9  [6, 7, 8, 9]    [1, 2, 3, 4, 5]
+```
+
+### Der Befund, mit dem nicht zu rechnen war
+
+Bei zwei der vier steht der Code in der Phase **`bis`**, also *während* einer
+Grünphase. Der Code beginnt zwar nach Grün-AUS — aber er **läuft weiter**, bis
+die Störung behoben ist, und damit in den nächsten Wurf hinein.
+
+**Folge:** Ein Lampenfenster, das bei Grün-AUS endet, hätte nur zwei der vier
+Fälle gerettet. Der Zeitpunkt allein trägt nicht, das Verhaltensmuster schon.
+
+### Zwei Dinge, die dabei nebenbei widerlegt wurden
+
+1. *„Wir müssten viel dichter abtasten, um Blinken zu sehen."* Nein. Während
+   der Grünphase wird alle 5 Frames gelesen, die Blinkperiode beträgt 25
+   Frames (20 fps) mit etwa 15 Frames Dunkelphase — rund fünf Messungen je
+   Periode. Die gesamte Auswertung oben stammt aus der Spur, die der Lauf
+   ohnehin geschrieben hat. Fehlt nicht Abtastung, sondern Buchführung:
+   `aggregate_pin_readings` bildet je Lampe das Maximum und wirft die
+   Zeitstruktur genau dort weg.
+2. Ein erster Messversuch schnitt die Fenster an den **Wurfframes** statt an
+   der Grünspur. „bis" reichte damit vom vorigen Wurf bis zu diesem und
+   umfasste das Löschen der Anzeige und das Stellen des neuen Satzes — dabei
+   geht jede leuchtende Lampe aus und wieder an. Ergebnis: 1455 gemeldete
+   „Jubel"-Muster, wo es höchstens ein paar Dutzend geben kann. Ein
+   Messfenster, das einen Anzeigenwechsel enthält, misst den Wechsel.
+
+### Folge für die Prämisse
+
+Der Nutzer, 2026-09-19: *„An der Prämisse, ein Kegel kann nicht falsch
+leuchten nur falsch aus sein, dürfen wir nicht rütteln, wegen dem Blinken."*
+
+Sie bleibt gültig — **solange die Tafel ein Ergebnis zeigt.** Im Fehlercode
+gilt sie nicht: dort leuchten Lampen, die keinen gefallenen Kegel meinen. Die
+Aggregation über das Maximum ist also richtig; sie braucht nur eine Grenze,
+und die Grenze ist der Fehlercode, nicht die Zeit.
