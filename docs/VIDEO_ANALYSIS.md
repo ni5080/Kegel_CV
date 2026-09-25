@@ -3668,3 +3668,91 @@ Sie bleibt gültig — **solange die Tafel ein Ergebnis zeigt.** Im Fehlercode
 gilt sie nicht: dort leuchten Lampen, die keinen gefallenen Kegel meinen. Die
 Aggregation über das Maximum ist also richtig; sie braucht nur eine Grenze,
 und die Grenze ist der Fehlercode, nicht die Zeit.
+
+## 2026-09-25 — Wieviel Raum die Grundlinie hat, und wie lange die Anzeige braucht
+
+Anlass: Der Fehlercode (siehe oben) leuchtet nach dem Grün-AN des nächsten
+Zyklus noch rund zwei Sekunden nach. Am GIF abgelesen, Bahn 4:
+
+```
+47093  OFF  [1..9]              Wurfnr 022    Fehlercode blinkt
+47103  ON   [1..9]              022           <-- GRÜN AN
+47117  ON   [1..9]              022           ... Code blinkt weiter
+47141  ON   [1,2,3,6,7,8,9]     022           ab hier ruhig: 7 Kegel liegen
+```
+
+Der Nutzer dazu: *„der Code ist noch kurz an, und leuchtet sogar dabei nochmal
+merkwürdig zwischen."* Seine Regel („vor der Freigabe ist das Problem immer
+behoben") und die Messung widersprechen sich nicht — behoben ist die
+**Störung**, nachleuchten tut die **Anzeige**.
+
+### Ein fester Anlauf ist widerlegt
+
+Der Nutzer hatte den Einwand gleich mitgeliefert: *„Bei der Grundlinie müssen
+so späte Frames wie möglich genommen werden, was aber spät heißt ist davon
+abhängig, wann der nächste Wurf stattfindet, gerade beim Räumen haben wir
+teils sehr kurze Zyklusräume."*
+
+Gemessen — Raum zwischen Grün-AN und dem ersten dazukommenden Kegel:
+
+```
+Art          N   Median   p10   p05   p01   min    davon < 40 Frames
+Vollen    1407      133    84    71    56    14      3  (0,2 %)
+Räumen     206       84    47    38    27    14     11  (5,3 %)
+```
+
+Ein fester Anlauf von 40 Frames (2,0 s) würde die Grundlinie in **11
+Räumwürfen** hinter den ersten fallenden Kegel schieben, um **2** Fälle zu
+retten. Netto schlechter. Das aktuelle Fenster `baseline_offsets: [0,6,12,18,25]`
+sitzt schon nah an der Grenze.
+
+### Warten statt Zählen kostet nichts
+
+Frames vom Grün-AN, bis der Lampenstand dreimal hintereinander gleich ist:
+
+```
+Art          N   Median   p90   p99   max    >= 30 Frames
+Vollen    1489        2     2     4    39      2  (0,1 %)
+Räumen     206        2     3    20    38      1  (0,5 %)
+```
+
+**Median zwei Frames.** Die drei Zyklen mit 30 Frames und mehr sind die beiden
+bekannten Fehlercode-Nachfolger (F47674, F139069) und **eine Messlücke**
+(Bahn 4, Grün-AUS 185000: völlig normaler Räumwurf, die erste Lampenmessung
+kam erst 38 Frames nach dem Grün-AN der Grünspur).
+
+Diese Messlücke ist selten: Versatz der ersten Lampenmessung nach Grün-AN über
+1698 Zyklen — Median 2, p99 6, **>= 30 Frames nur 2-mal (0,1 %)**.
+
+### Gegenprobe des Blink-Erkenners an etikettierten Würfen
+
+`tools/pruefe_blinkerkennung.py`. Etiketten aus Kegelziffer und Tafelsumme,
+nicht aus den Lampen. Anlauf an den ungeraden Spielen gesucht, an den geraden
+geprüft.
+
+```
+FEHLALARME (gesunder Wurf als Fehlercode beurteilt): 0 von 1169
+Trefferquote Eichung 98,6 %, Prüfung 97,7 %
+Anlauf 0 bis 90 Frames: unverändert 98,6 %
+```
+
+Der Anlauf bringt in der Breite nichts — das Muster entsteht nicht beim
+Umschalten der Anzeige, sondern nur dort, wo ein Fehlercode nachleuchtet.
+
+Von 22 abweichenden Urteilen hat der Erkenner in 21 recht und das Etikett
+unrecht: 19-mal BUG-034 (Bahn 5, Lampe 8 fehlt im Wurfbild, der Neuner wird
+trotzdem als Blinken erkannt), 2-mal ein Fehlercode, der erst **nach**
+Grün-AUS beginnt und in der Grünphase deshalb korrekt „ruhig" ist. Ein
+einziger echter Fehler: Bahn 3, Spiel 13, Wurf 4 — ein Neuner nicht als
+Blinken erkannt.
+
+### Fehler in der ersten Fassung der Messung
+
+1. Das Etikett verlangte zusätzlich eine passende Tafelsumme und schrieb sonst
+   „ruhig". Die Summe ist das schwächste Feld; 295 Würfe landeten dadurch
+   falsch in der Gegenprobe. **Wo die Ziffer schweigt, gibt es kein Etikett,
+   nicht das Etikett „ruhig".**
+2. Das Einschwingen wurde nur an Frames gemessen, an denen mindestens eine
+   Lampe brennt. In den Vollen ist der Satz frisch gestellt, alle Lampen aus —
+   dieser Zustand fehlte ganz, und das Einschwingen schien erst mit dem ersten
+   fallenden Kegel zu beginnen (Median 140 statt 2).
