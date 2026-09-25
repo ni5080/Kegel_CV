@@ -206,7 +206,15 @@ def schnittbild(breite: int, hoehe: int, text: str) -> np.ndarray:
 
 def ein_fall(quelle: str, kal: Calibration, cfg, bahn: int, wurf_frame: int,
              zyklen: dict[int, list[tuple[int, int]]], zeile: dict[str, str],
-             ziel: Path, takt: int, fps: float) -> None:
+             ziel: Path, takt: int, fps: float,
+             spanne: tuple[int, int] | None = None) -> None:
+    """`spanne` zeigt einen DURCHGEHENDEN Abschnitt statt der zwei Fenster.
+
+    Noetig, sobald mehrere Wuerfe in EINER Gruenphase stecken (gemessen am
+    2026-09-24 auf Bahn 5: 683 Frames, in denen die Tafel von 026 auf 028
+    zaehlte). Die zwei ueblichen Fenster zeigen dann Anfang und Ende und
+    schneiden ausgerechnet die Stelle heraus, an der die Tafel weiterzaehlt.
+    """
     passend = [(an, aus) for an, aus in zyklen.get(bahn, [])
                if an <= wurf_frame <= aus + 120]
     gruen_an, gruen_aus = passend[-1] if passend else (None, None)
@@ -235,7 +243,8 @@ def ein_fall(quelle: str, kal: Calibration, cfg, bahn: int, wurf_frame: int,
     if not kamera.isOpened():
         raise SystemExit("Quelle nicht zu oeffnen")
 
-    teile = abschnitte(gruen_an, gruen_aus, wurf_frame, fenster, 70, 90)
+    teile = ([spanne] if spanne else
+             abschnitte(gruen_an, gruen_aus, wurf_frame, fenster, 70, 90))
     print(f"Bahn {bahn}, Wurf bei F{wurf_frame}: Gruen {gruen_an} -> "
           f"{gruen_aus}"
           + (f" ({gruen_aus - gruen_an} Frames)"
@@ -327,6 +336,11 @@ def main() -> int:
     p.add_argument("--takt", type=int, default=8,
                    help="jedes wievielte Frame ins GIF (Vorgabe 8)")
     p.add_argument("--fps", type=float, default=25.0)
+    p.add_argument("--spanne", default="",
+                   help="VON:BIS -- ein durchgehender Abschnitt statt "
+                        "der zwei ueblichen Fenster. Fuer Faelle, in "
+                        "denen mehrere Wuerfe in einer Gruenphase "
+                        "stecken.")
     p.add_argument("--ziel", type=Path, default=Path("debug/streitfaelle"))
     a = p.parse_args()
 
@@ -361,8 +375,13 @@ def main() -> int:
     for zeile in gewaehlt:
         bahn, frame = int(zeile["Bahn"]), int(zeile["Frame"])
         ziel = a.ziel / f"streit_bahn{bahn}_f{frame}.gif"
+        spanne = None
+        if a.spanne:
+            von, bis = (int(x) for x in a.spanne.split(":"))
+            spanne = (von, bis)
+            ziel = a.ziel / f"streit_bahn{bahn}_f{von}-{bis}.gif"
         ein_fall(a.quelle, kal, cfg, bahn, frame, zyklen, zeile, ziel,
-                 a.takt, a.fps)
+                 a.takt, a.fps, spanne)
     return 0
 
 
