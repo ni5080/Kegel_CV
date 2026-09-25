@@ -56,18 +56,36 @@ export class ThrowFeed {
     }
 
     /**
-     * Holt das Tafelbild EINES Wurfs -- erst beim Anklicken.
+     * Holt die Tafelbilder EINES Wurfs -- erst beim Anklicken.
      *
      * Bewusst nicht in `fetchNew`: Das Bild ist um ein Vielfaches groesser als
      * die uebrigen Felder zusammen. In der Liveliste laege es nur herum, in
      * der Korrektur ist es das Entscheidende.
      *
+     * `vorgaenger` ist die id des vorigen Wurfs DERSELBEN Bahn. Ist sie
+     * angegeben, liefert dessen Nachher-Bild das "davor".
+     *
+     * WARUM NICHT DAS EIGENE `board_before_jpeg` (Nutzer, 2026-09-24): Es wird
+     * beim Gruen-AN aufgenommen. Stecken zwei Wuerfe in EINER Gruenphase --
+     * gemessen am 2. Spieltag fuenfmal, jedes Mal ein Fehlwurf, der die gruene
+     * Lampe nicht ausschaltet --, zeigt es den Stand von vor BEIDEN. Auf
+     * Bahn 5 stand im Vorher-Bild von Wurf 28 die Wurfnummer 026, obwohl
+     * Wurf 27 dazwischen richtig erkannt und mit eigenem Bild gespeichert war.
+     * Das Nachher-Bild des Vorgaengers ist dagegen immer der Stand, auf den
+     * geworfen wurde.
+     *
      * Gibt `null` zurueck, wenn es keines gibt -- auch dann, wenn die Spalte in
      * der Tabelle noch fehlt. Ein fehlendes Bild ist kein Grund, den Dialog
      * scheitern zu lassen.
      */
-    async fetchBoardImage(id) {
+    async fetchBoardImage(id, vorgaenger = null) {
         if (id === null || id === undefined) return null;
+
+        const ids = [id];
+        if (vorgaenger !== null && vorgaenger !== undefined
+                && String(vorgaenger) !== String(id)) {
+            ids.push(vorgaenger);
+        }
 
         // Erst beide Spalten, dann notfalls nur die eine.
         //
@@ -75,26 +93,32 @@ export class ThrowFeed {
         // (`PGRST204`). Ohne den zweiten Versuch waere mit dem Vorher-Bild auch
         // das Nachher-Bild verschwunden -- an einer Tabelle, der nur die
         // neuere Spalte fehlt. Genau dieser Fall ist am 2026-09-07 eingetreten.
-        for (const felder of ["board_jpeg,board_before_jpeg", "board_jpeg"]) {
-            const zeile = await this._holeSpalten(id, felder);
-            if (zeile !== null) {
-                return { nachher: zeile.board_jpeg || null,
-                         vorher: zeile.board_before_jpeg || null };
-            }
+        for (const felder of ["id,board_jpeg,board_before_jpeg", "id,board_jpeg"]) {
+            const zeilen = await this._holeSpalten(ids, felder);
+            if (zeilen === null) continue;
+            const ist = (z, wen) => String(z.id) === String(wen);
+            const eigen = zeilen.find((z) => ist(z, id)) || {};
+            const vor = zeilen.find((z) => ist(z, vorgaenger));
+            return {
+                nachher: eigen.board_jpeg || null,
+                // Der Vorgaenger hat Vorrang, das eigene Feld ist der Rueckfall
+                // -- fuer den ersten Wurf einer Bahn und fuer aeltere Zeilen,
+                // die noch kein Bild mitgeschickt haben.
+                vorher: (vor && vor.board_jpeg) || eigen.board_before_jpeg || null,
+            };
         }
         return null;
     }
 
-    async _holeSpalten(id, felder) {
-        const url = `${this.endpoint}?select=${felder}`
-                  + `&id=eq.${encodeURIComponent(id)}`;
+    async _holeSpalten(ids, felder) {
+        const liste = ids.map((x) => encodeURIComponent(x)).join(",");
+        const url = `${this.endpoint}?select=${felder}&id=in.(${liste})`;
         try {
             const antwort = await fetch(url, {
                 headers: { apikey: this.key, Authorization: `Bearer ${this.key}` },
             });
             if (!antwort.ok) return null;
-            const zeilen = await antwort.json();
-            return zeilen[0] || {};
+            return await antwort.json();
         } catch (fehler) {
             console.warn("Tafelbild nicht abrufbar", fehler);
             return null;

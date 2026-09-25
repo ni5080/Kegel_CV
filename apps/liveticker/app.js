@@ -372,11 +372,24 @@ function oeffneKorrektur(bahn, zeile) {
     $("#korrektur-beleg").hidden = true;
     $("#korrektur-beleg-fehlt").hidden = false;
     $("#korrektur-beleg-fehlt").textContent = "Tafelbild wird geladen …";
-    ladeBeleg(fuer);
+    ladeBeleg(fuer, vorgaengerId(t, zeile.id));
 }
 
-async function ladeBeleg(fuer) {
-    const bilder = zustand.feed ? await zustand.feed.fetchBoardImage(fuer) : null;
+/**
+ * Die id des Wurfs, der auf derselben Bahn unmittelbar davor kam.
+ *
+ * Sein Nachher-Bild ist der Stand, auf den geworfen wurde -- siehe die
+ * Begruendung an `ThrowFeed.fetchBoardImage`.
+ */
+function vorgaengerId(ticker, id) {
+    const alle = ticker.rows();
+    const i = alle.findIndex((r) => r.id === id);
+    return i > 0 ? alle[i - 1].id : null;
+}
+
+async function ladeBeleg(fuer, vorgaenger = null) {
+    const bilder = zustand.feed
+        ? await zustand.feed.fetchBoardImage(fuer, vorgaenger) : null;
     // Inzwischen ein anderer Wurf offen? Dann gehoert dieses Bild nicht hierher.
     if (korrekturZiel === null || korrekturZiel.id !== fuer) return;
     if (bilder && (bilder.nachher || bilder.vorher)) {
