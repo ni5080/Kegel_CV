@@ -193,6 +193,44 @@ def aggregate_pin_readings(
     return PinLampReading(lamps=tuple(zusammen), pins=pins, confidence=confidence)
 
 
+def ist_fehlercode(messungen: "list[PinLampReading]",
+                   mindest_dunkelphasen: int = 2) -> bool:
+    """Zeigt diese Folge einen FEHLERCODE der Tafel statt eines Ergebnisses?
+
+    Vom Nutzer erklaert (2026-09-25): Die Tafel meldet Stoerungen als Muster
+    aus dauerleuchtenden UND blinkenden Lampen -- etwa 6,7,9 fest und
+    1,2,3,4,5,8 blinkend fuer „Kegel im Kugelkran". Es gibt viele Codes.
+
+    EIN KATALOG IST NICHT NOETIG. Blinken heisst sonst genau zweierlei, und
+    beides mit EINEM Wurf: alle Neune, oder ein 8er Kranz (alle ausser der 5,
+    die dabei AUS ist). In beiden Faellen blinkt alles, was leuchtet -- die
+    dauerleuchtende Menge ist leer. Nur ein Fehlercode hat beide Mengen
+    zugleich besetzt.
+
+    Braucht das Raeumen mehrere Wuerfe, blinkt gar nichts.
+
+    GEMESSEN ueber einen ganzen Spieltag (`tools/pruefe_blinkerkennung.py`):
+    0 Fehlalarme auf 1169 gesunden Wuerfen, bei Etiketten aus Kegelziffer und
+    Tafelsumme -- zwei Feldern, die nichts von den Lampen wissen.
+
+    GEZAEHLT WERDEN DUNKELPHASEN, nicht Wechsel. Ein einzelner Aussetzer ist
+    schon zweierlei Wechsel -- aus und wieder an -- und Bahn 5 Kegel 8 liest
+    sich regelmaessig faelschlich als aus (BUG-034). Sie wuerde damit zum
+    Dauerblinker. Eine blinkende Lampe geht dagegen MEHRFACH aus.
+    """
+    if len(messungen) < 3:
+        return False
+    blinkt = fest = False
+    for pin in range(1, 10):
+        folge = [pin in m.pins for m in messungen]
+        dunkel = sum(1 for a, b in zip(folge, folge[1:]) if a and not b)
+        if dunkel >= mindest_dunkelphasen:
+            blinkt = True
+        elif all(folge):
+            fest = True
+    return blinkt and fest
+
+
 def grundlinie_aus_spur(messungen: Sequence["PinLampReading"],
                         gruppe: int) -> "PinLampReading | None":
     """Grundlinie aus den laufenden Lampenmessungen seit dem vorigen Wurf.

@@ -1280,7 +1280,19 @@ class SamplingConfig(BaseModel):
     # Bei 0,9 bricht nicht nur die Trefferquote ein -- der Median wandert,
     # der gefundene Sprung ist dann oft der falsche. Mit 0,9 (mein erster
     # Versuch) blieb der ganze Spieltagslauf bitgleich zum alten.
-    breakpoint_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    # NACHTRAG 2026-09-28, an der frameweisen Spur nachgemessen: 0,7 ist zu
+    # hoch. GENAU AM SPRUNG faellt die Guete ein, weil die Anzeige dort
+    # wechselt -- auf Bahn 5 von 0,98 auf 0,64:
+    #
+    #     14328   007   0,98   (alle aus)
+    #     14329   003   0,64   (alle aus)   <- die 7 kurz als 3 gelesen
+    #     14331   008   0,70   (alle aus)   <- der Sprung
+    #     14334   008   0,64   1 2          <- erste Lampe, 3 Frames spaeter
+    #
+    # Ein Gate von 0,7 verwirft ausgerechnet die Frames am Sprung. Die
+    # Fehllesung (7 als 3) ist ungefaehrlich: Der Breakpoint sucht einen
+    # Anstieg um genau eins und uebergeht Rueckfaelle.
+    breakpoint_min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # BEI GRUEN-AUS IST DIE ZAEHLUNG FERTIG.
     #
@@ -1298,8 +1310,18 @@ class SamplingConfig(BaseModel):
     # dauerleuchtende UND blinkende Lampen ins Ergebnis -- auf Bahn 4 wurden
     # daraus zweimal alle neun Kegel, wo die Tafel 7 zaehlte.
     #
-    # false stellt den alten Weg wieder her.
-    count_closes_at_green_off: bool = True
+    # ZURUECKGENOMMEN am 2026-09-28. Die Praemisse stimmt -- nach Gruen-AUS
+    # faellt kein Kegel mehr. Das ABLESEN ist dort aber nicht fertig: Bei
+    # „alle Neune" und beim 8er Kranz blinkt die Anzeige, und die Frames nach
+    # Gruen-AUS waren es oft, die eine Lampe ueberhaupt einmal leuchtend
+    # erwischten. GEMESSEN ueber die ersten 42 Minuten des Spieltags: 97,8 %
+    # auf 94,1 % gefallen, 11 Wuerfe veraendert, davon 9 schlechter und kein
+    # einziger besser -- und jedes Mal ZU NIEDRIG (9 auf 1, 8 auf 1, 9 auf 3).
+    #
+    # Der Fehlercode wird stattdessen ueber den Breakpoint ausgeschlossen: Er
+    # beginnt nach Gruen-AUS, das Ergebnisfenster beginnt beim Sprung der
+    # Wurfnummer.
+    count_closes_at_green_off: bool = False
 
     # Wie lange nach GREEN_OFF gewartet wird, bevor der Wurf gemeldet wird.
     #

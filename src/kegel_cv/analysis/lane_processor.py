@@ -27,7 +27,7 @@ from ..detection.lamp_detectors import HsvGreenDetector, WarmthLampDetector
 from ..detection.state_machine import EventType, LaneEvent, LaneState, LaneStateMachine
 from ..models.readings import (LampReading, LampState, PinLampReading,
                               aggregate_pin_readings, baseline_aus_zwei,
-                              grundlinie_aus_spur)
+                              grundlinie_aus_spur, ist_fehlercode)
 from ..video.source import Frame, FrameBuffer
 from .frame_sampler import FrameSampler, SampleEvent
 from .board_image import encode_board
@@ -122,6 +122,9 @@ class LaneProcessor:
         # Deshalb wird ueber das GANZE Fenster zwischen GREEN_OFF und dem
         # naechsten GREEN_ON gesammelt -- die Messungen dafuer laufen ohnehin.
         self._result_samples: list[PinLampReading] = []
+        # Messungen NACH Gruen-AUS -- erst am Ende des Fensters wird
+        # entschieden, ob sie ins Ergebnis gehoeren (siehe `result_samples`).
+        self._nach_samples: list[PinLampReading] = []
         # Mitlesungen der SPAET aktualisierten Felder (Summe). Siehe
         # `read_late_fields`: Die Tafel traegt das Wurfergebnis erst kurz vor dem
         # naechsten GREEN_ON ein -- der Nutzer hat darauf hingewiesen, die
@@ -855,7 +858,16 @@ class LaneProcessor:
 
     @property
     def result_samples(self) -> list[PinLampReading]:
-        """Alle Lampenmessungen des zuletzt abgeschlossenen Ereignisses."""
+        """Alle Lampenmessungen des zuletzt abgeschlossenen Ereignisses.
+
+        Die Messungen NACH Gruen-AUS kommen nur dazu, wenn dort kein
+        FEHLERCODE steht. Nach Gruen-AUS blinkt entweder der Jubel-Effekt --
+        dann sind diese Frames noetig, weil eine Lampe sonst in ihrer
+        Dunkelphase fehlt -- oder die Tafel meldet eine Stoerung, und dann
+        leuchten Lampen, die keinen gefallenen Kegel meinen (BUG-036).
+        """
+        if self._nach_samples and not ist_fehlercode(self._nach_samples):
+            return list(self._result_samples) + list(self._nach_samples)
         return list(self._result_samples)
 
     @property
@@ -1410,6 +1422,29 @@ class LaneProcessor:
                 # Nullzustand steht erst spaeter in der Pause (gemessen 306
                 # Frames nach Gruen-AUS). Das erledigt der Gruen-AN-Zweig.
 
+        # --- Die Wurfnummer, JEDEN Frame, solange Gruen an ist ---
+        #
+        # WARUM JEDEN FRAME (gemessen 2026-09-28, jeder Frame gelesen): Die
+        # Tafel zaehlt hoch, wenn die Kugel die halbe Bahn passiert -- der
+        # Nutzer: *„Da ist noch weit kein Kegel in der Nähe."* Ueber 18 Zyklen
+        # aller vier Bahnen springt die Nummer AUSNAHMSLOS zuerst, im Median
+        # 6 Frames (0,30 s) vor der ersten Lampenaenderung.
+        #
+        # SECHS FRAMES. Mit dem Lesetakt von fuenf war der Sprung damit bis zu
+        # fuenf Frames zu spaet erkannt und landete hinter der ersten Lampe --
+        # die Grundlinie griff in den laufenden Wurf. Auf Bahn 5 wurde aus
+        # einem Neuner eine Drei. Eine fruehere Messung schien zu zeigen, dass
+        # die Nummer manchmal SPAETER springt; das war nur die Aufloesung, der
+        # gemessene Abstand betrug genau ein Abtastintervall.
+        #
+        # KOSTEN: 1,99 ms fuer alle vier Bahnen (nur dieses eine Ziffernfeld;
+        # der volle Satz kostet 14,70 ms). Budget je Frame sind 40 ms. Nur
+        # waehrend der Gruenphase -- in der Pause springt keine Wurfnummer.
+        if (self.cfg.sampling.breakpoint_from_throw_number
+                and not self._window_open
+                and self._green_on_frame is not None):
+            self._nummer_mitschreiben(frame)
+
         # --- Grundlinie des laufenden Wurfs ---
         # Die Kegel fallen, waehrend die gruene Lampe an ist (Nutzerhinweis,
         # gemessen bestaetigt). Kurz NACH GREEN_ON ist die Anlage neu
@@ -1495,6 +1530,7 @@ class LaneProcessor:
             # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
             # vorletzten -- genau der Versatz, der behoben werden soll.
             self._late_samples = {}
+            self._nach_samples = []
             # MIT BREAKPOINT beginnt die Grundlinienspur beim GRUEN-AN, nicht
             # beim vorigen Gruen-AUS. Die Pause dazwischen gehoert dem vorigen
             # Wurf -- dort steht sein Ergebnis, dort wird der Satz gestellt,
@@ -1570,10 +1606,6 @@ class LaneProcessor:
                 # kein zusaetzlicher Aufwand -- nur wird sie jetzt auch
                 # aufgehoben, statt nach der Anzeige vergessen zu werden.
                 self._grundlinien_spur.append((frame.index, self._display_pins))
-            # Im selben Takt die Wurfnummer -- fuer den Breakpoint. Sie kostet
-            # 0,50 ms je Bahn, weniger als die neun Lampen daneben.
-            if self.cfg.sampling.breakpoint_from_throw_number:
-                self._nummer_mitschreiben(frame)
             # Laeuft gerade ein Ereignis, zaehlt diese Messung zum Wurfergebnis.
             # Das kostet nichts zusaetzlich: Der Wert wurde soeben ohnehin fuer
             # die Anzeige gelesen.
@@ -1588,7 +1620,12 @@ class LaneProcessor:
             if (self.sampler.open_event is not None
                     and self._display_pins is not None
                     and not self.cfg.sampling.count_closes_at_green_off):
-                self._result_samples.append(self._display_pins)
+                # GEPUFFERT, nicht direkt angehaengt. Nach Gruen-AUS blinkt
+                # entweder der Jubel-Effekt (dann brauchen wir diese Frames:
+                # ohne sie wird aus einem Neuner eine Eins) oder ein
+                # Fehlercode (dann verderben sie das Ergebnis). Welches von
+                # beidem, steht erst am Ende des Fensters fest.
+                self._nach_samples.append(self._display_pins)
             # ... und zugleich die Pause mitschreiben: `_window_open` ist genau
             # zwischen GREEN_OFF und GREEN_ON wahr. Kostet nichts, die Messung
             # ist soeben ohnehin entstanden.
@@ -1847,6 +1884,7 @@ class LaneProcessor:
         self._grundlinien_spur.clear()
         self._nummer_spur.clear()
         self._result_samples = []
+        self._nach_samples = []
         self._late_samples = {}
         self._green_phase_samples = []
         self._pause_samples.clear()

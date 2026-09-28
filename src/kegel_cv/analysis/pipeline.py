@@ -27,7 +27,7 @@ from ..detection.personen_modell import PersonenModell
 from ..detection.state_machine import LaneEvent
 from ..video.source import Frame, FrameBuffer
 from ..models.readings import (LampReading, LampState, PinLampReading,
-                              aggregate_pin_readings)
+                              aggregate_pin_readings, ist_fehlercode)
 from ..models.throw import FrameRole, ThrowResult
 from .frame_sampler import SampleEvent
 from .board_image import encode_board, pick_board_frame
@@ -457,22 +457,40 @@ class AnalysisPipeline:
         # Fehlercode der Tafel (BUG-036, gemessen sieben Frames nach Gruen-AUS).
         # Die Vereinigung nahm dessen Lampen mit ins Ergebnis: Auf Bahn 4
         # wurden daraus zweimal alle neun Kegel, wo die Tafel 7 zaehlte.
-        grenze = None
-        if self.cfg.sampling.count_closes_at_green_off:
-            ausloeser = next((f for f in frames
-                              if f.role is FrameRole.GREEN_OFF), None)
-            grenze = ausloeser.frame.index if ausloeser else sample.trigger_frame
+        ausloeser = next((f for f in frames
+                          if f.role is FrameRole.GREEN_OFF), None)
+        grenze = ausloeser.frame.index if ausloeser else sample.trigger_frame
 
         # Die Frames des Samplings decken nur rund 10 Frames ab -- zu wenig
         # gegen eine Dunkelphase von bis zu 15. Deshalb kommen die ueber das
         # ganze Ereignisfenster gesammelten Messungen des Prozessors hinzu.
         messungen: list[PinLampReading] = list(processor.result_samples)
+        nach: list[PinLampReading] = []
         for sampled in frames:
-            if grenze is not None and sampled.frame.index > grenze:
-                continue
             reading = processor.read_pin_lamps_at(sampled.frame)
-            if reading is not None:
+            if reading is None:
+                continue
+            if sampled.frame.index > grenze:
+                nach.append(reading)
+            else:
                 messungen.append(reading)
+
+        # WAS NACH GRUEN-AUS KOMMT, IST ZWEIERLEI. Entweder der Jubel-Effekt
+        # (alle Neune, 8er Kranz) -- dann sind diese Frames noetig, weil eine
+        # Lampe sonst in ihrer Dunkelphase fehlt; ohne sie fiel die
+        # Trefferquote ueber 42 Minuten von 97,8 auf 94,1 Prozent, und zwar
+        # jedes Mal ZU NIEDRIG. Oder ein FEHLERCODE der Tafel, und dann
+        # leuchten dort Lampen, die keinen gefallenen Kegel meinen (BUG-036).
+        #
+        # Beide beginnen nach Gruen-AUS und sind nur an ihrer FORM zu
+        # trennen: Beim Jubel blinkt alles, was leuchtet; beim Fehlercode
+        # leuchtet ein Teil fest, waehrend der andere blinkt.
+        if nach and not ist_fehlercode(nach):
+            messungen += nach
+        elif nach:
+            log.info("Bahn %d: Fehlercode nach Gruen-AUS bei Frame %d -- "
+                     "diese %d Messungen zaehlen nicht zum Wurf",
+                     processor.display_number, grenze, len(nach))
         return aggregate_pin_readings(messungen) or processor.result_pins
 
     def finalize(self, last_frame: Frame | None) -> list[ThrowResult]:
