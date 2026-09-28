@@ -1495,8 +1495,14 @@ class LaneProcessor:
             # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
             # vorletzten -- genau der Versatz, der behoben werden soll.
             self._late_samples = {}
+            # MIT BREAKPOINT beginnt die Grundlinienspur beim GRUEN-AN, nicht
+            # beim vorigen Gruen-AUS. Die Pause dazwischen gehoert dem vorigen
+            # Wurf -- dort steht sein Ergebnis, dort wird der Satz gestellt,
+            # und dort leuchtet ein Fehlercode nach.
+            beginn = self._green_on_frame if bruch is not None else None
             spur = [m for fr, m in self._grundlinien_spur
-                    if bruch is None or fr < bruch]
+                    if (bruch is None or fr < bruch)
+                    and (beginn is None or fr >= beginn)]
             # Der naechste Wurf beginnt mit einer leeren Spur -- sonst truege
             # er die Staende dieses Wurfs noch mit sich.
             self._grundlinien_spur.clear()
@@ -1517,7 +1523,28 @@ class LaneProcessor:
                 gruppe = max(
                     2,
                     -(-self.cfg.sampling.baseline_trace_window_frames // takt))
-                aus_spur = grundlinie_aus_spur(spur, gruppe)
+                if bruch is not None and len(spur) >= gruppe:
+                    # MIT BREAKPOINT: der Stand UNMITTELBAR VOR dem Sprung.
+                    #
+                    # Nutzer, 2026-09-25: *„Bei der Grundlinie müssen so späte
+                    # Frames wie möglich genommen werden."* Ohne Breakpoint
+                    # war das gefaehrlich -- niemand wusste, wo "spaet" endet
+                    # und der Wurf beginnt. Der Sprung der Wurfnummer sagt es.
+                    #
+                    # WARUM NICHT WEITER DER KLEINSTE STAND: Der kleinste ueber
+                    # die ganze Spur war der Griff an BUG-031 vorbei, als die
+                    # Spur noch beim vorigen Gruen-AUS begann. Er greift aber
+                    # auch nach einem Fehlercode. GEMESSEN an Bahn 4, Wurf 23:
+                    # Die richtige Grundlinie [1,2,3,6,7,8,9] steht in 91 von
+                    # 98 Messungen vor dem Sprung und in allen letzten sechs --
+                    # der kleinste Stand war [6,7,9], der dauerleuchtende Teil
+                    # des Fehlercodes. Ergebnis: 8 Kegel statt 1.
+                    #
+                    # Vereinigt wird ueber eine Blinkperiode, damit eine Lampe
+                    # in ihrer Dunkelphase nicht fehlt.
+                    aus_spur = aggregate_pin_readings(spur[-gruppe:])
+                else:
+                    aus_spur = grundlinie_aus_spur(spur, gruppe)
                 if aus_spur is not None:
                     if (self._pending_baseline is not None
                             and set(aus_spur.pins)
