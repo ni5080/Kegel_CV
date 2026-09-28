@@ -991,6 +991,45 @@ sampling:
   # bis 15 -- jede Leuchtphase wird damit mehrfach getroffen.
   green_phase_interval: 5
 
+  # DER BREAKPOINT -- AUS, und das ist eine gemessene Entscheidung.
+  #
+  # Die Idee des Nutzers (2026-09-28): Der Wurfzaehler der Tafel springt, wenn
+  # die Kugel die halbe Bahn passiert -- lange bevor ein Kegel faellt. Damit
+  # waere er der ideale Schnitt zwischen Grundlinie und Ergebnis, viel besser
+  # als Frameversaetze nach dem Gruen-AN.
+  #
+  # Die Physik stimmt, frameweise nachgemessen ueber 18 Zyklen aller vier
+  # Bahnen: Die Nummer springt AUSNAHMSLOS zuerst. Aber nur um sechs Frames
+  # (0,30 s), und die Guete des Ziffernfeldes bricht genau im Moment des
+  # Wechsels ein (0,98 auf 0,64). Eine Grundlinie "kurz vor dem Sprung" hat
+  # damit keine Sicherheitsmarge.
+  #
+  # GEMESSEN ueber den ganzen Spieltag, eingeschaltet gegen ausgeschaltet:
+  #
+  #                                          aus      ein
+  #     Lampen, Ziffer und Summe einig     65,8 %   64,0 %
+  #     Lampen gegen Ziffer                 1,5 %    2,0 %
+  #     Wurfnummer springt -- Wurf fehlt    0,3 %    1,0 %
+  #     Wuerfe gesamt                        1678     1658
+  #     Gruenzyklen ohne Ergebnis              13       33
+  #
+  # Zwei Fehlercode-Wuerfe repariert, zwanzig Wuerfe verloren. Der Schnitt
+  # selbst wird nicht gebraucht -- was er loesen sollte, loest der
+  # Fehlercode-Filter nach Gruen-AUS (siehe `ist_fehlercode`), und der haengt
+  # nicht an der framegenauen Lage des Sprungs.
+  breakpoint_from_throw_number: false
+  breakpoint_min_confidence: 0.5
+
+  # Bei GREEN_OFF die Lampenzaehlung schliessen? NEIN -- ebenfalls gemessen.
+  #
+  # Die Praemisse stimmt (nach Gruen-AUS faellt kein Kegel), das ABLESEN ist
+  # dort aber nicht fertig: Bei "alle Neune" und beim 8er Kranz blinkt die
+  # Anzeige, und oft waren es die Frames danach, die eine Lampe ueberhaupt
+  # einmal leuchtend erwischten. GEMESSEN ueber 42 Minuten: 97,8 % auf 94,1 %,
+  # elf Wuerfe veraendert, davon neun schlechter und keiner besser -- jedes
+  # Mal ZU NIEDRIG.
+  count_closes_at_green_off: false
+
   # Wartezeit nach GREEN_OFF bis zur Meldung, in Frames (25 fps -> 40 = 1,6 s).
   #
   # Vorher wurde bis zum naechsten GREEN_ON gewartet: im Mittel 15 Sekunden,

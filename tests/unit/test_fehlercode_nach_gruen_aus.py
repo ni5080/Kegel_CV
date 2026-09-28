@@ -120,6 +120,9 @@ class Prozessor:
         self._nach = nach
         self._bis = bis
         self.result_samples = [lesung(bis)]
+        # Der echte Prozessor sammelt die Live-Messungen nach Gruen-AUS hier;
+        # die Pipeline entscheidet ueber sie gemeinsam mit den Abtastframes.
+        self.nach_samples: list[PinLampReading] = []
         self.result_pins = lesung(bis)
 
     def read_pin_lamps_at(self, frame: Frame) -> PinLampReading:

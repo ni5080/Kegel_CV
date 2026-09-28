@@ -858,17 +858,26 @@ class LaneProcessor:
 
     @property
     def result_samples(self) -> list[PinLampReading]:
-        """Alle Lampenmessungen des zuletzt abgeschlossenen Ereignisses.
-
-        Die Messungen NACH Gruen-AUS kommen nur dazu, wenn dort kein
-        FEHLERCODE steht. Nach Gruen-AUS blinkt entweder der Jubel-Effekt --
-        dann sind diese Frames noetig, weil eine Lampe sonst in ihrer
-        Dunkelphase fehlt -- oder die Tafel meldet eine Stoerung, und dann
-        leuchten Lampen, die keinen gefallenen Kegel meinen (BUG-036).
-        """
-        if self._nach_samples and not ist_fehlercode(self._nach_samples):
-            return list(self._result_samples) + list(self._nach_samples)
+        """Die Lampenmessungen BIS Gruen-AUS des letzten Ereignisses."""
         return list(self._result_samples)
+
+    @property
+    def nach_samples(self) -> list[PinLampReading]:
+        """Die Messungen NACH Gruen-AUS -- ueber sie wird eigens entschieden.
+
+        Dort blinkt entweder der Jubel-Effekt (dann sind diese Frames noetig,
+        weil eine Lampe sonst in ihrer Dunkelphase fehlt) oder die Tafel
+        meldet eine Stoerung (dann leuchten Lampen, die keinen gefallenen
+        Kegel meinen, BUG-036).
+
+        DIE ENTSCHEIDUNG FAELLT IN DER PIPELINE, gemeinsam mit den
+        Abtastframes. Erst wurde sie an zwei Stellen getroffen -- hier ueber
+        die Live-Messungen, dort ueber die Abtastframes. Die beiden Folgen
+        sind verschieden dicht, und am 2026-09-28 erkannte die eine den
+        Fehlercode und die andere nicht: Der Filter meldete sich, und der
+        Wurf blieb trotzdem falsch.
+        """
+        return list(self._nach_samples)
 
     @property
     def baseline_pins(self) -> PinLampReading | None:

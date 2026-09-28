@@ -45,10 +45,24 @@ def _bahn() -> LaneCalibration:
 
 @pytest.fixture
 def prozessor() -> LaneProcessor:
-    p = LaneProcessor(_bahn(), load_config())
+    cfg = load_config()
+    # AUSDRUECKLICH EINSCHALTEN. Die Vorgabe ist aus -- am ganzen Spieltag
+    # gemessen kostete der Breakpoint zwanzig Wuerfe, siehe
+    # `config/default.yaml`. Die Mechanik soll trotzdem gepflegt und
+    # geprueft bleiben, damit sie wieder eingeschaltet werden kann.
+    cfg.sampling.breakpoint_from_throw_number = True
+    p = LaneProcessor(_bahn(), cfg)
     assert p.prepare((HOEHE, BREITE, 3))
     p._green_on_frame = 1000
     return p
+
+
+def test_die_vorgabe_ist_aus():
+    """Gemessen ueber den ganzen Spieltag: 65,8 % auf 64,0 %, zwanzig Wuerfe
+    verloren, dreimal so viele verworfene Zyklen. Die Physik stimmt -- die
+    Nummer springt immer zuerst --, aber nur um sechs Frames, und die Guete
+    des Ziffernfeldes bricht genau im Sprungmoment ein."""
+    assert load_config().sampling.breakpoint_from_throw_number is False
 
 
 class TestWoDerSchnittLiegt:
@@ -123,6 +137,10 @@ class TestVerdrahtung:
         Lampen daneben. Ohne diesen Aufruf gaebe es nie einen Breakpoint."""
         from kegel_cv.video.source import Frame
 
+        # Gelesen wird nur, WAEHREND Gruen an ist -- in der Pause springt
+        # keine Wurfnummer, und das Lesen kostete dort nur Rechenzeit.
+        prozessor._green_on_frame = 0
+        prozessor._window_open = False
         gelesen = []
         echt = prozessor.read_digits
 
@@ -135,8 +153,9 @@ class TestVerdrahtung:
         for i in range(0, prozessor._live_interval * 3 + 1):
             prozessor.process(Frame(index=i, timestamp=i / 25.0, image=bild))
         knapp = [f for f in gelesen if f == ("throw_number",)]
-        assert len(knapp) >= 3, (
-            "Die Wurfnummer muss in JEDEM Live-Takt mitgelesen werden")
+        assert len(knapp) >= prozessor._live_interval * 3, (
+            f"Die Wurfnummer muss JEDEN Frame mitgelesen werden, gelesen "
+            f"wurde sie {len(knapp)}-mal")
         # Der volle Satz kostet das Siebenfache (14,70 gegen 1,99 ms) und darf
         # NICHT im Live-Takt mitlaufen. Er hat einen eigenen, viel groeberen
         # Takt: die Nullzustandspruefung alle

@@ -465,7 +465,10 @@ class AnalysisPipeline:
         # gegen eine Dunkelphase von bis zu 15. Deshalb kommen die ueber das
         # ganze Ereignisfenster gesammelten Messungen des Prozessors hinzu.
         messungen: list[PinLampReading] = list(processor.result_samples)
-        nach: list[PinLampReading] = []
+        # Die Messungen nach Gruen-AUS aus BEIDEN Quellen in EINE Folge --
+        # sonst entscheidet jede fuer sich, und die Lampen der einen landen
+        # im Ergebnis, waehrend die andere den Fehlercode meldet.
+        nach: list[PinLampReading] = list(processor.nach_samples)
         for sampled in frames:
             reading = processor.read_pin_lamps_at(sampled.frame)
             if reading is None:
