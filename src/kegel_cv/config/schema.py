@@ -1232,6 +1232,35 @@ class SamplingConfig(BaseModel):
     # es bei sehr kurzen Gruenphasen. Zusammen decken sie sich gegenseitig ab.
     green_phase_interval: int = Field(default=5, ge=0)
 
+    # DER BREAKPOINT: die Wurfnummer der Tafel trennt Grundlinie und Ergebnis.
+    #
+    # Nutzer, 2026-09-28: *„wenn die Wurfnummer hochzählt, beginnen die 4 sek.
+    # sonst nehmen wir das als Breakpoint und davor ist Grundlinie und danach
+    # bis Grün aus ist Ergebnis."*
+    #
+    # Damit haengt die Trennung an einem EREIGNIS AUF DER TAFEL statt an
+    # Frameversaetzen nach dem Gruen-AN. Drei Dinge werden dadurch besser:
+    #
+    #   * Die Grundlinie ist "alles bis zum Sprung" -- bei kurzen Raeumzyklen
+    #     entsprechend kurz. GEMESSEN: Zwischen Gruen-AN und erstem fallenden
+    #     Kegel liegen beim Raeumen im Median 84 Frames, p05 nur 38; ein festes
+    #     Fenster passt dort nicht.
+    #   * Das Ergebnis ist "ab dem Sprung" und damit frei vom Nachleuchten der
+    #     vorigen Anzeige.
+    #   * Kein Schwellwert muss zum Spieltag passen.
+    #
+    # GEMESSEN am 2026-09-28 ueber 100 Gruenzyklen aller vier Bahnen
+    # (`tools/messe_wurfnummer_sprung.py`):
+    #
+    #     Bahn   Nummer lesbar   Sprung gesehen   Abstand vor Gruen-AUS
+    #       2         26/26           96,2 %      Median 3,95 s
+    #       3         25/25           96,0 %      Median 3,95 s
+    #       4         23/23           95,7 %      Median 4,25 s
+    #       5         26/26           88,5 %      Median 4,35 s
+    #
+    # Wird kein Sprung gesehen, gilt das bisherige Verfahren unveraendert.
+    breakpoint_from_throw_number: bool = True
+
     # Wie lange nach GREEN_OFF gewartet wird, bevor der Wurf gemeldet wird.
     #
     # Frueher wurde bis zum NAECHSTEN GREEN_ON gewartet -- im Mittel 15 Sekunden,

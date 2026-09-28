@@ -161,7 +161,8 @@ class LaneProcessor:
         self._window_open = False
         self._green_off_frame: int | None = None
         # Lampenmessungen WAEHREND der Gruenphase -- dort fallen die Kegel.
-        self._green_phase_samples: list[PinLampReading] = []
+        # (Frame, Messung) -- der Frame wird fuer den Breakpoint gebraucht.
+        self._green_phase_samples: list[tuple[int, PinLampReading]] = []
         # VERDECKUNG IM LAUFENDEN FENSTER (BUG-017). Die Verdeckungsbremse
         # friert Zustand und Messung waehrend der Verdeckung zwar ein, aber
         # wenn das Fenster GENAU beim Wiedersichtbarwerden mit GREEN_ON
@@ -222,7 +223,23 @@ class LaneProcessor:
         # 600 Eintraege reichen weit: Bei einem Takt von 25 Frames sind das
         # 15000 Frames = 10 Minuten. Die laengste gemessene Gruenphase eines
         # Spieltags betrug 2167 Frames.
-        self._grundlinien_spur: deque[PinLampReading] = deque(maxlen=600)
+        self._grundlinien_spur: deque[tuple[int, PinLampReading]] = deque(maxlen=600)
+        # DIE WURFNUMMER IM SELBEN TAKT -- der Breakpoint (Nutzer, 2026-09-28):
+        # *„wenn die Wurfnummer hochzählt, beginnen die 4 sek. sonst nehmen wir
+        # das als Breakpoint und davor ist Grundlinie und danach bis Grün aus
+        # ist Ergebnis."*
+        #
+        # GEMESSEN ueber 100 Gruenzyklen aller vier Bahnen: Die Nummer ist in
+        # 100 % der Zyklen lesbar, der Sprung in 88 bis 96 % zu sehen, und er
+        # liegt im Median 3,95 bis 4,35 s vor Gruen-AUS -- auf Bahn 2 und 3
+        # liegen 80 % aller Zyklen zwischen 3,8 und 4,25 s.
+        #
+        # Der Anker ist damit ein EREIGNIS AUF DER TAFEL statt einer Uhr. Das
+        # loest drei Dinge auf einmal: Die Grundlinie ist "alles bis zum
+        # Sprung" statt eines festen Fensters (bei kurzen Raeumzyklen
+        # entsprechend kurz), das Ergebnis ist "ab dem Sprung", und kein
+        # Schwellwert muss zum Spieltag passen.
+        self._nummer_spur: deque[tuple[int, int]] = deque(maxlen=600)
         # Wird von der Pipeline gesetzt. None heisst: keine Spur.
         self.lamp_trace = None
         # WACHE UEBER DEN TAFELAUSSCHNITT. Sie haelt eine Referenz der eigenen
@@ -996,15 +1013,30 @@ class LaneProcessor:
             return von_wache
         return np.maximum(von_wache, vom_modell)
 
-    def read_digits(self, frame: Frame) -> dict[str, DigitReading]:
-        """Liest alle Ziffernfelder eines Frames.
+    def read_digits(self, frame: Frame,
+                    felder: tuple[str, ...] | None = None
+                    ) -> dict[str, DigitReading]:
+        """Liest die Ziffernfelder eines Frames.
 
         Teuer im Vergleich zur Gruenlampe -- deshalb NUR fuer die Frames eines
         Ereignisses aufrufen, nie fuer jeden Frame (Auftrag Paragraph 20).
+
+        `felder` schraenkt auf einzelne Felder ein. GEMESSEN am 2026-09-28 ueber
+        31 Frames, alle vier Bahnen zusammen:
+
+            nur `throw_number`       1,99 ms je Frame
+            alle fuenf Felder       14,70 ms je Frame
+            neun Kegellampen         4,73 ms je Frame   (laufen schon mit)
+
+        Damit ist das EINE Feld billiger als die Lampen, die im selben Takt
+        ohnehin gelesen werden -- bei einem Budget von 40 ms. Der Vorbehalt
+        oben gilt weiter fuer den vollen Satz.
         """
         readings: dict[str, DigitReading] = {}
         # Einzeln eingerahmte Stellen -- der genauere Weg
         for name, boxes in self._digit_cell_boxes.items():
+            if felder is not None and name not in felder:
+                continue
             shifts = self._digit_shifts.get(name)
             readings[name] = self.digit_reader.read_field(
                 [self._crop(frame.image, self._shifted(box, shifts, i))
@@ -1012,6 +1044,8 @@ class LaneProcessor:
             )
         # Rest ueber das Gesamtfeld
         for name, (box, digits) in self._digit_boxes.items():
+            if felder is not None and name not in felder:
+                continue
             readings[name] = self.digit_detector.detect(
                 self._crop(frame.image, box), digits
             )
@@ -1417,7 +1451,7 @@ class LaneProcessor:
                 and frame.index % raster == 0):
             messung = self._read_pin_lamps(frame, anlass="gruenphase")
             if messung is not None:
-                self._green_phase_samples.append(messung)
+                self._green_phase_samples.append((frame.index, messung))
 
         # Zwei getrennte Zwecke, bewusst unterschieden:
         #
@@ -1452,17 +1486,21 @@ class LaneProcessor:
             #
             # Eine aufgefangene Ausnahme heisst nicht, dass der Zustand heil
             # ist. Reihenfolge ist deshalb kein Stil, sondern Schutz.
-            self._result_samples = list(self._green_phase_samples)
+            bruch = self._breakpoint()
+            self._result_samples = [m for fr, m in self._green_phase_samples
+                                    if bruch is None or fr >= bruch]
             if self._result_pins is not None:
                 self._result_samples.append(self._result_pins)
             # Neues Fenster: Die Mitlesungen des vorigen Wurfs sind verbraucht.
             # Ohne dieses Zuruecksetzen truege der naechste Wurf die Summe des
             # vorletzten -- genau der Versatz, der behoben werden soll.
             self._late_samples = {}
-            spur = list(self._grundlinien_spur)
+            spur = [m for fr, m in self._grundlinien_spur
+                    if bruch is None or fr < bruch]
             # Der naechste Wurf beginnt mit einer leeren Spur -- sonst truege
             # er die Staende dieses Wurfs noch mit sich.
             self._grundlinien_spur.clear()
+            self._nummer_spur.clear()
 
             # ERST JETZT das Abgeleitete: die Grundlinie aus der laufenden Spur
             # (BUG-031). Das Fenster nach dem Gruen-AN misst EINEN Augenblick,
@@ -1504,7 +1542,11 @@ class LaneProcessor:
                 # ... und in die Grundlinienspur (BUG-031). Dieselbe Messung,
                 # kein zusaetzlicher Aufwand -- nur wird sie jetzt auch
                 # aufgehoben, statt nach der Anzeige vergessen zu werden.
-                self._grundlinien_spur.append(self._display_pins)
+                self._grundlinien_spur.append((frame.index, self._display_pins))
+            # Im selben Takt die Wurfnummer -- fuer den Breakpoint. Sie kostet
+            # 0,50 ms je Bahn, weniger als die neun Lampen daneben.
+            if self.cfg.sampling.breakpoint_from_throw_number:
+                self._nummer_mitschreiben(frame)
             # Laeuft gerade ein Ereignis, zaehlt diese Messung zum Wurfergebnis.
             # Das kostet nichts zusaetzlich: Der Wert wurde soeben ohnehin fuer
             # die Anzeige gelesen.
@@ -1634,6 +1676,44 @@ class LaneProcessor:
             return fest
         return max(fest, anteil * rand)
 
+    def _nummer_mitschreiben(self, frame: Frame) -> None:
+        """Liest die Wurfnummer und haengt sie an die Spur.
+
+        Nur dieses eine Feld (1,99 ms fuer alle vier Bahnen), nicht der volle
+        Satz. Unlesbares wird weggelassen statt als Luecke gefuehrt -- fuer den
+        Sprung zaehlt nur, dass zwei aufeinanderfolgende LESBARE Werte sich um
+        eins unterscheiden.
+        """
+        lesung = self.read_digits(frame, felder=("throw_number",)).get(
+            "throw_number")
+        if lesung is None or not lesung.text or not lesung.text.isdigit():
+            return
+        if lesung.confidence < self.cfg.scoring.throw_number_min_confidence:
+            return
+        self._nummer_spur.append((frame.index, int(lesung.text)))
+
+    def _breakpoint(self) -> int | None:
+        """Der Frame, an dem die Tafel auf diesen Wurf hochgezaehlt hat.
+
+        Gesucht wird der LETZTE Anstieg um genau eins innerhalb der laufenden
+        Gruenphase. Der letzte, nicht der erste: Steckt mehr als ein Wurf in
+        einer Gruenphase -- ein Fehlwurf schaltet Gruen nicht aus (BUG-035) --,
+        gehoert das Ergebnis zum spaeteren.
+
+        `None` heisst: kein Sprung gesehen. Dann gilt das bisherige Verfahren.
+        Gemessen tritt das in 4 bis 12 % der Zyklen ein.
+        """
+        if not self.cfg.sampling.breakpoint_from_throw_number:
+            return None
+        ab = self._green_on_frame
+        werte = [(fr, n) for fr, n in self._nummer_spur
+                 if ab is None or fr >= ab]
+        bruch = None
+        for (f1, n1), (f2, n2) in zip(werte, werte[1:]):
+            if n2 == n1 + 1:
+                bruch = f2
+        return bruch
+
     def _read_pin_lamps(self, frame: Frame,
                         is_result: bool = False,
                         anlass: str = "live") -> PinLampReading | None:
@@ -1720,6 +1800,7 @@ class LaneProcessor:
         self._baseline_samples = []
         self._baseline_start = None
         self._grundlinien_spur.clear()
+        self._nummer_spur.clear()
         self._result_samples = []
         self._late_samples = {}
         self._green_phase_samples = []
