@@ -1261,6 +1261,27 @@ class SamplingConfig(BaseModel):
     # Wird kein Sprung gesehen, gilt das bisherige Verfahren unveraendert.
     breakpoint_from_throw_number: bool = True
 
+    # Welche Bildguete eine einzelne Lesung der Wurfnummer haben muss, damit
+    # sie in die Spur kommt.
+    #
+    # EIGENER WERT, NICHT `scoring.throw_number_min_confidence` (0,9). Jener
+    # entscheidet ueber das Verwerfen ganzer Zyklen und darf streng sein. Hier
+    # zaehlt eine EINZELNE Messung von vielen, und ein Sprung braucht nur zwei
+    # brauchbare hintereinander.
+    #
+    # GEMESSEN am 2026-09-28, Anteil der Zyklen mit erkanntem Sprung:
+    #
+    #     Gate    Bahn 2   Bahn 3   Bahn 4   Bahn 5   Median des Abstands
+    #     0,5      100 %     96 %     96 %     88 %   3,95 / 3,95 / 4,25 / 4,35 s
+    #     0,7      100 %     96 %     96 %     88 %   3,90 / 3,95 / 4,25 / 4,35 s
+    #     0,8       92 %     96 %    100 %     85 %   3,80 / 3,95 / 4,25 / 4,22 s
+    #     0,9       15 %     52 %     48 %     58 %   2,98 / 3,65 / 4,00 / 3,95 s
+    #
+    # Bei 0,9 bricht nicht nur die Trefferquote ein -- der Median wandert,
+    # der gefundene Sprung ist dann oft der falsche. Mit 0,9 (mein erster
+    # Versuch) blieb der ganze Spieltagslauf bitgleich zum alten.
+    breakpoint_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+
     # Wie lange nach GREEN_OFF gewartet wird, bevor der Wurf gemeldet wird.
     #
     # Frueher wurde bis zum NAECHSTEN GREEN_ON gewartet -- im Mittel 15 Sekunden,

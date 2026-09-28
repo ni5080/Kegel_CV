@@ -1688,7 +1688,7 @@ class LaneProcessor:
             "throw_number")
         if lesung is None or not lesung.text or not lesung.text.isdigit():
             return
-        if lesung.confidence < self.cfg.scoring.throw_number_min_confidence:
+        if lesung.confidence < self.cfg.sampling.breakpoint_min_confidence:
             return
         self._nummer_spur.append((frame.index, int(lesung.text)))
 
@@ -1712,6 +1712,14 @@ class LaneProcessor:
         for (f1, n1), (f2, n2) in zip(werte, werte[1:]):
             if n2 == n1 + 1:
                 bruch = f2
+        if bruch is None:
+            log.debug("Bahn %d: kein Wurfnummernsprung in der Gruenphase "
+                      "(%d Lesungen) -- es gilt das Fenster",
+                      self.display_number, len(werte))
+        else:
+            log.debug("Bahn %d: Breakpoint bei Frame %d "
+                      "(%d Lesungen in der Gruenphase)",
+                      self.display_number, bruch, len(werte))
         return bruch
 
     def _read_pin_lamps(self, frame: Frame,
