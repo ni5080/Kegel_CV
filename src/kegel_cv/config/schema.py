@@ -1282,6 +1282,25 @@ class SamplingConfig(BaseModel):
     # Versuch) blieb der ganze Spieltagslauf bitgleich zum alten.
     breakpoint_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
+    # BEI GRUEN-AUS IST DIE ZAEHLUNG FERTIG.
+    #
+    # Nutzer, 2026-09-28: *„sobald Grünaus geht, müssen wir fertig sein mit
+    # unserer Zählung."* Physisch begruendet: Bei Gruen-AUS kann kein Kegel
+    # mehr fallen, das hat der Nutzer von Anfang an so erklaert.
+    #
+    # Das Ereignisfenster bleibt danach trotzdem offen -- aber nur fuer die
+    # ZIFFERN, die spaet nachziehen (Wurfnummer und Summe stehen erst kurz vor
+    # dem naechsten Gruen-AN richtig da). Die Lampen waren bisher an dieses
+    # Fenster gekoppelt und sammelten weiter mit.
+    #
+    # WAS DAS KOSTETE: Genau nach Gruen-AUS beginnt ein Fehlercode der Tafel
+    # (BUG-036, gemessen sieben Frames danach). Die Vereinigung nahm dessen
+    # dauerleuchtende UND blinkende Lampen ins Ergebnis -- auf Bahn 4 wurden
+    # daraus zweimal alle neun Kegel, wo die Tafel 7 zaehlte.
+    #
+    # false stellt den alten Weg wieder her.
+    count_closes_at_green_off: bool = True
+
     # Wie lange nach GREEN_OFF gewartet wird, bevor der Wurf gemeldet wird.
     #
     # Frueher wurde bis zum NAECHSTEN GREEN_ON gewartet -- im Mittel 15 Sekunden,

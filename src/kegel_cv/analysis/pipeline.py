@@ -448,11 +448,28 @@ class AnalysisPipeline:
         if not frames:
             return processor.result_pins
 
+        # BEI GRUEN-AUS IST DIE ZAEHLUNG FERTIG. Nutzer, 2026-09-28: *„sobald
+        # Grünaus geht, müssen wir fertig sein mit unserer Zählung."*
+        #
+        # Die Abtastframes beginnen beim Gruen-AUS und reichen rund 40 Frames
+        # darueber hinaus. Sie sind fuer die ZIFFERN da, die spaet nachziehen.
+        # Die Lampen sind da laengst fertig -- und genau dort beginnt ein
+        # Fehlercode der Tafel (BUG-036, gemessen sieben Frames nach Gruen-AUS).
+        # Die Vereinigung nahm dessen Lampen mit ins Ergebnis: Auf Bahn 4
+        # wurden daraus zweimal alle neun Kegel, wo die Tafel 7 zaehlte.
+        grenze = None
+        if self.cfg.sampling.count_closes_at_green_off:
+            ausloeser = next((f for f in frames
+                              if f.role is FrameRole.GREEN_OFF), None)
+            grenze = ausloeser.frame.index if ausloeser else sample.trigger_frame
+
         # Die Frames des Samplings decken nur rund 10 Frames ab -- zu wenig
         # gegen eine Dunkelphase von bis zu 15. Deshalb kommen die ueber das
         # ganze Ereignisfenster gesammelten Messungen des Prozessors hinzu.
         messungen: list[PinLampReading] = list(processor.result_samples)
         for sampled in frames:
+            if grenze is not None and sampled.frame.index > grenze:
+                continue
             reading = processor.read_pin_lamps_at(sampled.frame)
             if reading is not None:
                 messungen.append(reading)

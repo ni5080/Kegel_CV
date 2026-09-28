@@ -1577,7 +1577,17 @@ class LaneProcessor:
             # Laeuft gerade ein Ereignis, zaehlt diese Messung zum Wurfergebnis.
             # Das kostet nichts zusaetzlich: Der Wert wurde soeben ohnehin fuer
             # die Anzeige gelesen.
-            if self.sampler.open_event is not None and self._display_pins is not None:
+            #
+            # ABER NUR, WENN DIE ZAEHLUNG NOCH LAEUFT. Nutzer, 2026-09-28:
+            # *„sobald Grünaus geht, müssen wir fertig sein mit unserer
+            # Zählung."* Das Ereignisfenster bleibt nach Gruen-AUS offen, um
+            # die spaet nachziehenden ZIFFERN mitzulesen -- die Lampen sind da
+            # laengst fertig. Was danach noch auf der Tafel passiert, gehoert
+            # nicht mehr zum Wurf: Genau dort beginnt der Fehlercode (BUG-036),
+            # und die Vereinigung nahm dessen Lampen mit ins Ergebnis.
+            if (self.sampler.open_event is not None
+                    and self._display_pins is not None
+                    and not self.cfg.sampling.count_closes_at_green_off):
                 self._result_samples.append(self._display_pins)
             # ... und zugleich die Pause mitschreiben: `_window_open` ist genau
             # zwischen GREEN_OFF und GREEN_ON wahr. Kostet nichts, die Messung
