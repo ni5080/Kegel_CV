@@ -115,6 +115,12 @@ class LaneProcessor:
         self._baseline_samples: list[PinLampReading] = []
         self._baseline_start: int | None = None                # Frame des GREEN_ON
         self._baseline_pins: PinLampReading | None = None      # Wurf beendet
+        # DER STAND NACH DEM VORIGEN WURF. Eine der beiden einzigen erlaubten
+        # Grundlinien des naechsten Wurfs -- die andere ist leer. Wird von der
+        # Pipeline gesetzt, sobald sie das Wurfergebnis zusammengefasst hat
+        # (`uebernimm_vorstand`), denn erst dort sind Gruenphase und die
+        # Messungen danach zu einer Menge vereinigt.
+        self._vorstand: PinLampReading | None = None
         # Alle Lampenmessungen des laufenden Ereignisses. Siehe BUG-007a:
         # Die Blinkperiode ist mit 28-30 Frames LAENGER als das Sampling-Fenster,
         # die Dunkelphase mit bis zu 15 Frames ebenfalls. Vier Frames innerhalb
@@ -884,6 +890,51 @@ class LaneProcessor:
         """Lampenstand zu Beginn des zuletzt beendeten Wurfs (Raeumen)."""
         return self._baseline_pins
 
+    def _anker_vorstand(
+            self,
+            spur_roh: "list[tuple[int, PinLampReading]]",
+    ) -> "tuple[int, PinLampReading] | None":
+        """Das erste Bild der Gruenphase, das eine erlaubte Grundlinie zeigt.
+
+        Erlaubt sind genau zwei Staende: leer und der Stand des vorigen Wurfs.
+        Gesucht wird ueber ALLE Messungen der Gruenphase in ihrer zeitlichen
+        Reihenfolge -- die Anzeigemessungen (Takt `_live_interval`) und die
+        dichteren Messungen der Gruenphase selbst.
+
+        Schweigt die Suche, weiss sie nichts: eine verdeckte Bahn, eine Lampe,
+        die nie hell genug wird (BUG-034), ein verschluckter Wurf. Dann gilt
+        weiter das bisherige Verfahren -- Raten waere schlimmer.
+        """
+        if self._green_on_frame is None:
+            return None
+        erlaubt = {frozenset()}
+        if self._vorstand is not None:
+            erlaubt.add(frozenset(self._vorstand.pins))
+        messungen = sorted(
+            [(fr, m) for fr, m in spur_roh if fr >= self._green_on_frame]
+            + list(self._green_phase_samples),
+            key=lambda paar: paar[0])
+        for fr, messung in messungen:
+            if frozenset(messung.pins) in erlaubt:
+                return fr, messung
+        return None
+
+    def uebernimm_vorstand(self, ergebnis: "PinLampReading | None") -> None:
+        """Meldet den Endstand eines Wurfs -- die Grundlinie des naechsten.
+
+        Von der Pipeline zu rufen, sobald sie die Lampen eines Wurfs zu EINER
+        Menge zusammengefasst hat. Vorher ist der Stand nicht vollstaendig:
+        Bei blinkender Anzeige fehlt in jeder einzelnen Messung etwas.
+
+        LIEGEN ALLE NEUNE, STELLT DIE ANLAGE NEU AUF -- dann ist die
+        Grundlinie des naechsten Wurfs leer, nicht etwa alle neun. Ohne diese
+        Zeile fiele der Anker beim Jubelblinken auf den vollen Kranz, und der
+        naechste Wurf haette null Kegel.
+        """
+        if ergebnis is None:
+            return
+        self._vorstand = None if len(ergebnis.pins) >= 9 else ergebnis
+
     def setze_verdeckung(self, verdeckt: bool) -> None:
         """Meldet, ob die Personenmaske diese Tafel gerade verdeckt sieht.
 
@@ -1545,6 +1596,10 @@ class LaneProcessor:
             # Wurf -- dort steht sein Ergebnis, dort wird der Satz gestellt,
             # und dort leuchtet ein Fehlercode nach.
             beginn = self._green_on_frame if bruch is not None else None
+            # MIT FRAMENUMMER aufgehoben, bevor die Spur geleert wird: Der
+            # Anker aus dem Vorstand braucht die Reihenfolge, nicht nur die
+            # Staende (siehe `_anker_vorstand`).
+            spur_roh = list(self._grundlinien_spur)
             spur = [m for fr, m in self._grundlinien_spur
                     if (bruch is None or fr < bruch)
                     and (beginn is None or fr >= beginn)]
@@ -1601,6 +1656,42 @@ class LaneProcessor:
                             list(self._pending_baseline.pins),
                             list(aus_spur.pins))
                     self._baseline_pins = aus_spur
+
+            # --- DIE GRUNDLINIE IST NICHT FREI (Nutzeridee 2026-09-29) ---
+            #
+            # Kegel stehen nicht wieder auf. Es gibt genau zwei erlaubte
+            # Grundlinien: leer (die Anlage hat neu aufgestellt) oder den
+            # Stand des vorigen Wurfs. Welche gilt, zeigt die Tafel selbst --
+            # und der Augenblick, in dem sie einen der beiden zeigt, ist
+            # zugleich der Beginn DIESES Wurfs. Alles davor ist Nachleuchten:
+            # Jubelblinken oder ein Fehlercode.
+            #
+            # Damit wird an EINER Stelle geschnitten. Das ist der Unterschied
+            # zu allem, was vorher versucht wurde: Eine reparierte Grundlinie
+            # allein genuegt nicht, weil derselbe Fehlercode auch im Ergebnis
+            # steht. Gemessen an Bahn 4 Spiel 4 Wurf 23 -- nur Grundlinie: 2
+            # Kegel, Grundlinie und Beginn: 1 Kegel, Tafel sagt 1.
+            if self.cfg.sampling.baseline_from_previous_state:
+                anker = self._anker_vorstand(spur_roh)
+                if anker is not None:
+                    ab_frame, grundlinie = anker
+                    if (self._baseline_pins is not None
+                            and set(grundlinie.pins)
+                            != set(self._baseline_pins.pins)):
+                        log.info(
+                            "Bahn %d: Grundlinie gemessen %s -- erlaubt ist "
+                            "nur leer oder %s, es gilt %s ab Frame %d",
+                            self.display_number,
+                            list(self._baseline_pins.pins),
+                            list(self._vorstand.pins) if self._vorstand
+                            else [],
+                            list(grundlinie.pins), ab_frame)
+                    self._baseline_pins = grundlinie
+                    self._result_samples = [
+                        m for fr, m in self._green_phase_samples
+                        if fr >= ab_frame]
+                    if self._result_pins is not None:
+                        self._result_samples.append(self._result_pins)
 
         # 2. ANZEIGE -- regelmaessig, damit in der Oberflaeche sichtbar ist, was
         #    die Tafel gerade zeigt. Ohne das bliebe die Kegelraute waehrend des
@@ -1888,6 +1979,7 @@ class LaneProcessor:
         self._display_history.clear()
         self._pending_baseline = None
         self._baseline_pins = None
+        self._vorstand = None
         self._baseline_samples = []
         self._baseline_start = None
         self._grundlinien_spur.clear()

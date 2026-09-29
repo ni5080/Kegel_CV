@@ -488,13 +488,19 @@ class AnalysisPipeline:
         # Beide beginnen nach Gruen-AUS und sind nur an ihrer FORM zu
         # trennen: Beim Jubel blinkt alles, was leuchtet; beim Fehlercode
         # leuchtet ein Teil fest, waehrend der andere blinkt.
-        if nach and not ist_fehlercode(nach):
+        blinkende = self.cfg.sampling.error_code_min_blinking_lamps
+        if nach and not ist_fehlercode(nach, mindest_blinkende=blinkende):
             messungen += nach
         elif nach:
             log.info("Bahn %d: Fehlercode nach Gruen-AUS bei Frame %d -- "
                      "diese %d Messungen zaehlen nicht zum Wurf",
                      processor.display_number, grenze, len(nach))
-        return aggregate_pin_readings(messungen) or processor.result_pins
+        ergebnis = aggregate_pin_readings(messungen) or processor.result_pins
+        # DER ENDSTAND IST DIE GRUNDLINIE DES NAECHSTEN WURFS. Erst hier steht
+        # er vollstaendig fest: Bei blinkender Anzeige fehlt in jeder
+        # einzelnen Messung etwas, erst die Vereinigung ist der Stand.
+        processor.uebernimm_vorstand(ergebnis)
+        return ergebnis
 
     def finalize(self, last_frame: Frame | None) -> list[ThrowResult]:
         """Wertet Wurffenster aus, die beim Ende der Quelle noch offen waren.

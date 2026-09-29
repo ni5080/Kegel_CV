@@ -194,7 +194,8 @@ def aggregate_pin_readings(
 
 
 def ist_fehlercode(messungen: "list[PinLampReading]",
-                   mindest_dunkelphasen: int = 2) -> bool:
+                   mindest_dunkelphasen: int = 2,
+                   mindest_blinkende: int = 2) -> bool:
     """Zeigt diese Folge einen FEHLERCODE der Tafel statt eines Ergebnisses?
 
     Vom Nutzer erklaert (2026-09-25): Die Tafel meldet Stoerungen als Muster
@@ -217,18 +218,36 @@ def ist_fehlercode(messungen: "list[PinLampReading]",
     schon zweierlei Wechsel -- aus und wieder an -- und Bahn 5 Kegel 8 liest
     sich regelmaessig faelschlich als aus (BUG-034). Sie wuerde damit zum
     Dauerblinker. Eine blinkende Lampe geht dagegen MEHRFACH aus.
+
+    DAS REICHTE NICHT. Nutzer, 2026-09-29: *„es gab nur 2 Fehlercodes im
+    ganzen Spiel und meines Wissens nach alle auf Bahn 4."* Gezaehlt wurden
+    ueber denselben Spieltag fuenf -- vier davon auf Bahn 5, und alle vier
+    waren Kegel 8, die innerhalb von zwei Sekunden zweimal flackerte:
+
+        Bahn 5, Gruen-AUS 32120        Bahn 5, Gruen-AUS 146477
+          +2   123456789                 +2   1234.6.89
+          +4   1234567.9  <- 8 aus       +7   1234.6..9  <- 8 aus
+          +5   123456789  <- 8 an        +12  1234.6.89  <- 8 an
+          +7   1234567.9  <- 8 aus       +23  1234.6..9  <- 8 aus
+
+    Eine EINZELNE flackernde Lampe ist kein Fehlercode. Ein Code ist ein
+    Muster, und beide echten hatten mehrere blinkende Lampen: 1,2,3,4,5,8
+    neben festen 6,7,9, und 1,2,3,4,5 neben festen 6,7,8,9. Mit
+    `mindest_blinkende = 2` bleibt es ueber den Spieltag bei genau diesen
+    beiden -- kein Fehlalarm mehr, keiner verloren.
     """
     if len(messungen) < 3:
         return False
-    blinkt = fest = False
+    blinkende = 0
+    fest = False
     for pin in range(1, 10):
         folge = [pin in m.pins for m in messungen]
         dunkel = sum(1 for a, b in zip(folge, folge[1:]) if a and not b)
         if dunkel >= mindest_dunkelphasen:
-            blinkt = True
+            blinkende += 1
         elif all(folge):
             fest = True
-    return blinkt and fest
+    return blinkende >= mindest_blinkende and fest
 
 
 def grundlinie_aus_spur(messungen: Sequence["PinLampReading"],

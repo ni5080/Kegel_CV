@@ -3799,3 +3799,130 @@ Tafel meldet die Stoerung ja selbst, sie ist an der Anzeige erkennbar.
 Falls Fehlercodes haeufiger werden (etwa an einer stoerungsanfaelligen Bahn),
 liegt die Erkennung fertig gemessen vor: 0 Fehlalarme auf 1169 gesunden
 Wuerfen. Dann waere neu abzuwaegen.
+
+
+## Der Wurf NACH dem Fehlercode (2026-09-29)
+
+Nach dem Fehlercode-Filter (BUG-036) blieben zwei Spiele auf Bahn 4 um je
+**8 Kegel** zu hoch — nicht der Fehlercode-Wurf, sondern der Wurf danach:
+
+```
+Spiel  4   Wurf 22 = 7 (Fehlercode, korrigiert)   Wurf 23 gebucht 9, Tafel 1
+Spiel 10   Wurf 20 = 7 (Fehlercode, korrigiert)   Wurf 21 gebucht 9, Tafel 1
+```
+
+### Die Tafel wird waehrend des Fehlercodes KOMPLETT dunkel
+
+Gemessen zwischen Gruen-AUS von Wurf 22 (F46676) und Gruen-AN von Wurf 23
+(F47103), Bahn 4, Helligkeit je Kegellampe (AN-Schwelle rund 215):
+
+```
+46850   1:240  2:244  3:235  4:247  5:242  6:240  7:244  8:240  9:243
+46875   1:198  2:189  3:184  4:189  5:187  6:188  7:183  8:178  9:185
+46900   1:187  2:186  3:182  4:178  5:178  6:179  7:173  8:166  9:178
+46925   1:195  2:191  3:187  4:195  5:189  6:243  7:244  8:173  9:245
+```
+
+2,5 Sekunden lang alles dunkel, im zweiten Fall 3,75. Das ist keine
+Dunkelphase des Blinkens — auch die dauerleuchtenden 6, 7, 9 sind aus.
+Im GIF (`debug/streitfaelle/streit_bahn4_f46576-47220.gif`, 182 Bilder) ist
+die Ziffernanzeige dabei weiter zu lesen (`022 / 7 / 0170`); es ist also
+nicht die Bahn verdeckt, sondern die Lampenreihe selbst aus.
+
+`grundlinie_aus_spur` nimmt den kleinsten Stand über eine Blinkperiode
+seit dem vorigen Gruen-AUS — und der ist damit leer.
+
+### Der Code leuchtet in die Gruenphase nach
+
+```
+47103  Gruen-AN
+47105  .....67.9   Fehlercode
+47117  123456789   Fehlercode
+47130  ...4567.9   Fehlercode, letztes Aufflackern
+47140  123..6789   der wahre Stand, 23 Sekunden lang unveraendert
+47605  1234.6789   Kegel 4 faellt
+47674  Gruen-AUS
+```
+
+Leere Grundlinie, Ergebnismenge mit dem Code darin: neun statt einem Kegel.
+
+### Varianten, gemessen gegen die Tafelsumme (1473 Wuerfe)
+
+`SummeTafel(N+1) - SummeTafel(N)` ist die Kegelzahl von Wurf N — der
+unabhängigste Zeuge, und anders als die Kegelziffer auf Bahn 4 auch
+lesbar. Heutiger Stand: 1410 richtig (95,7 %).
+
+```
+Plateau-Regel (tools/simuliere_plateau.py)
+  Plateau >= 1,0 s   1411   95,8 %    BESSER 4 | SCHLECHTER 3
+  Plateau >= 2,0 s   1401   95,1 %    BESSER 5 | SCHLECHTER 14
+  Plateau >= 3,0 s   1360   92,3 %    BESSER 4 | SCHLECHTER 54
+  Plateau >= 5,0 s   1135   77,1 %    BESSER 4 | SCHLECHTER 279
+
+Vorstand-Regel (tools/simuliere_vorstand.py)
+  nur Grundlinie                      Bahn 4 Wurf 23 wird 2 statt 1
+  Grundlinie UND Ergebnisbeginn
+                     1412   95,9 %    BESSER 4 | SCHLECHTER 2
+                     Anker in 1671 von 1678 Wuerfen gefunden
+```
+
+Längere Plateaus sind deutlich schlechter, weil der **Ergebnisstand
+ebenfalls ein Plateau ist und ebenfalls monoton**: Wird die Schwelle zu lang,
+rastet die Grundlinie erst nach dem Fall ein und der Wurf wird null.
+
+Die Vorstand-Regel (Nutzeridee): Die Grundlinie darf nur leer sein oder der
+Stand des vorigen Wurfs, und der Wurf beginnt, wenn die Tafel einen der
+beiden zeigt. Sie erwähnt den Fehlercode nicht — alles, was weder
+das eine noch das andere ist, ist Nachleuchten. Volle und Abräumen
+unterscheidet sie von selbst.
+
+### Im echten Video nachgemessen
+
+Zwei gezielte Läufe über alle vier Bahnen, verglichen gegen den
+Vollauf vom 2026-09-28:
+
+```
+Fall 1  F38500-48600    92 vergleichbare Wuerfe   89 -> 91 richtig
+  Bahn 4 Wurf 23   alt 9 -> neu 1   Tafel 1
+  Bahn 5 Wurf 25   alt 2 -> neu 1   Tafel 1
+
+Fall 2  F130500-140200  58 vergleichbare Wuerfe   51 -> 57 richtig
+  Bahn 4 Wurf 21   alt 9 -> neu 1   Tafel 1
+  Bahn 5 Wurf  8   alt 6 -> neu 7   Tafel 7
+  Bahn 5 Wurf  9   alt 8 -> neu 9   Tafel 9
+  Bahn 5 Wurf 10   alt 7 -> neu 8   Tafel 8
+  Bahn 5 Wurf 14   alt 8 -> neu 9   Tafel 9
+```
+
+Acht besser, keiner schlechter. **Die Bahn-5-Zeilen gehören nicht der
+Regel**: Diese Läufe benutzten zugleich die korrigierte Kalibrierung
+`2Spieltag_neu.json`. Deren einziger Unterschied liegt auf Bahn 5 —
+`pin_lamp_3` (Kegel 8) um 2,7 px und `pin_lamp_6` (Kegel 6) um 6,6 px nach
+oben:
+
+```
+Bahn 5, Kegel 8, Helligkeit ueber F38500-48600 (Schwelle 215)
+  alte Kalibrierung   Median 147,7   p90 213,5   p99 216,8
+  neue Kalibrierung   Median 179,1   p90 255,0   p99 255,0
+```
+
+Bahn 2, 3 und 4 sind unverändert kalibriert; was sich dort ändert,
+ist ausschließlich die Regel — und dort liegen beide Zielwürfe.
+
+### Eine einzelne flackernde Lampe ist kein Fehlercode
+
+Nutzer: *„es gab nur 2 Fehlercodes im ganzen Spiel und meines Wissens
+nach alle auf Bahn 4."* `ist_fehlercode` meldete fünf. Die vier
+überzähligen lagen auf Bahn 5 und waren alle Kegel 8 (BUG-034), der
+binnen zwei Sekunden zweimal flackerte.
+
+```
+blinkende Lampen >= 1   5 Treffer   (Bahn 4: 1, Bahn 5: 4)
+blinkende Lampen >= 2   1 Treffer   (Bahn 4: 1)
+
+Beide echten Codes, an den Messreihen der Pipeline geprueft:
+  Fall 1, 11 Messungen   blinkend [1,2,3,4,5,8]   fest [6,7,9]
+  Fall 2, 16 Messungen   blinkend [1,2,3,4,5]     fest [6,7,8,9]
+```
+
+`sampling.error_code_min_blinking_lamps: 2`.

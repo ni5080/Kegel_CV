@@ -107,6 +107,39 @@ class TestDasMusterAllein:
         assert not ist_fehlercode([lesung({6, 7, 9}), lesung(ALLE)])
 
 
+class TestEineEinzelneLampeIstKeinMuster:
+    """Nutzer, 2026-09-29: *„es gab nur 2 Fehlercodes im ganzen Spiel und
+    meines Wissens nach alle auf Bahn 4."*
+
+    Gezaehlt wurden ueber denselben Spieltag fuenf. Die vier ueberzaehligen
+    lagen alle auf Bahn 5, und alle vier waren Kegel 8, die binnen zwei
+    Sekunden ZWEIMAL flackerte -- damit reicht das Zaehlen von Dunkelphasen
+    allein nicht mehr aus, das es gegen BUG-034 schuetzen sollte.
+    """
+
+    def test_zweimal_flackern_ist_noch_kein_code(self):
+        """Der gemessene Fehlalarm auf Bahn 5 bei Gruen-AUS 32120."""
+        folge = [lesung(ALLE), lesung(ALLE - {8}), lesung(ALLE),
+                 lesung(ALLE - {8}), lesung(ALLE - {8})]
+        assert not ist_fehlercode(folge)
+        # Mit der alten Schwelle war genau das der Fehlalarm.
+        assert ist_fehlercode(folge, mindest_blinkende=1)
+
+    def test_beide_echten_codes_bleiben_erkannt(self):
+        """Fall 1: 6,7,9 fest. Fall 2: 6,7,8,9 fest. Beide mit mehreren
+        blinkenden Lampen -- ein Code ist ein Muster, kein Wackelkontakt."""
+        eins = [lesung({6, 7, 9}), lesung(ALLE), lesung({6, 7, 9}),
+                lesung(ALLE), lesung({6, 7, 9})]
+        zwei = [lesung({6, 7, 8, 9}), lesung(ALLE), lesung({6, 7, 8, 9}),
+                lesung(ALLE), lesung({6, 7, 8, 9})]
+        assert ist_fehlercode(eins)
+        assert ist_fehlercode(zwei)
+
+    def test_die_vorgabe_verlangt_zwei(self):
+        from kegel_cv.config import load_config
+        assert load_config().sampling.error_code_min_blinking_lamps == 2
+
+
 def bild() -> np.ndarray:
     return np.full((HOEHE, BREITE, 3), 40, dtype=np.uint8)
 
@@ -124,6 +157,12 @@ class Prozessor:
         # die Pipeline entscheidet ueber sie gemeinsam mit den Abtastframes.
         self.nach_samples: list[PinLampReading] = []
         self.result_pins = lesung(bis)
+        # Der Endstand ist die Grundlinie des naechsten Wurfs; die Pipeline
+        # meldet ihn hierher zurueck.
+        self.vorstand: PinLampReading | None = None
+
+    def uebernimm_vorstand(self, ergebnis: PinLampReading | None) -> None:
+        self.vorstand = ergebnis
 
     def read_pin_lamps_at(self, frame: Frame) -> PinLampReading:
         if frame.index <= GRUEN_AUS:

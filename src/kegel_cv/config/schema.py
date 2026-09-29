@@ -1323,6 +1323,39 @@ class SamplingConfig(BaseModel):
     # Wurfnummer.
     count_closes_at_green_off: bool = False
 
+    # Wie viele Lampen BLINKEN muessen, damit es ein Fehlercode ist.
+    #
+    # Nutzer, 2026-09-29: *„es gab nur 2 Fehlercodes im ganzen Spiel und
+    # meines Wissens nach alle auf Bahn 4."* Mit einer einzigen blinkenden
+    # Lampe meldete die Regel ueber denselben Spieltag fuenf -- vier davon
+    # waren Bahn 5 Kegel 8, die zweimal flackerte (BUG-034).
+    #
+    # GEMESSEN an beiden echten Codes:
+    #     Fall 1, 11 Messungen: blinkend [1,2,3,4,5,8]  fest [6,7,9]
+    #     Fall 2, 16 Messungen: blinkend [1,2,3,4,5]    fest [6,7,8,9]
+    # Beide bleiben bei 2 erkannt, alle vier Fehlalarme fallen weg.
+    error_code_min_blinking_lamps: int = Field(default=2, ge=1, le=9)
+
+    # DIE GRUNDLINIE IST NICHT FREI (Nutzeridee 2026-09-29): *„wie waere es
+    # mit, die Grundlinie darf nur 0 sein ODER derselbe Wert wie im Wurf
+    # zuvor?"*
+    #
+    # Kegel stehen nicht wieder auf. Nach einem Wurf liegt genau das, was
+    # vorher lag, plus was dieser Wurf umwarf. Nur wenn die Anlage neu
+    # aufstellt -- bei den Vollen nach jedem Wurf, beim Abraeumen nach allen
+    # neunen -- liegt nichts. Es gibt also genau zwei erlaubte Grundlinien,
+    # und welche gilt, zeigt die Tafel zu Beginn der Gruenphase selbst.
+    #
+    # ALLES ANDERE IST NACHLEUCHTEN des vorigen Wurfs: Jubelblinken oder ein
+    # Fehlercode. Damit faellt beides weg, ohne dass die Regel es erwaehnt --
+    # und der Wurf BEGINNT an derselben Stelle, an der die Grundlinie steht.
+    #
+    # GEMESSEN ueber den Spieltag (tools/simuliere_vorstand.py, 1473 Wuerfe
+    # mit lesbarer Tafelsumme): Anker in 1671 von 1678 Wuerfen gefunden,
+    # 1410 auf 1412 richtig, vier besser und zwei schlechter -- die zwei sind
+    # das zu kurze Fenster des Simulators und Bahn 5 Kegel 8.
+    baseline_from_previous_state: bool = False
+
     # Wie lange nach GREEN_OFF gewartet wird, bevor der Wurf gemeldet wird.
     #
     # Frueher wurde bis zum NAECHSTEN GREEN_ON gewartet -- im Mittel 15 Sekunden,

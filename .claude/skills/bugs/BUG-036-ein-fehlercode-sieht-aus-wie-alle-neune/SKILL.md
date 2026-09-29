@@ -16,7 +16,7 @@ description: >
 | **Schweregrad** | hoch (2 Spiele je +10 Kegel) |
 | **Belege** | `debug/streitfaelle/streit_bahn5_f137732.gif` (Nachbarfall), Messung in `docs/VIDEO_ANALYSIS.md`, 2026-09-25 |
 | **Werkzeug** | `tools/messe_blinken.py` |
-| **Stand** | **bewusst nicht behoben** — sechs Gegenmassnahmen gemessen, alle teurer als der Fehler |
+| **Stand** | **behoben** (2026-09-28/29) — siehe „Doch gebaut“ am Ende; für den Folgewurf [BUG-037](../BUG-037-der-wurf-nach-dem-fehlercode-verliert-seine-grundlinie/SKILL.md) |
 
 ## Symptom
 
@@ -179,3 +179,39 @@ ist die Abwaegung neu zu treffen.
 Nebenbefund derselben Messung: **E4 ist der Zahlenbeleg fuer die Praemisse des
 Nutzers.** Wer statt der Vereinigung die Mehrheit nimmt, faellt von 93 auf
 8 Prozent -- beim Blinken ist jede Lampe die halbe Zeit aus.
+
+
+## Doch gebaut (2026-09-28/29)
+
+Die Abwägung oben stimmte für die damals gemessenen Varianten —
+sie alle verschoben das **Ergebnisfenster**. Die Lösung lag woanders: Was
+nach Grün-AUS kommt, ist entweder Jubelblinken oder ein Fehlercode, und
+beides ist an seiner **Form** zu trennen. Beim Jubel blinkt alles, was
+leuchtet; beim Fehlercode leuchtet ein Teil fest, während der andere
+blinkt. Nur diese Messungen werden verworfen, das Fenster bleibt
+unangetastet.
+
+`models.readings.ist_fehlercode`, angewandt in `pipeline._aggregate_pins`.
+Gemessen über den Spieltag: 2 Würfe korrigiert (je 9 auf 7), kein
+anderer berührt, 1099 auf 1101 einige Würfe.
+
+### Eine einzelne flackernde Lampe ist kein Code (2026-09-29)
+
+Nutzer: *„es gab nur 2 Fehlercodes im ganzen Spiel und meines Wissens
+nach alle auf Bahn 4."* Gezählt wurden fünf — vier davon auf
+Bahn 5, und alle vier waren **Kegel 8**, die binnen zwei Sekunden zweimal
+flackerte (BUG-034):
+
+```
+Bahn 5, Gruen-AUS 32120        Bahn 5, Gruen-AUS 146477
+  +2   123456789                +2   1234.6.89
+  +4   1234567.9  <- 8 aus      +7   1234.6..9  <- 8 aus
+  +5   123456789  <- 8 an       +12  1234.6.89  <- 8 an
+  +7   1234567.9  <- 8 aus      +23  1234.6..9  <- 8 aus
+```
+
+Das Zählen von **Dunkelphasen** statt Wechseln sollte genau das
+verhindern — es reicht nicht, zwei Aussetzer schafft eine wackelige
+Lampe mühelos. Ein Code ist ein **Muster**:
+`sampling.error_code_min_blinking_lamps: 2`. Beide echten Codes hatten sechs
+bzw. fünf blinkende Lampen, alle vier Fehlalarme genau eine.

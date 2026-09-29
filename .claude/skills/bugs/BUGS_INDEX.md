@@ -278,16 +278,17 @@ Ein Signalname ist keine Zusage über den Zustand.
 Prüfmuster daraus: Wer einen Rechenkern testet, hat noch nicht getestet, dass
 ihn jemand aufruft. Die Verdrahtung braucht ihren eigenen Test.
 
-## BUG-034 bis BUG-036 — der 2. Spieltag (2026-09-24/25)
+## BUG-034 bis BUG-037 — der 2. Spieltag (2026-09-24/29)
 
-Drei Fehler, alle drei vom Nutzer an der Tafel bemerkt, bevor irgendeine
+Vier Fehler, alle vier vom Nutzer an der Tafel bemerkt, bevor irgendeine
 Prüfung anschlug.
 
 | | Was | Schaden | Stand |
 |---|---|---|---|
-| [BUG-034](BUG-034-eine-lampe-die-nie-hell-genug-wird/SKILL.md) | Bahn 5 Kegel 8: ROI sitzt zwei Pixel zu tief | 39 Würfe falsch, 1 Wurf verloren | Daten korrigiert, Kalibrierung offen |
+| [BUG-034](BUG-034-eine-lampe-die-nie-hell-genug-wird/SKILL.md) | Bahn 5 Kegel 8: ROI sitzt zwei Pixel zu tief | 39 Würfe falsch, 1 Wurf verloren | behoben, `2Spieltag_neu.json` (p99 216,8 auf 255,0) |
 | [BUG-035](BUG-035-ein-wurf-ohne-eigene-gruenphase/SKILL.md) | „Eine Grünphase = ein Wurf" gilt nicht immer | im Lauf null, Lücke ohne Alarm | offen |
-| [BUG-036](BUG-036-ein-fehlercode-sieht-aus-wie-alle-neune/SKILL.md) | Störungsanzeige der Tafel wird als Ergebnis gelesen | 2 Spiele je +10 | gemessen, nicht gebaut |
+| [BUG-036](BUG-036-ein-fehlercode-sieht-aus-wie-alle-neune/SKILL.md) | Störungsanzeige der Tafel wird als Ergebnis gelesen | 2 Spiele je +10 | behoben, `ist_fehlercode` |
+| [BUG-037](BUG-037-der-wurf-nach-dem-fehlercode-verliert-seine-grundlinie/SKILL.md) | Tafel wird sekundenlang dunkel — die Grundlinie des Folgewurfs fällt auf null | 2 Spiele je +8 | behoben, `baseline_from_previous_state` |
 
 ### Was diese drei dem Muster hinzufügen
 
@@ -318,3 +319,28 @@ echten Fehlercodes, zweimal wegen des Umschaltmoments kurz nach Grün-AN. Erst
 der Widerspruch des Nutzers (*„Bevor der nächste Wurf freigegeben wird, ist
 das Problem IMMER behoben!"*) hat das aufgedeckt. Ein Erkenner, der aus dem
 falschen Grund richtig liegt, fällt beim nächsten Material um.
+
+
+### Was BUG-037 hinzufügt (2026-09-29)
+
+**Eine Größe, die nur ZWEI Werte annehmen kann, sollte man nicht
+messen.** Die Grundlinie wurde seit jeher aus den Lampen geschätzt —
+mit Fenster, mit Spur, mit kleinstem Stand — obwohl die Physik sie auf
+zwei Möglichkeiten festnagelt: leer oder der Stand des vorigen Wurfs.
+Jede Schätzung konnte an einer dunklen Tafel scheitern; eine Auswahl aus
+zwei erlaubten Werten kann es nicht. Der Vorschlag kam vom Nutzer.
+
+**Wer nur die Grundlinie repariert, repariert die Hälfte.** Dieselbe
+Störung sitzt im Ergebnis. Gemessen: nur Grundlinie ergibt 2 Kegel,
+Grundlinie und Ergebnisbeginn am selben Schnitt ergeben 1 — und die Tafel
+sagt 1.
+
+**Ein Erkenner braucht nicht nur eine Bedingung, sondern die richtige
+Kardinalität.** `ist_fehlercode` zählte Dunkelphasen statt Wechsel,
+um eine wackelige Lampe auszuschließen — und schlug trotzdem viermal
+auf genau diese Lampe an. Es fehlte die Frage, wie VIELE Lampen blinken.
+
+**Zwei Änderungen in einem Lauf trennen sich nur noch nach Bahnen.** Der
+Vollauf vom 2026-09-29 enthält die neue Regel UND die korrigierte
+Kalibrierung. Zuzuordnen ist das nur, weil Bahn 2, 3 und 4 unverändert
+kalibriert sind.

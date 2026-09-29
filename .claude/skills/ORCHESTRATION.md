@@ -2516,3 +2516,60 @@ Bildquelle — der Worker liest, der Player steuert.
 Der einzige echte Preis: Ein Sprung im Video muss den Analysezustand
 verwerfen, und die Auswertung läuft immer mit (rund 25–30 ms/Frame). Beides
 ist im Plan behandelt.
+
+
+---
+
+## Die Grundlinie kommt nicht mehr aus einer Messung (2026-09-29)
+
+**Stand: gebaut, getestet, Vollauf laeuft.** Schalter
+`sampling.baseline_from_previous_state` steht auf `false`; er wird auf `true`
+gestellt, wenn der Vollauf ueber den 2. Spieltag ihn bestaetigt.
+
+### Was sich aendert
+
+Die Grundlinie — was schon lag, bevor der Wurf kam — wurde bisher
+aus den Lampen **geschaetzt**: erst ueber ein Fenster nach Gruen-AN
+(`baseline_offsets`), dann ueber den kleinsten Stand der laufenden Spur
+(`baseline_from_trace`, BUG-031). Beide Wege koennen an einer gestoerten
+Anzeige scheitern, und genau das taten sie zweimal (BUG-037).
+
+Sie ist aber gar nicht frei. Nutzeridee: *„wie waere es mit, die
+Grundlinie darf nur 0 sein ODER derselbe Wert wie im Wurf zuvor?"* Kegel
+stehen nicht wieder auf; nur wenn die Anlage neu aufstellt — bei den
+Vollen nach jedem Wurf, beim Abraeumen nach allen neunen — liegt nichts.
+Zwei erlaubte Werte, und welcher gilt, zeigt die Tafel selbst.
+
+**Und derselbe Augenblick ist der Beginn des Wurfes.** Damit wird an EINER
+Stelle geschnitten: Nachleuchten des vorigen Wurfs — Jubelblinken wie
+Fehlercode — faellt weder in die Grundlinie noch ins Ergebnis. Nur die
+Grundlinie zu reparieren genuegt nicht (gemessen: 2 Kegel statt 1).
+
+Schweigt die Regel — kein Anker in der ganzen Gruenphase —, gilt
+unveraendert das bisherige Verfahren.
+
+### Wo es steht
+
+| Ort | Was |
+|---|---|
+| `analysis/lane_processor.py` | `_vorstand`, `uebernimm_vorstand()`, `_anker_vorstand()` |
+| `analysis/pipeline.py` | meldet den Endstand zurueck, reicht den Codeschwellwert durch |
+| `models/readings.py` | `ist_fehlercode(..., mindest_blinkende=2)` |
+| `config/default.yaml` | `baseline_from_previous_state`, `error_code_min_blinking_lamps` |
+| `tools/simuliere_vorstand.py` | die Regel offline gegen einen ganzen Lauf |
+| `tools/simuliere_plateau.py` | die verworfene Plateau-Variante, zum Vergleich |
+| `tests/unit/test_grundlinie_aus_vorstand.py` | 17 Tests |
+
+### Was als naechstes ansteht
+
+1. Vollauf „Vorstand-Grundlinie" auswerten — **nach Bahnen
+   getrennt**: Bahn 5 traegt zugleich die korrigierte Kalibrierung
+   (`2Spieltag_neu.json`), Bahn 2–4 nur die Regel.
+2. Bei Erfolg `baseline_from_previous_state: true` als Vorgabe.
+3. Branch `rueckwaerts-vom-gruen-aus` nach `master`.
+4. Verwaiste Testlaeufe in der Datenbank loeschen: `Breakpoint Gate 0.7`,
+   `Breakpoint v3`, `Breakpoint v4`, `Breakpoint v5`, `Nur Fehlercode-Filter`.
+   (`Breakpoint-Test 2. Spieltag` ist bereits geloescht, 1679 Zeilen.)
+5. Offen geblieben: Bahn 4 liest die Kegelziffer 34-mal als `3`, wo `7` steht
+   — im GIF vom 2026-09-29 direkt zu sehen (Tafel `022 7 0170`, gelesen
+   `3`). Der Nutzer will das mit seinem Kumpel klaeren.

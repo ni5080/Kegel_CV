@@ -1030,6 +1030,52 @@ sampling:
   # Mal ZU NIEDRIG.
   count_closes_at_green_off: false
 
+  # Wie viele Lampen muessen BLINKEN, damit es ein Fehlercode ist?
+  #
+  # Nutzer, 2026-09-29: "es gab nur 2 Fehlercodes im ganzen Spiel und meines
+  # Wissens nach alle auf Bahn 4". Mit einer einzigen blinkenden Lampe meldete
+  # die Regel ueber denselben Spieltag fuenf Codes -- vier davon auf Bahn 5,
+  # und alle vier waren Kegel 8, die binnen zwei Sekunden zweimal flackerte:
+  #
+  #     Bahn 5, Gruen-AUS 32120        Bahn 5, Gruen-AUS 146477
+  #       +2   123456789                 +2   1234.6.89
+  #       +4   1234567.9  <- 8 aus       +7   1234.6..9  <- 8 aus
+  #       +5   123456789  <- 8 an        +12  1234.6.89  <- 8 an
+  #       +7   1234567.9  <- 8 aus       +23  1234.6..9  <- 8 aus
+  #
+  # GEMESSEN an beiden echten Codes -- beide bleiben erkannt:
+  #     Fall 1, 11 Messungen: blinkend [1,2,3,4,5,8]  fest [6,7,9]
+  #     Fall 2, 16 Messungen: blinkend [1,2,3,4,5]    fest [6,7,8,9]
+  error_code_min_blinking_lamps: 2
+
+  # DIE GRUNDLINIE IST NICHT FREI (Nutzeridee 2026-09-29):
+  # "wie waere es mit, die Grundlinie darf nur 0 sein ODER derselbe Wert wie
+  # im Wurf zuvor?"
+  #
+  # Kegel stehen nicht wieder auf. Nach einem Wurf liegt genau das, was vorher
+  # lag, plus was dieser Wurf umwarf. Nur wenn die Anlage neu aufstellt -- bei
+  # den Vollen nach jedem Wurf, beim Abraeumen nach allen neunen -- liegt
+  # nichts. Zwei erlaubte Grundlinien also, und welche gilt, zeigt die Tafel
+  # zu Beginn der Gruenphase selbst. Alles andere ist Nachleuchten des vorigen
+  # Wurfs: Jubelblinken oder ein Fehlercode.
+  #
+  # Der Wurf BEGINNT an derselben Stelle, an der die Grundlinie steht -- damit
+  # ist auch das Ergebnis frei vom Nachleuchten. Gemessen an Bahn 4, Spiel 4:
+  #
+  #     47105  .....67.9   Fehlercode
+  #     47117  123456789   Fehlercode
+  #     47130  ...4567.9   Fehlercode, letztes Aufflackern
+  #     47140  123..6789   <- genau das Ergebnis von Wurf 22: ANKER
+  #     47605  1234.6789   Kegel 4 faellt
+  #     47674  Gruen-AUS        Ergebnis - Grundlinie = {4} = 1 Kegel
+  #
+  # Findet sich in der ganzen Gruenphase keiner der beiden Staende, schweigt
+  # die Regel und es gilt unveraendert das bisherige Verfahren.
+  #
+  # GEMESSEN (tools/simuliere_vorstand.py, 1473 Wuerfe mit lesbarer
+  # Tafelsumme): Anker in 1671 von 1678 Wuerfen, 1410 auf 1412 richtig.
+  baseline_from_previous_state: false
+
   # Wartezeit nach GREEN_OFF bis zur Meldung, in Frames (25 fps -> 40 = 1,6 s).
   #
   # Vorher wurde bis zum naechsten GREEN_ON gewartet: im Mittel 15 Sekunden,
