@@ -16,7 +16,7 @@ description: >
 | **Schweregrad** | hoch (2 Spiele je +8 Kegel) |
 | **Belege** | `debug/streitfaelle/streit_bahn4_f46576-47220.gif` (182 Bilder, Frame fuer Frame), `debug/streitfaelle/uebersicht_bahn4_wurf22_23.png` |
 | **Werkzeuge** | `tools/simuliere_vorstand.py`, `tools/simuliere_plateau.py` |
-| **Stand** | **behoben** — `sampling.baseline_from_previous_state` |
+| **Stand** | **behoben** — `sampling.baseline_from_previous_state`, seit dem Vollauf vom 2026-09-29 die Vorgabe |
 
 ## Symptom
 
@@ -134,6 +134,43 @@ Regel**: Diese Laeufe benutzten zugleich die korrigierte Kalibrierung
 (p99-Helligkeit 216,8 -> 255,0). Nur Bahn 2, 3 und 4 haben eine unveraenderte
 Kalibrierung -- was sich dort aendert, ist ausschliesslich die Regel, und dort
 liegen beide Zielwuerfe.
+
+### Der Vollauf ueber den ganzen Spieltag (2026-09-29, 110 min)
+
+```
+                                   alt (28.09.)      neu
+  Wuerfe                           1678              1679
+  gegen die Tafelsumme richtig     1410  95,7 %      1437  97,6 %
+  Lampen/Ziffer/Summe einig        1099  65,8 %      1131  67,7 %
+  Tafelprobe Wurf fuer Wurf        1474  97,2 %      1477  97,4 %
+  Spiele mit falschem Endstand        4 von 60          1 von 60
+  Luecken                             2                 1
+  nachtraegliche Korrekturen         39                 0
+  Gruenzyklen ohne Ergebnis          13                12
+  Fehlercode-Meldungen               19                 2
+```
+
+**Null Wuerfe schlechter** bei 1678 gepaarten. Nach Ursache getrennt:
+
+```
+  Bahn 2    0 Unterschiede
+  Bahn 3    0 Unterschiede
+  Bahn 4    2 Unterschiede -- beide besser, beide die Zielwuerfe  (Regel)
+  Bahn 5   39 Unterschiede -- 25 von der Tafelsumme bestaetigt    (Kalibrierung)
+```
+
+Die beiden Bahn-4-Spiele stehen jetzt auf **+0** statt +10 beziehungsweise
++8. Die Regel hat sich am ganzen Spieltag **zweimal** gemeldet:
+
+```
+Bahn 4: Grundlinie gemessen [] -- erlaubt ist nur leer oder [1,2,3,6,7,8,9],
+        es gilt [1,2,3,6,7,8,9] ab Frame  47140
+Bahn 4: Grundlinie gemessen [] -- erlaubt ist nur leer oder [1,2,3,6,7,8,9],
+        es gilt [1,2,3,6,7,8,9] ab Frame 138770
+```
+
+Nebenbefund: **Die nachtraegliche Korrektur der Tabelle findet nichts mehr zu
+korrigieren** -- vorher waren es 39 Wuerfe.
 
 ## Lehre
 

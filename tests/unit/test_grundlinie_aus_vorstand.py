@@ -171,9 +171,11 @@ class TestVerdrahtung:
     """Dass die Funktion stimmt, heisst nicht, dass sie jemand aufruft --
     genau diese Luecke war BUG-023."""
 
-    def test_die_vorgabe_ist_aus(self):
-        """Erst messen, dann einschalten -- wie beim Breakpoint."""
-        assert load_config().sampling.baseline_from_previous_state is False
+    def test_die_vorgabe_ist_an(self):
+        """Eingeschaltet, nachdem der Vollauf ueber den 2. Spieltag sie
+        bestaetigt hat: 1410 auf 1437 richtig gegen die Tafelsumme, null
+        Wuerfe schlechter, Spiele mit falschem Endstand von 4 auf 1."""
+        assert load_config().sampling.baseline_from_previous_state is True
 
     def test_abgeschaltet_bleibt_die_grundlinie_unberuehrt(self):
         cfg = load_config()

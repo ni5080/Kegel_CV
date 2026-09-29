@@ -3926,3 +3926,37 @@ Beide echten Codes, an den Messreihen der Pipeline geprueft:
 ```
 
 `sampling.error_code_min_blinking_lamps: 2`.
+
+### Der Vollauf ueber den ganzen Spieltag (2026-09-29, 110 min)
+
+Regel eingeschaltet, dazu die korrigierte Kalibrierung `2Spieltag_neu.json`:
+
+```
+                                   alt (28.09.)      neu
+  Wuerfe                           1678              1679
+  gegen die Tafelsumme richtig     1410  95,7 %      1437  97,6 %
+  Lampen/Ziffer/Summe einig        1099  65,8 %      1131  67,7 %
+  Tafelprobe Wurf fuer Wurf        1474  97,2 %      1477  97,4 %
+  Spiele mit falschem Endstand        4 von 60          1 von 60
+  Luecken                             2                 1
+  nachtraegliche Korrekturen         39                 0
+  Gruenzyklen ohne Ergebnis          13                12
+  Fehlercode-Meldungen               19                 2
+```
+
+Null Wuerfe schlechter bei 1678 gepaarten. Nach Ursache getrennt -- Bahn 2,
+3 und 4 sind unveraendert kalibriert, dort wirkt nur die Regel:
+
+```
+  Bahn 2    0 Unterschiede
+  Bahn 3    0 Unterschiede
+  Bahn 4    2 Unterschiede -- beide besser, beide die Zielwuerfe  (Regel)
+  Bahn 5   39 Unterschiede -- 25 von der Tafelsumme bestaetigt    (Kalibrierung)
+```
+
+Die Regel meldete sich am ganzen Spieltag zweimal, an genau den Wuerfen, fuer
+die sie gebaut ist. Der Fehlercode-Filter zweimal statt neunzehnmal -- die
+siebzehn Fehlalarme waren Bahn 5 Kegel 8.
+
+Nebenbefund: Die nachtraegliche Korrektur der Wurftabelle findet nichts mehr
+zu korrigieren; vorher waren es 39 Wuerfe.

@@ -1072,9 +1072,26 @@ sampling:
   # Findet sich in der ganzen Gruenphase keiner der beiden Staende, schweigt
   # die Regel und es gilt unveraendert das bisherige Verfahren.
   #
-  # GEMESSEN (tools/simuliere_vorstand.py, 1473 Wuerfe mit lesbarer
-  # Tafelsumme): Anker in 1671 von 1678 Wuerfen, 1410 auf 1412 richtig.
-  baseline_from_previous_state: false
+  # GEMESSEN, erst offline (tools/simuliere_vorstand.py, 1473 Wuerfe
+  # mit lesbarer Tafelsumme): Anker in 1671 von 1678 Wuerfen.
+  #
+  # DANN AM GANZEN SPIELTAG (Vollauf 2026-09-29, 110 min):
+  #
+  #                                  alt (28.09.)   neu
+  #   gegen die Tafelsumme richtig   1410  95,7 %   1437  97,6 %
+  #   Tafelprobe Wurf fuer Wurf      1474  97,2 %   1477  97,4 %
+  #   Spiele mit falschem Endstand      4 von 60       1 von 60
+  #   nachtraegliche Korrekturen       39               0
+  #   Luecken                           2               1
+  #
+  # NULL Wuerfe schlechter bei 1678 gepaarten. Die Regel hat sich am
+  # ganzen Spieltag ZWEIMAL gemeldet -- an den beiden Wuerfen nach
+  # einem Fehlercode, fuer die sie gebaut ist. Bahn 2 und 3 zeigen
+  # keinen einzigen Unterschied.
+  #
+  # (Die 39 Unterschiede auf Bahn 5 gehoeren NICHT hierher: Derselbe
+  # Lauf benutzte die korrigierte Kalibrierung 2Spieltag_neu.json.)
+  baseline_from_previous_state: true
 
   # Wartezeit nach GREEN_OFF bis zur Meldung, in Frames (25 fps -> 40 = 1,6 s).
   #

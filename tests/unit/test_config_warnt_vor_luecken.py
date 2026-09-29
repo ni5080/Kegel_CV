@@ -99,7 +99,10 @@ def test_die_echte_messdatei_ist_eine_vollkopie(caplog):
     a, b = cfg.model_dump(), vorgabe.model_dump()
     a.pop("config_path", None), b.pop("config_path", None)
     unterschiede = _abweichungen(a, b)
-    assert unterschiede == ["sampling.baseline_from_previous_state"], \
+    # Seit der Vollauf die Regel bestaetigt hat, ist sie die Vorgabe -- dann
+    # unterscheidet sich die Messdatei in GAR NICHTS mehr. Vorher war es
+    # genau dieser eine Wert. Beides ist richtig, mehr darf es nie sein.
+    assert set(unterschiede) <= {"sampling.baseline_from_previous_state"}, \
         unterschiede
     assert isinstance(Path(datei), Path)
 
