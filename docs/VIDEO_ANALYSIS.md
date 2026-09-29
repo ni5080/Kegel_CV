@@ -3960,3 +3960,55 @@ siebzehn Fehlalarme waren Bahn 5 Kegel 8.
 
 Nebenbefund: Die nachtraegliche Korrektur der Wurftabelle findet nichts mehr
 zu korrigieren; vorher waren es 39 Wuerfe.
+
+## Die Kegelziffer auf Bahn 4 sitzt einen Pixel daneben (2026-09-29)
+
+Der Vollauf meldete neun Wuerfe, in denen Lampen und Kegelziffer sich
+widersprechen -- siebenmal `7` gelesen als `3`, zweimal `1` gelesen als `3`.
+Die Tafelbilder zeigen, dass die Tafel recht hat:
+
+```
+Frame 204625   Tafel 001 | 7 | 0000   gelesen 3   Lampen 1,2,3,4,7,8,9 = 7
+Frame  35111   Tafel 030 | 1 | 0188   gelesen 3   Lampen alle aus = 1
+```
+
+Belege: `debug/streitfaelle/beleg_ziffer_wird_3.png`,
+`debug/streitfaelle/streit_bahn4_f204537.gif`. Ein dritter, unabhaengiger
+Zeuge steckt in den Zahlen: Spiel 15 und Spiel 16 haben je dreimal 7, und die
+Tafelsumme steht danach auf 21.
+
+### Gemessen (tools/messe_ziffernversatz.py)
+
+Das Mass ist die TAFELSUMME -- `SummeTafel(N+1) - SummeTafel(N)` weiss nichts
+von den Lampen und nichts vom Ziffernleser. Der Rahmen wird probeweise
+verschoben, gezaehlt wird die Uebereinstimmung.
+
+```
+Feld pin_count      heute              bester Versatz       dort
+  Bahn 2            191/191  100,0 %   (0,0)                --
+  Bahn 3            168/181   92,8 %   (0,-2)               169   93,4 %
+  Bahn 4             89/191   46,6 %   (-1,0)               191  100,0 %
+  Bahn 5            177/178   99,4 %   (0,0)                --
+
+Bahn 4, Rasterausschnitt (Treffer von 191):
+dy\dx    -2    -1     0     1     2
+  -1     180   179    81    13     9
+   0     188   191    89    14     9
+   1     188   191   105    18    11
+```
+
+**Nur Bahn 4, und genau ein Pixel.** Die Verwechslungen bei (0,0):
+
+```
+7 gelesen als 3   33x      8 gelesen als 6    9x
+9 gelesen als 5   31x      8 gelesen als 5    8x
+1 gelesen als 3   13x
+```
+
+Auf die gebuchten Ergebnisse wirkt das nicht -- die Lampen entscheiden, die
+Ziffer wird bei Widerspruch als strittig protokolliert. Es kostet aber 102
+von 191 Wuerfen ihren zweiten Zeugen, und zwar auf der Bahn, deren
+Tafelsumme ohnehin am haeufigsten schweigt.
+
+Bahn 3 behaelt 13 Fehler, die KEIN Versatz repariert -- das ist etwas
+anderes und bleibt offen (`docs/OPEN_QUESTIONS.md`).
