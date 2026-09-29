@@ -87,7 +87,11 @@ def argumente() -> argparse.Namespace:
     p.add_argument("--config", type=Path, default=None,
                    help="Konfigurationsdatei (Vorgabe: config/default.yaml). "
                         "Fuer die direkte Hallenkamera: "
-                        "config/hallenkamera.yaml")
+                        "config/hallenkamera.yaml. ACHTUNG: ERSETZT die "
+                        "Vorgabedatei, mischt NICHT -- fuer einen Messlauf "
+                        "mit einem geaenderten Wert also eine VOLLKOPIE von "
+                        "default.yaml anlegen, sonst fallen alle uebrigen "
+                        "Werte auf die Schema-Vorgaben zurueck.")
     p.add_argument("--quiet", action="store_true",
                    help="Nur Fortschritt, keine Ereignismeldungen")
     return p.parse_args()

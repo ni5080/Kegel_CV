@@ -108,6 +108,47 @@ def load_env_file(path: Path) -> int:
     return uebernommen
 
 
+def _warne_vor_luecken(config_path: Path, raw: dict, root: Path) -> None:
+    """Warnt, wenn eine eigene Konfiguration ganze Abschnitte auslaesst.
+
+    `--config` ERSETZT `config/default.yaml`, es mischt nicht. Wer eine Datei
+    mit nur einem Schluessel uebergibt, bekommt fuer alles andere die
+    Schema-Vorgaben -- und die sind an vielen Stellen bewusst andere als die
+    gemessenen Werte der Vorgabedatei.
+
+    AM 2026-09-29 hat das einen halben Messtag gekostet: Eine Override-Datei
+    mit der einen Zeile `sampling.baseline_from_previous_state: true` liess
+    zwanzig Werte zurueckfallen -- darunter alle Lampenschwellen, die
+    Bahnnummern-Zuordnung und `breakpoint_from_throw_number`, das im Schema
+    auf `true` steht und in der Vorgabedatei auf `false`. Zwei gezielte
+    Laeufe und ein anderthalbstuendiger Vollauf waren wertlos, und der
+    scheinbare Rueckschritt eines Wurfs schickte die Fehlersuche in die
+    falsche Richtung.
+
+    Eine Warnung, kein Fehler: Ein knappes Profil kann gewollt sein.
+    """
+    vorgabe = root / "config" / DEFAULT_CONFIG_NAME
+    if config_path == vorgabe or not vorgabe.is_file():
+        return
+    try:
+        with vorgabe.open("r", encoding="utf-8") as fh:
+            standard = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError) as exc:      # P8: nie den Start verhindern
+        log.debug("Vorgabekonfiguration nicht vergleichbar: %s", exc)
+        return
+    if not isinstance(standard, dict):
+        return
+    fehlend = sorted(set(standard) - set(raw))
+    if fehlend:
+        log.warning(
+            "%s laesst %d Abschnitt(e) aus, die %s setzt: %s. --config "
+            "ERSETZT die Vorgabedatei, es mischt nicht -- fuer diese "
+            "Abschnitte gelten jetzt die Schema-Vorgaben, nicht die "
+            "gemessenen Werte.",
+            config_path.name, len(fehlend), DEFAULT_CONFIG_NAME,
+            ", ".join(fehlend))
+
+
 def load_config(
     path: str | Path | None = None,
     overrides: dict[str, Any] | None = None,
@@ -148,6 +189,8 @@ def load_config(
 
     if overrides:
         raw = _deep_merge(raw, overrides)
+
+    _warne_vor_luecken(config_path, raw, root)
 
     raw["project_root"] = root
     raw["config_path"] = config_path

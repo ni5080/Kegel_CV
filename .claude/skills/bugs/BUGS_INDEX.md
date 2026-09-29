@@ -344,3 +344,38 @@ auf genau diese Lampe an. Es fehlte die Frage, wie VIELE Lampen blinken.
 Vollauf vom 2026-09-29 enthält die neue Regel UND die korrigierte
 Kalibrierung. Zuzuordnen ist das nur, weil Bahn 2, 3 und 4 unverändert
 kalibriert sind.
+
+
+### Die teuerste Stunde des 2026-09-29 war kein Analysefehler
+
+**`--config` ersetzt die Vorgabedatei, es mischt nicht.** Eine
+Override-Datei mit der einen Zeile `sampling.baseline_from_previous_state:
+true` liess zwanzig Werte auf die Schema-Vorgaben zurückfallen —
+alle Lampenschwellen, die Bahnnummern-Zuordnung, und ausgerechnet
+`breakpoint_from_throw_number`, das im Schema `true` ist und in
+`default.yaml` `false`. Zwei gezielte Läufe und ein
+anderthalbstündiger Vollauf waren wertlos.
+
+**Ein scheinbarer Rückschritt schickte die Suche in die falsche
+Richtung.** Ein Wurf wurde statt 6 auf einmal 8 gebucht, und eine Stunde lang
+galt die neue Regel als schuldig — obwohl sie das Ergebnisfenster nur
+verkleinern kann, nie vergrößern. Diese Überlegung hätte
+schon gereicht, um woanders zu suchen.
+
+**Aufgeklärt hat es der Vergleich der ROHEN Messwerte, nicht der
+Ergebnisse.** Dieselben Framenummern, dieselbe Bahn:
+
+```
+F10482   gestern  1:247 2:243 3:238 4:247 5:192 6:186 7:243 8:176 9:244
+         Probe B  1:247 2:243 3:238 4:247 5:192 6:186 7:243 8:176 9:244
+         Probe A  1:255 2:255 3:255 4:255 5:230 6:230 7:255 8:219 9:255
+```
+
+Probe A hatte nicht anders *gerechnet*, sondern anders *gemessen*. Wer zwei
+Läufe vergleicht und einen Unterschied findet, sollte zuerst prüfen,
+ob beide dasselbe gesehen haben.
+
+**Gegenmassnahme gebaut:** `config.loader` warnt jetzt, wenn eine eigene
+Konfiguration ganze Abschnitte der Vorgabedatei auslässt
+(`tests/unit/test_config_warnt_vor_luecken.py`), und die Hilfe von
+`tools/run_analysis.py --config` sagt es ausdrücklich.
