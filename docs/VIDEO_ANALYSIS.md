@@ -4273,3 +4273,74 @@ wo die Kegelziffer 7 zeigt. Die Lampen haben recht -- die Tafelsumme steht
 vor Wurf 26 auf 173 und vor Wurf 29 auf 192, bei Wurf 26 = 1 bleiben fuer die
 Wuerfe 27 und 28 genau 18. Das ist BUG-009 in neuem Gewand: die 9 ohne
 unteren Balken.
+
+## Der fehlende Wurf auf Bahn 5: zwei Wuerfe in einer Gruenphase (2026-10-06)
+
+Die einzige echte Luecke des 1. Spieltags. Bahn 5, Spiel 17: amtlich 201,
+von uns 194. `tools/compare_protocol.py --ausrichtung block` zeigte den
+Sprung der Tafel-Wurfnummer von 6 auf 8.
+
+**Die Gruenspur, Bahn 5:**
+
+```
+F286392   Gruen AUS  Score 53,6     Wurf 6 wird gebucht (7 Kegel)
+F286570   Gruen AN
+F286950   Score 57,1  UNKNOWN       tiefster Punkt der ganzen Phase
+F287402   Gruen AUS  Score 53,6     Wurf 8 wird gebucht
+```
+
+832 Frames, 33 Sekunden, EINE Phase. Der Score haette unter 52,5 fallen
+muessen; er kam bis 57,1 und blieb damit in der Totzone zwischen AUS- und
+AN-Schwelle.
+
+**Die Lampenspur sagt, was wirklich geschah:**
+
+```
+F286500  an=[]                  die Anlage stellt auf
+F286750  an=[1,2,3,6]           WURF 7 faellt
+F286775..286890                 Blinken, Takt rund 30 Frames, alle neun
+F287005  an=[]                  die Anlage stellt auf
+F287220  an=[1,2,3,6]           WURF 8 faellt
+F287225  an=[1,2,3,6,7,8,9]     7 Kegel
+```
+
+Zwei vollstaendige Wurfbilder in einer Gruenphase, dazwischen geraeumt.
+
+**Der Schaden hat zwei Haelften, und die Rechnung geht exakt auf:**
+
+```
+Wurf 7 = 9 (Alle Neune)   nicht gebucht      -9
+Wurf 8 = 7                gebucht als 9      +2
+                                             --
+                                             -7      194 + 7 = 201 = amtlich
+```
+
+Die zweite Haelfte ist der neue Teil: **Die Blinkbilder von Wurf 7 liegen im
+Ergebnisfenster von Wurf 8.** Der Blinkfilter aus BUG-036 greift nicht -- der
+entfernt Blinken NACH dem Gruen-AUS, dieses liegt mitten in der Phase.
+
+### Ein Erkenner dafuer, falschalarmfrei
+
+`tools/finde_zwei_wuerfe_in_einer_gruenphase.py`. Blinken und ein zweiter
+Wurf sehen gleich aus -- Licht, dunkel, Licht. Der Unterschied ist die Pause:
+
+```
+Blinken (Alle Neune, 8er Kranz)   rund 30 Frames Takt
+zweiter Wurf                      raeumen, aufstellen, ausholen -- Hunderte
+```
+
+Zusammengelegt wird alles unter 60 Frames, gemeldet nur, was danach noch
+mindestens 120 Frames Dunkelheit laesst. Eine dritte Bedingung macht es erst
+brauchbar: Das erste Bild muss NACH dem Raeumen entstanden sein -- steht es
+schon beim Gruen-AN, ist es das Nachleuchten des vorigen Wurfs. Ohne sie
+kommt genau ein Fehlalarm je Spieltag.
+
+```
+GEMESSEN ueber zwei volle Spieltage, 3359 Wuerfe:
+   1. Spieltag   1 Fund    Bahn 5, F286570-287402   <- der echte Fall
+   2. Spieltag   0 Funde
+```
+
+Beleg: `debug/fehlwuerfe/streit_bahn5_f286300-287500.gif`. Fortschreibung in
+BUG-035, Fall C.
+

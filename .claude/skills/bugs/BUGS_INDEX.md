@@ -63,6 +63,25 @@ Detektor am selben Frame — im Skript blieb der Zustand stehen, im Detektor
 nicht, und `min_stable_frames: 3` schluckte das einzelne AUS. Das kostete einen
 vollen Prüflauf.
 
+## BUG-035 Fall C — eine Vorhersage, die eingetroffen ist (2026-10-06)
+
+Im SKILL stand seit dem 25.09. der Satz: *„Fiele in einer verschmolzenen
+Grünphase auch nur ein Kegel, bekäme ihn still der Folgewurf zugeschlagen,
+und nichts würde es melden."* Zwei Wochen später ist genau das passiert, mit
+allen neun Kegeln, und gemeldet hat es tatsächlich nichts — gefunden wurde es
+nur, weil die amtliche Ergebnistafel für dieses eine Spiel 201 sagte und wir
+194.
+
+**Das Muster für den Index:** Ein SKILL, das seine eigene Restlücke benennt,
+ist mehr wert als eines, das nur den behobenen Fall beschreibt. Diese Lücke
+war beim nächsten Spieltag sofort als Erklärung zur Hand, statt dass die
+Suche von vorn beginnen musste.
+
+**Und ein zweiter Schaden, den die Vorhersage nicht hatte:** Das Blinken des
+verlorenen Wurfs liegt im Ergebnisfenster des nächsten und macht ihn zu hoch.
+Der Blinkfilter aus BUG-036 greift dort nicht — er entfernt Blinken NACH dem
+Grün-AUS, dieses liegt mitten in der Phase.
+
 ---
 
 ## Statistik
@@ -310,7 +329,7 @@ Prüfung anschlug.
 | | Was | Schaden | Stand |
 |---|---|---|---|
 | [BUG-034](BUG-034-eine-lampe-die-nie-hell-genug-wird/SKILL.md) | Bahn 5 Kegel 8: ROI sitzt zwei Pixel zu tief | 39 Würfe falsch, 1 Wurf verloren | behoben, `2Spieltag_neu.json` (p99 216,8 auf 255,0) |
-| [BUG-035](BUG-035-ein-wurf-ohne-eigene-gruenphase/SKILL.md) | „Eine Grünphase = ein Wurf" gilt nicht immer | im Lauf null, Lücke ohne Alarm | offen |
+| [BUG-035](BUG-035-ein-wurf-ohne-eigene-gruenphase/SKILL.md) | „Eine Grünphase = ein Wurf" gilt nicht immer | **1 Wurf (9 Kegel) verloren, Folgewurf +2** — am 1. Spieltag gemessen, Fall C | offen, Erkenner gebaut |
 | [BUG-036](BUG-036-ein-fehlercode-sieht-aus-wie-alle-neune/SKILL.md) | Störungsanzeige der Tafel wird als Ergebnis gelesen | 2 Spiele je +10 | behoben, `ist_fehlercode` |
 | [BUG-037](BUG-037-der-wurf-nach-dem-fehlercode-verliert-seine-grundlinie/SKILL.md) | Tafel wird sekundenlang dunkel — die Grundlinie des Folgewurfs fällt auf null | 2 Spiele je +8 | behoben, `baseline_from_previous_state` |
 
