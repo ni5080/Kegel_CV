@@ -28,6 +28,25 @@ ACHTUNG, wenn das Protokoll nur einen TEIL des Videos abdeckt: Die Ausrichtung
 findet dann den passenden Abschnitt, aber alles davor und dahinter zaehlt als
 "zuviel". Diese Zahl ist dann KEINE Fehlerquote -- sie sagt nur, wie viel
 ausserhalb des Protokolls liegt. Aussagekraeftig sind "passt" und "falsch".
+
+ZWEI AUSRICHTUNGEN (`--ausrichtung`), und die Wahl entscheidet das Ergebnis:
+
+`frei` (bis 2026-10-06 der einzige Weg) richtet die GANZE Bahn als eine
+Wurffolge aus. Das setzt voraus, dass das Protokoll die Bahn lueckenlos
+abdeckt. Deckt es nur EINE Mannschaft ab -- und das tut
+`wurfprotokoll_spieltag_1.csv` --, dann liegen zwischen zwei Protokollbloecken
+die 30 Wuerfe des Gegners, und die Ausrichtung klebt einen Block ueber zwei
+Spiele hinweg zusammen. GEMESSEN am 1. Spieltag: 639 von 720 "richtig", und in
+ALLEN 81 angeblich falschen Wuerfen stimmten unsere Lampen mit der Kegelziffer
+der Tafel ueberein. Ein Beleg, dass nicht die Erkennung danebenlag, sondern die
+Zuordnung.
+
+`block` (Vorgabe) nutzt die Struktur, die beide Seiten haben: Ein Block des
+Protokolls (eine Bahn, ein Satz, ein Spieler, 30 Wuerfe) ist genau EIN Spiel
+unseres Laufs. Zugeordnet wird auf Blockebene, verglichen wird innerhalb des
+Paares ueber die WURFNUMMER der Tafel -- eine Groesse, die weder aus unseren
+Lampen noch aus dem Protokoll stammt. Ein verlorener Wurf verschiebt damit
+nichts mehr.
 """
 
 from __future__ import annotations
@@ -109,6 +128,8 @@ def wuerfe_aus_csv(pfad: Path) -> list[dict]:
                 "throw_number": int(zeile["Wurfnummer"]),
                 "source_frame": int(zeile["Frame"]),
                 "timestamp": float(zeile.get("Zeitstempel_s") or 0.0),
+                "spiel": (int(zeile["Spiel"]) if zeile.get("Spiel", "").strip()
+                          .lstrip("-").isdigit() else None),
                 "status": zeile["Status"],
                 "displayed_pin_count": int(ziffer) if ziffer.isdigit() else None,
                 "raeumen": zeile.get("Raeumen", ""),
@@ -132,6 +153,148 @@ def wahrheit_lesen(pfad: Path) -> dict[int, list[dict]]:
     return je_bahn
 
 
+# ---------------------------------------------------------------- blockweise
+
+# Ein uebersprungenes Spiel kostet nichts: Auf jeder Bahn spielt auch die
+# Mannschaft, die das Protokoll nicht abdeckt, und davor steht das Warmwerfen.
+# Ein uebersprungener Protokollblock dagegen darf nie die beste Loesung sein.
+SPIEL_UEBERSPRINGEN = 0
+BLOCK_UEBERSPRINGEN = -100
+
+
+def bloecke_der_wahrheit(zeilen: list[dict]) -> list[list[dict]]:
+    """Aufeinanderfolgende Zeilen mit gleichem Satz und Spieler sind ein Block."""
+    bloecke: list[list[dict]] = []
+    for zeile in zeilen:
+        kennung = (zeile["satz"], zeile["spieler"])
+        if not bloecke or (bloecke[-1][0]["satz"],
+                           bloecke[-1][0]["spieler"]) != kennung:
+            bloecke.append([])
+        bloecke[-1].append(zeile)
+    return bloecke
+
+
+def spiele_des_laufs(wuerfe: list[dict], blockgroesse: int) -> list[list[dict]]:
+    """Die Wuerfe einer Bahn nach Spielnummer gruppieren.
+
+    Ein Spiel, das die Anlage mittendrin neu begonnen hat, steht bei uns als
+    zwei Spiele mit sich ergaenzenden Wurfnummern (gemessen: Bahn 5 am
+    1. Spieltag, 1-18 und 19-30). Die werden wieder zusammengelegt -- sonst
+    faende die Zuordnung fuer einen Protokollblock nur eine Haelfte.
+    """
+    roh: list[list[dict]] = []
+    for wurf in wuerfe:
+        if not roh or roh[-1][0]["spiel"] != wurf["spiel"]:
+            roh.append([])
+        roh[-1].append(wurf)
+
+    zusammen: list[list[dict]] = []
+    for gruppe in roh:
+        if zusammen:
+            davor = zusammen[-1]
+            nummern_davor = {w["throw_number"] for w in davor}
+            nummern = {w["throw_number"] for w in gruppe}
+            passt = (len(davor) + len(gruppe) <= blockgroesse
+                     and not (nummern_davor & nummern))
+            if passt:
+                davor.extend(gruppe)
+                continue
+        zusammen.append(list(gruppe))
+    return zusammen
+
+
+def _treffer(block: list[dict], spiel: list[dict]) -> tuple[int, str]:
+    """Wie gut passen Block und Spiel zusammen -- und auf welchem Weg.
+
+    Erster Weg: ueber die WURFNUMMER der Tafel. Die kennt weder unsere
+    Lampenauswertung noch das Protokoll, sie ist also ein unabhaengiger
+    Schluessel. Zweiter Weg (Rueckfall): ueber die Position, falls die
+    Wurfnummer einer Bahn durchgehend verschoben ist.
+    """
+    nach_nummer = {w["throw_number"]: w for w in spiel}
+    ueber_nummer = sum(1 for z in block
+                       if z["wurf"] in nach_nummer
+                       and nach_nummer[z["wurf"]]["pins_count"] == z["kegel"])
+    ueber_position = sum(1 for z, w in zip(block, spiel)
+                         if w["pins_count"] == z["kegel"])
+    if ueber_nummer >= ueber_position:
+        return ueber_nummer, "Wurfnummer"
+    return ueber_position, "Position"
+
+
+def paare_block_spiel(bloecke: list[list[dict]],
+                      spiele: list[list[dict]]) -> list[tuple]:
+    """Welcher Protokollblock ist welches Spiel des Laufs?
+
+    NICHT der Reihe nach. Das war der erste Versuch, und er ist GEMESSEN
+    falsch: Die Bloecke stehen im Protokoll nach Satz und Spieler sortiert,
+    auf der Bahn spielen die Saetze aber verschraenkt. Am 1. Spieltag, Bahn 3,
+    ist die wahre Reihenfolge
+
+        Satz 1 Spieler A | Satz 3 Spieler D | Satz 1 Spieler B | Satz 3 ...
+
+    weil ein Trio die Bahnen 3-4-5-2 durchwandert und das andere 5-2-3-4. Eine
+    Ausrichtung, die Monotonie voraussetzt, waehlt dann die falschen Spiele:
+    68,2 Prozent gegen 92,6 Prozent mit freier Zuordnung (gemessen).
+
+    Also eine echte Zuordnung: jeder Block bekommt genau ein Spiel, jedes
+    Spiel hoechstens einen Block, und die Summe der Uebereinstimmungen wird
+    maximiert. Tiefensuche mit oberer Schranke -- bei sechs Bloecken und
+    fuenfzehn Spielen je Bahn ist das sofort fertig.
+    """
+    bewertung = [[_treffer(block, spiel)[0] for spiel in spiele]
+                 for block in bloecke]
+    beste = {"wert": -1, "wahl": None}
+    obergrenze = [0] * (len(bloecke) + 1)
+    for i in range(len(bloecke) - 1, -1, -1):
+        obergrenze[i] = obergrenze[i + 1] + (max(bewertung[i])
+                                             if bewertung[i] else 0)
+
+    def suche(i: int, belegt: frozenset, summe: int, wahl: tuple) -> None:
+        if summe + obergrenze[i] <= beste["wert"]:
+            return
+        if i == len(bloecke):
+            beste.update(wert=summe, wahl=wahl)
+            return
+        rang = sorted(range(len(spiele)), key=lambda j: -bewertung[i][j])
+        for j in rang:
+            if j not in belegt:
+                suche(i + 1, belegt | {j}, summe + bewertung[i][j],
+                      wahl + (j,))
+
+    if bloecke and spiele:
+        suche(0, frozenset(), 0, ())
+    wahl = beste["wahl"] or tuple([None] * len(bloecke))
+    return list(enumerate(wahl))
+
+
+def vergleiche_block(block: list[dict], spiel: list[dict]) -> list[tuple]:
+    """Innerhalb eines Paares: Protokollwurf gegen unseren Wurf.
+
+    Liefert Paare (unser Wurf oder None, Protokollzeile oder None).
+    """
+    if spiel is None:
+        return [(None, z) for z in block]
+    _, weg = _treffer(block, spiel)
+    paare: list[tuple] = []
+    if weg == "Wurfnummer":
+        nach_nummer = {w["throw_number"]: w for w in spiel}
+        benutzt = set()
+        for zeile in block:
+            wurf = nach_nummer.get(zeile["wurf"])
+            if wurf is not None:
+                benutzt.add(zeile["wurf"])
+            paare.append((wurf, zeile))
+        for wurf in spiel:
+            if wurf["throw_number"] not in benutzt:
+                paare.append((wurf, None))
+        return paare
+    for index in range(max(len(block), len(spiel))):
+        paare.append((spiel[index] if index < len(spiel) else None,
+                      block[index] if index < len(block) else None))
+    return paare
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -140,6 +303,12 @@ def main() -> int:
                    help="wuerfe.csv eines Laufs ODER vollauswertung.json")
     p.add_argument("--wahrheit", type=Path, default=WAHRHEIT)
     p.add_argument("--aus", type=Path, default=AUSGABE)
+    p.add_argument("--ausrichtung", choices=("block", "frei"), default="block",
+                   help="block: ein Protokollblock ist ein Spiel, verglichen "
+                        "ueber die Wurfnummer der Tafel (Vorgabe). "
+                        "frei: die ganze Bahn als eine Folge ausrichten -- "
+                        "nur richtig, wenn das Protokoll die Bahn lueckenlos "
+                        "abdeckt.")
     a = p.parse_args()
 
     pfad = a.quelle
@@ -168,22 +337,52 @@ def main() -> int:
     print(f"Quelle    : {quelle_name}")
     print(f"Wahrheit  : {a.wahrheit.name}")
     print(f"Erkannt   : {len(alle_wuerfe)} Wuerfe")
-    print(f"Protokoll : {sum(len(v) for v in wahrheit.values())} Wuerfe\n")
+    print(f"Protokoll : {sum(len(v) for v in wahrheit.values())} Wuerfe")
+    print(f"Ausrichtung: {a.ausrichtung}\n")
+
+    if a.ausrichtung == "block" and any(
+            w.get("spiel") is None for w in alle_wuerfe):
+        print("Keine Spielnummern in der Quelle -- es wird frei ausgerichtet.\n")
+        a.ausrichtung = "frei"
 
     zeilen: list[dict] = []
+    zugeordnet: list[tuple] = []
     gesamt = Counter()
     je_bahn_kennzahl = []
 
     for bahn in sorted(wahrheit):
         wuerfe = erkannt.get(bahn, [])
         soll = wahrheit[bahn]
-        paare = ausrichten([w["pins_count"] for w in wuerfe],
-                           [s["kegel"] for s in soll])
+        if a.ausrichtung == "block":
+            bloecke = bloecke_der_wahrheit(soll)
+            groesse = max(len(b) for b in bloecke)
+            spiele = spiele_des_laufs(wuerfe, groesse)
+            zuordnung = paare_block_spiel(bloecke, spiele)
+            paare = []
+            offen = list(range(len(spiele)))
+            for i, j in zuordnung:
+                spiel = spiele[j] if j is not None else None
+                if spiel is not None:
+                    offen.remove(j)
+                    zugeordnet.append((bahn, bloecke[i][0]["satz"],
+                                       bloecke[i][0]["spieler"],
+                                       spiel[0]["spiel"], len(spiel),
+                                       spiel[0]["source_frame"],
+                                       spiel[-1]["source_frame"],
+                                       _treffer(bloecke[i], spiel)[1]))
+                paare.extend(vergleiche_block(bloecke[i], spiel))
+            # Was uebrig bleibt, ist das Spiel der anderen Mannschaft oder
+            # das Warmwerfen -- es zaehlt als "zuviel", nicht als Fehler.
+            for j in offen:
+                paare.extend((w, None) for w in spiele[j])
+        else:
+            paare = [(wuerfe[i] if i is not None else None,
+                      soll[j] if j is not None else None)
+                     for i, j in ausrichten([w["pins_count"] for w in wuerfe],
+                                            [s["kegel"] for s in soll])]
 
         zaehler = Counter()
-        for i, j in paare:
-            w = wuerfe[i] if i is not None else None
-            s = soll[j] if j is not None else None
+        for w, s in paare:
             if w is None:
                 art = "fehlt"
             elif s is None:
@@ -237,6 +436,16 @@ def main() -> int:
           f"{100 * vergleichbar_gesamt / soll_gesamt:>9.1f}%"
           f"{100 * gesamt['passt'] / soll_gesamt:>9.1f}%")
 
+    if zugeordnet:
+        print("")
+        print("Zuordnung Protokollblock -> Spiel des Laufs")
+        print(f"{'Bahn':<6}{'Satz':<6}{'Spiel':>7}{'Wuerfe':>8}"
+              f"{'von Frame':>11}{'bis Frame':>11}   verglichen ueber")
+        for bahn, satz, _, spiel, anzahl, f0, f1, weg in zugeordnet:
+            warn = "" if anzahl == 30 else "   <-- nicht 30 Wuerfe"
+            print(f"{bahn:<6}{satz:<6}{spiel:>7}{anzahl:>8}{f0:>11}{f1:>11}"
+                  f"   {weg}{warn}")
+
     # Kegelsummen -- die Zahl, die am Ende auf dem Spielberichtsbogen steht
     print(f"\nKegel je Satz -- Werkzeug/Protokoll\n")
     print(f"{'Bahn':<6}{'Satz 1':>12}{'Satz 2':>12}{'Satz 3':>12}{'Satz 4':>12}"
@@ -285,7 +494,7 @@ def main() -> int:
         schreiber = csv.DictWriter(datei, fieldnames=list(zeilen[0]), delimiter=";")
         schreiber.writeheader()
         schreiber.writerows(zeilen)
-    print(f"\nZeile fuer Zeile: {AUSGABE}")
+    print(f"\nZeile fuer Zeile: {a.aus}")
     return 0
 
 

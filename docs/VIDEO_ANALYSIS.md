@@ -1196,8 +1196,11 @@ Durchlauf überhaupt.
 
 > Die absoluten Quoten sind eine Nachbildung mit fester Trennschwelle (204)
 > statt der gleitenden Grundlinie des echten Detektors — der Lauf selbst
-> erreicht 720/720. Der **Vergleich** der Regeln trägt trotzdem, weil alle vier
-> dieselbe Nachbildung benutzen.
+> erreicht 720/720 **erfasste** Würfe. Der **Vergleich** der Regeln trägt
+> trotzdem, weil alle vier dieselbe Nachbildung benutzen.
+> *(Nachtrag 2026-10-06: „720/720" war hier wie weiter unten die Spalte*
+> *`erfasst`, nicht die Trefferquote. Siehe den Abschnitt zur blockweisen*
+> *Ausrichtung am Ende dieser Datei.)*
 
 ### Wie lang muss das Grundlinienfenster sein?
 
@@ -1852,7 +1855,7 @@ dunkler Anzeige. Der enge ROI ist in allen drei Vergleichsfällen bestätigt.
 
 | | weiter ROI (01.09.) | enger ROI (02.09.) | **mit den drei Änderungen** |
 |---|---|---|---|
-| **gegen das Protokoll** | 720/720 | 719/720 | **720/720** |
+| **gegen das Protokoll (erfasst)** | 720/720 | 719/720 | **720/720** |
 | Würfe | 1695 | 1695 | 1694 |
 | Kegel gesamt | 11 483 | 11 479 | 11 480 |
 | VALID / EMPTY / ERROR | 1667/13/15 | 1679/16/0 | 1679/**15**/0 |
@@ -4169,3 +4172,104 @@ einzige geaenderte Kegelzahl. Der einzige Unterschied ist Bahn 5 Wurf 19.
 Die 44 Ziffernwidersprueche auf Bahn 4 aus dem Vorlauf sind mit dem
 Ziffernversatz von einem Pixel ebenfalls weg -- Bahn 4 steht jetzt in jedem
 Lauf auf 29/29.
+
+
+## Das Wurfprotokoll war falsch ausgerichtet (2026-10-06)
+
+Der Vergleich gegen das handgefuehrte Wurfprotokoll ist die einzige Kennzahl
+dieses Projekts, die nicht aus dem Bild stammt. Sie stand wochenlang bei
+**88,8 Prozent**, und niemand hat ihr misstraut -- auch nicht, als die
+Zeile oben mit „720/720" danebenstand. Die 720 war die Spalte **erfasst**
+(alle Wuerfe gefunden), nicht die Trefferquote.
+
+Aufgefallen ist es erst, als dasselbe Werkzeug den frischen Lauf vom
+1. Spieltag bewertete und wieder exakt 88,8 Prozent meldete, waehrend drei
+andere Pruefungen den Lauf fuer fast fehlerfrei hielten:
+
+```
+gegen die Tafelsumme, Wurf fuer Wurf     1402/1452   96,6 %
+Lampen gegen Kegelziffer                   17/1561
+gegen die amtliche Ergebnistafel          45 von 48 Spielen exakt
+```
+
+**Der Widerspruch loest sich an einer Zeile des Werkzeugs selbst:** *„Von 81
+falschen Wuerfen haette die Ziffernanzeige 0 richtig gehabt."* In ALLEN 81
+Faellen stimmten unsere Lampen mit der Kegelziffer der Tafel ueberein. Zwei
+unabhaengige Lesungen desselben Bildes gegen das Protokoll -- das ist kein
+Erkennungsfehler, das ist eine falsche Zuordnung.
+
+### Warum die freie Ausrichtung hier nicht funktionieren kann
+
+`wurfprotokoll_spieltag_1.csv` deckt nur die Heimmannschaft ab, sechs von
+zwoelf Spielern. Zwischen zwei Protokollbloecken liegen also die 30 Wuerfe
+des Gegners. Die Ausrichtung nahm die Bahn als EINE Wurffolge und klebte
+einen Block ueber zwei Spiele hinweg zusammen:
+
+```
+Protokollblock "Bahn 2, Satz 2, ein Spieler", 30 Wuerfe
+   Wurf  1-10  zugeordnet an unser Spiel 5
+   Wurf 11-30  zugeordnet an unser Spiel 6
+im selben Zeitfenster liegen 75 unserer Wuerfe
+```
+
+### Die blockweise Ausrichtung
+
+Ein Block des Protokolls (eine Bahn, ein Satz, ein Spieler, 30 Wuerfe) ist
+genau EIN Spiel des Laufs. Verglichen wird innerhalb des Paares ueber die
+**Wurfnummer der Tafel** -- eine Groesse, die weder aus unseren Lampen noch
+aus dem Protokoll stammt, und die einen verlorenen Wurf als Luecke stehen
+laesst, statt alles dahinter zu verschieben.
+
+```
+                        frei     block
+Lauf vom 2026-10-06   639/720   720/720   (88,8 % -> 100,0 %)
+Lauf vom 2026-09-03   639/720   626/720   (86,9 %)
+```
+
+Der September-Lauf ist also wirklich schlechter -- die freie Ausrichtung hat
+beide Staende auf dieselbe Zahl eingeebnet.
+
+**Zwei Annahmen sind dabei gescheitert, und beide stehen jetzt im Test:**
+
+1. *Die Bloecke kommen in derselben Reihenfolge wie unsere Spiele.* Nein. Im
+   Protokoll stehen sie nach Satz und Spieler sortiert, auf der Bahn spielen
+   die Saetze verschraenkt: Ein Trio wandert die Bahnen 3-4-5-2 ab, das
+   andere 5-2-3-4. Mit Monotonie kam die Ausrichtung auf **68,2 Prozent** --
+   schlechter als der Fehler, den sie beheben sollte. Gebaut ist jetzt eine
+   echte Zuordnung ohne Ordnungsannahme (Tiefensuche mit oberer Schranke).
+2. *Ein Spiel des Laufs ist ein Block.* Meistens. Hat die Anlage mittendrin
+   neu begonnen, steht es bei uns als zwei Spiele mit sich ergaenzenden
+   Wurfnummern (gemessen: Bahn 5, 1-18 und 19-30). Die werden zusammengelegt.
+
+Die gewaehlte Zuordnung wird mit ausgegeben. Beim Lauf vom 2026-10-06 ist sie
+vollkommen regelmaessig -- je Bahn jedes fuenfte Spiel, in zwei Versaetzen --,
+ohne dass das vorgegeben waere. Das ist die beste Gegenprobe, die es dafuer
+gibt. Beim September-Lauf ist sie es NICHT, und das ist ebenfalls ein Signal:
+Wo viel falsch erkannt wird, rutscht auch die Zuordnung.
+
+### Was der 1. Spieltag damit wirklich wert ist
+
+```
+gegen das Wurfprotokoll (720 Wuerfe)       720/720   100,0 %
+gegen die amtliche Ergebnistafel (48)       45/48
+Spieltagstotal            wir 9756, amtlich 9763   (-7)
+```
+
+Alle drei abweichenden Spiele gehoeren zur **Gastmannschaft**, die das
+Protokoll nicht abdeckt:
+
+| Bahn | Spiel | Abw. | Befund |
+|---|---|---|---|
+| 5 | 17 | −7 | **Wurf 7 fehlt** -- die Tafel zeigt `007 / 7 / 0049`, bei uns springt die Nummer von 6 auf 8. 194 + 7 = 201 = amtlich. |
+| 2 | 15 | +2 | Die Tafel zeigt am Spielende selbst `0196`, die Summenkette stimmt Wurf fuer Wurf. Der Spielberichtsbogen sagt 194. |
+| 3 | 16 | −2 | Die Tafel zeigt am Spielende selbst `0213`, alle 30 Wuerfe mit Ziffer und Summe einig. Der Bogen sagt 215. |
+
+Die beiden ±2 heben sich im Spieltagstotal auf; aus dem Video sind sie nicht
+zu entscheiden. Belege: `debug/fehlwuerfe/streit_bahn2_f280550-281500.gif`
+und `debug/fehlwuerfe/streit_bahn3_f302700-303650.gif`.
+
+**Und ein Nebenbefund:** In Spiel 17 auf Bahn 5 lesen die Lampen fuenfmal 9,
+wo die Kegelziffer 7 zeigt. Die Lampen haben recht -- die Tafelsumme steht
+vor Wurf 26 auf 173 und vor Wurf 29 auf 192, bei Wurf 26 = 1 bleiben fuer die
+Wuerfe 27 und 28 genau 18. Das ist BUG-009 in neuem Gewand: die 9 ohne
+unteren Balken.
