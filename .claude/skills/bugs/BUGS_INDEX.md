@@ -38,6 +38,30 @@
 | [032](BUG-032-der-erste-wurf-steht-noch-auf-null/SKILL.md) | `COUNT` | Wurfnummer und Summe stehen beim ERSTEN Wurf eines Spiels beide auf null -- die Regel liest das als 'kein Wurf' und verwirft ihn. Die Lampen sahen sechs Kegel fallen und wurden nie gefragt | 2026-09-18 | niedrig | `test_throw_analyzer.py::TestWurfnummerNullIstKeinWurf` |
 | [033](BUG-033-die-aufgefangene-ausnahme-liess-den-zustand-stehen/SKILL.md) | `ANALYSE` | Eine deque wurde geschnitten -> TypeError bei jedem Gruen-AUS. P8 fing ihn ab, aber die Ergebnisliste wurde nie zurueckgesetzt und sammelte das Raeumbild des Vorgaengers mit allen neun Lampen. Jeder zweite Wurf eines ganzen Spieltags zu hoch | 2026-09-24 | **kritisch** | `test_grundlinie_aus_spur.py::...::test_nimmt_auch_eine_deque` |
 | [019](BUG-019-verworfener-spielwechsel-verschiebt-die-kette/SKILL.md) | `COUNT` | Verworfener Spielwechsel-Zyklus stellte die alte Wurfnummer wieder her — 5 von 64 Sätzen begannen bei 31 statt 1 | 2026-09-03 | **hoch** | `test_throw_analyzer.py::TestVerworfenerSpielwechselVerschiebtDieKette` |
+| [038](BUG-038-die-bessere-roi-kostet-die-ersten-wuerfe/SKILL.md) | `DETECT` | Eine nach Trennschaerfe BESSERE Gruenlampen-ROI hob das AUS-Niveau ueber die feste globale AN-Schwelle -- im Anlauf, wo noch nichts gelernt ist, ging die Lampe damit nie aus und die ersten drei Wuerfe des Spieltags fehlten | 2026-10-06 | **hoch** | `test_gruen_anlaufregel.py` |
+
+## BUG-038 — was eine bessere Messung kaputt machen kann (2026-10-06)
+
+Der erste Fehler dieser Reihe, der nicht von einer schlechten Messung kam,
+sondern von einer **besseren**. Die Grünlampen-ROI auf Bahn 4 wurde nach
+Trennschärfe optimiert (Fisher 16,0 → 25,7); dadurch wanderten beide Wolken
+nach oben, das AUS-Niveau von 30,0 auf 50,0 — über die feste globale
+AN-Schwelle von 45. Im Anlauf, wo weder Histogramm noch Perzentile etwas
+gelernt haben, trug genau diese feste Schwelle, und die Lampe ging acht
+Minuten lang nie aus.
+
+**Die Frage, die daraus folgt:** Welche absoluten Werte hängen an einer ROI,
+ohne dass die Kalibrierungsdatei etwas davon weiß? Der Nutzer hat die
+naheliegende Antwort — eine Schwelle je Bahn in die Kalibrierung — verworfen,
+weil sie die Kopplung nur sichtbarer macht statt sie aufzulösen. Gebaut wurde
+stattdessen eine Regel über die **Änderung** (`warmup_min_change`), die ohne
+absolute Lage auskommt.
+
+**Zum Prüfmuster aus BUG-034 kommt eines hinzu:** Ein Simulationsskript beweist
+die Regel, nicht ihre Umsetzung. Dieselbe Regel feuerte im Skript und im
+Detektor am selben Frame — im Skript blieb der Zustand stehen, im Detektor
+nicht, und `min_stable_frames: 3` schluckte das einzelne AUS. Das kostete einen
+vollen Prüflauf.
 
 ---
 
@@ -47,7 +71,7 @@
 |---|---|---|
 | `TEMPORAL` | **1** | Zeitliche Logik / Zustandsmaschine |
 | `CALIB` | **2** | Kalibrierung / Geometrie |
-| `DETECT` | **3** | Erkennung (Lampen, Ziffern) |
+| `DETECT` | **4** | Erkennung (Lampen, Ziffern) |
 | `COUNT` | **3** (davon 1 offen) | Zähl- und Summenlogik |
 | `LANE` | 0 | Bahn-Unabhängigkeit |
 | `VIDEO` | **1** | Videoquelle |

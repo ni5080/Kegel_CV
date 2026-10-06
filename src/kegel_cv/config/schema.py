@@ -393,6 +393,50 @@ class GreenDetectionConfig(BaseModel):
     #
     # Waehrend der Verdeckung wird der Zustand eingefroren: keine Uebergaenge,
     # keine Messungen. Lieber eine Luecke im Protokoll als ein erfundener Wurf.
+    # ANLAUF: ohne zwei Wolken gibt es keine Schwelle, nur eine Aenderung.
+    #
+    # Die Schwellen lernt der Detektor im Betrieb -- aus dem Histogramm,
+    # hilfsweise aus Perzentilen. Beides braucht BEIDE Zustaende im Fenster.
+    # Zu Beginn einer Aufzeichnung ist die Anlage aber freigegeben und die
+    # Lampe durchgehend an; gemessen am 2. Spieltag kam das erste AUS auf
+    # Bahn 4 erst bei Frame 10480, also nach achteinhalb Minuten.
+    #
+    # Bis dahin galt eine feste globale Schwelle (45/35). Die passt zu den
+    # gemessenen AUS-Niveaus (25,5 / 22,9 / 31,4 / 25,7) eher zufaellig: Eine
+    # nach Trennschaerfe bessere ROI hob das AUS-Niveau auf Bahn 4 auf 50,3,
+    # und die Lampe ging im Anlauf nie mehr aus -- die ersten drei Wuerfe des
+    # Spieltags gingen verloren.
+    #
+    # Nutzeridee 2026-10-06: *"wir hoffen ja nur, dass aus irgendwo drunter
+    # liegt und an irgendwo drueber... ich denke wir sollten eher mal
+    # schauen, ob wir es dadurch schaffen, dass wir sagen am Anfang brauchen
+    # wir eine Aenderung > 10 oder so"*. Das braucht die absolute Lage nicht
+    # und haengt damit an keiner ROI.
+    #
+    # GEMESSEN an beiden Vollaeufen, Frame des ersten erkannten Gruen-AUS:
+    #
+    #                        absolut   >5     >10     >15     >20
+    #   alte ROIs  Bahn 2      7558    161   3200    7557    7558
+    #              Bahn 3     10400     40  10392   10392   10399
+    #              Bahn 4     10480     79   1801   10479   14124
+    #              Bahn 5      5607    977   5605    5605    5605
+    #   neue ROI   Bahn 4      KEINS    91   2097   10470   10479
+    #              Bahn 5      5607     87   5605    5605    5605
+    #
+    # Bei 15 trifft die Regel ueberall dasselbe AUS wie die absolute Schwelle
+    # -- auf wenige Frames genau, ohne Fehlausloeser davor -- und sie findet
+    # es auch dort, wo die absolute Schwelle nichts findet. Bei 10 kommen
+    # Fehlausloeser, bei 20 wird Bahn 4 zu spaet. Die kleinste gemessene
+    # Spanne zwischen den Wolken ist 35, also mehr als das Doppelte.
+    #
+    # 0 schaltet die Regel ab; dann gilt im Anlauf wieder die feste Schwelle.
+    warmup_min_change: float = Field(default=15.0, ge=0.0, le=100.0)
+
+    # Wie traege das Niveau des laufenden Zustands nachgefuehrt wird (0..1).
+    # Klein genug, dass eine einzelne Messung es nicht verschiebt, gross
+    # genug, dass langsame Helligkeitsaenderungen im Saal mitgenommen werden.
+    warmup_level_decay: float = Field(default=0.01, gt=0.0, le=1.0)
+
     occlusion_score: float = Field(default=2.0, ge=0.0)
     # ... und derselbe Gedanke ANTEILIG am UNTEREN RAND der AUS-Wolke. Er
     # traegt, wo eine feste Zahl es nicht kann.

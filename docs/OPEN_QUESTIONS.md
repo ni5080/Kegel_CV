@@ -627,3 +627,26 @@ falsche Würfe zwischen vielen richtigen.
 
 Gebaut wird das, sobald Material einer zweiten Anlage da ist. Es jetzt gegen
 die Halle zu entwickeln, die das Werkzeug schon kennt, beweist nichts.
+
+### Bahn 3: 13 Ziffernfehler, die kein Versatz repariert (2026-10-06)
+
+Der Versatztest (`tools/messe_ziffernversatz.py`, Schiedsrichter ist die
+Tafelsumme) hat Bahn 4 vollstaendig erklaert — ein Pixel nach links, 89/191
+auf 191/191. Bahn 3 bleibt bei 168/181; der beste Versatz (0,-2) bringt
+genau einen Treffer mehr. Das ist also kein Lagefehler.
+
+Was es stattdessen ist, wurde nicht untersucht. Kandidaten: schlechterer
+Kontrast auf dieser Tafel, ein anderer Ziffernsatz, oder die Faelle liegen
+alle an Stellen, an denen die Tafel ohnehin umschaltet.
+
+Folgen hat es nur fuer die Redundanz — die Lampen entscheiden, der
+Widerspruch wird protokolliert. Es kostet die Bahn aber ihren zweiten Zeugen
+in 13 von 181 Faellen.
+
+### Bahn 5: das Feld `digit_pin_count_1` sitzt woanders (2026-10-06)
+
+Auf den Bahnen 2, 3 und 4 liegt das Feld an derselben relativen Stelle, auf
+Bahn 5 nicht. Aufgefallen beim Nachmessen des Ziffernversatzes; die Bahn
+liest trotzdem 177/178 richtig, also ist nichts kaputt. Ob die Tafel dort
+anders gebaut ist oder nur die Kalibrierung abweicht, ist nicht geprueft.
+

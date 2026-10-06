@@ -384,6 +384,42 @@ detection:
     histogram_hysteresis: 0.10
     histogram_interval: 25
 
+    # ANLAUF -- solange keine zwei Wolken da sind, zaehlt die AENDERUNG.
+    #
+    # Histogramm und Perzentile brauchen BEIDE Zustaende im Fenster. Zu
+    # Beginn einer Aufzeichnung ist die Anlage freigegeben und die Lampe
+    # durchgehend an; GEMESSEN am 2. Spieltag kam das erste AUS auf Bahn 4
+    # erst bei Frame 10480 -- achteinhalb Minuten allein auf der festen
+    # Schwelle. Die passt zu den AUS-Niveaus (25,5 / 22,9 / 31,4 / 25,7)
+    # eher zufaellig: Eine nach Trennschaerfe bessere ROI hob das Niveau auf
+    # Bahn 4 auf 50,3 -- ueber die feste AN-Schwelle -- und die ersten drei
+    # Wuerfe des Spieltags gingen verloren.
+    #
+    # Eine Aenderung braucht die absolute Lage nicht und haengt damit an
+    # keiner ROI. Frame des ersten erkannten Gruen-AUS, beide Vollaeufe:
+    #
+    #                        absolut   >5     >10     >15     >20
+    #   alte ROIs  Bahn 2      7558    161   3200    7557    7558
+    #              Bahn 3     10400     40  10392   10392   10399
+    #              Bahn 4     10480     79   1801   10479   14124
+    #              Bahn 5      5607    977   5605    5605    5605
+    #   neue ROI   Bahn 4      KEINS    91   2097   10470   10479
+    #              Bahn 5      5607     87   5605    5605    5605
+    #
+    # Bei 15 trifft die Regel ueberall dasselbe AUS wie die feste Schwelle,
+    # ohne Fehlausloeser davor, und findet es auch dort, wo die feste
+    # Schwelle nichts findet. Bei 10 kommen Fehlausloeser, bei 20 wird Bahn 4
+    # zu spaet. Die kleinste gemessene Spanne zwischen den Wolken ist 35.
+    #
+    # Sie ERSETZT die Schwellen nicht, sie kommt hinzu -- sonst waere die
+    # Lampe beim ersten Bild "unbekannt" statt "an". Sobald ein Lernverfahren
+    # spricht, schweigt sie. 0 schaltet sie ab.
+    warmup_min_change: 15.0
+    # Wie traege das Niveau des laufenden Zustands nachgefuehrt wird (0..1).
+    # Klein genug, dass eine einzelne Messung es nicht verschiebt, gross
+    # genug, dass langsame Helligkeitsaenderungen im Saal mitgenommen werden.
+    warmup_level_decay: 0.01
+
     # Zustandswechsel erst nach so vielen bestaetigenden Frames.
     # Verhindert, dass ein einzelner Stoerframe den Zustand kippt (Paragraph 9).
     min_stable_frames: 3

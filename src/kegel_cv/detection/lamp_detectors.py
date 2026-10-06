@@ -226,6 +226,13 @@ class HsvGreenDetector:
         self._history: deque[float] = deque(maxlen=cfg.adaptive_window)
         self._histogramm = (GleitendesHistogramm(cfg)
                             if cfg.histogram_thresholds else None)
+        # Anlaufregel: Niveau des laufenden Zustands, und der Zustand selbst.
+        # UNKNOWN heisst hier ehrlich "noch nichts gesehen" -- erst nach der
+        # ersten Aenderung ueber `warmup_min_change` gibt es eine Aussage.
+        self._anlauf_niveau: float | None = None
+        # Was die Anlaufregel ZULETZT gemeldet hat. None heisst: noch nie
+        # eine Aenderung gesehen -- dann gilt das Schwellenurteil.
+        self._anlauf_zustand: LampState | None = None
 
     @property
     def aus_niveau(self) -> float | None:
@@ -272,6 +279,11 @@ class HsvGreenDetector:
         self._history.clear()
         if self._histogramm is not None:
             self._histogramm.vergiss()
+        # Auch das Anlaufniveau gehoert zur alten Messstelle. Behielte man es,
+        # saehe die neue ROI beim ersten Bild eine riesige "Aenderung" und
+        # meldete einen Zustandswechsel, den es nie gab.
+        self._anlauf_niveau = None
+        self._anlauf_zustand = None
 
     def _thresholds(self) -> tuple[float, float]:
         """Schwellen (AN, AUS) -- anteilig zwischen den beobachteten Niveaus.
@@ -327,6 +339,77 @@ class HsvGreenDetector:
         mask = cv2.inRange(hsv, self._lower, self._upper)
         return float(mask.mean() / 255.0 * 100.0)
 
+    def _im_anlauf(self) -> bool:
+        """Hat noch keines der beiden Lernverfahren etwas zu sagen?
+
+        Sobald eines spricht, ist die Anlaufregel erledigt -- sie ist eine
+        Ueberbrueckung, keine Dauerloesung. Das Histogramm meldet sich, wenn
+        es ein Tal gefunden hat; die Perzentile, wenn die Spanne reicht.
+        """
+        if self.cfg.warmup_min_change <= 0:
+            return False
+        if self._histogramm is not None and self._histogramm.gemessen:
+            return False
+        if self.cfg.adaptive_thresholds and len(self._history) >= (
+                self.cfg.adaptive_window // 3):
+            werte = np.fromiter(self._history, dtype=np.float32)
+            spanne = (float(np.percentile(werte, self.cfg.adaptive_on_percentile))
+                      - float(np.percentile(werte,
+                                            self.cfg.adaptive_off_percentile)))
+            if spanne >= self.cfg.adaptive_min_span:
+                return False
+        return True
+
+    def _anlaufzustand(self, value: float, bisher: LampState) -> LampState:
+        """Ein Zustandswechsel allein aus der AENDERUNG, ohne absoluten Bezug.
+
+        WOZU (Nutzer, 2026-10-06): *„wir hoffen ja nur, dass aus irgendwo
+        drunter liegt und an irgendwo drueber... wir sollten eher mal
+        schauen, ob wir es dadurch schaffen, dass wir sagen am Anfang
+        brauchen wir eine Aenderung > 10 oder so."*
+
+        Eine feste Schwelle muss wissen, WO die Wolken liegen, und haengt
+        damit an der ROI. Eine Aenderung muss das nicht -- sie braucht nur,
+        dass die Wolken WEIT GENUG auseinanderliegen, und das ist die eine
+        Groesse, die ueber alle vier Bahnen stabil ist (Spanne 35 bis 48).
+
+        SIE ERSETZT DIE SCHWELLEN NICHT. Beim ersten Bild gibt es noch kein
+        Niveau; dann gilt, was die Schwellen sagen. Erst wenn ein Wert um
+        mehr als `warmup_min_change` vom laufenden Niveau abweicht, meldet
+        diese Regel einen Wechsel -- und darf dabei auch ein eindeutiges
+        Schwellenurteil ueberstimmen. Genau das ist noetig: Auf Bahn 4 lagen
+        mit der besseren ROI BEIDE Wolken ueber der festen AN-Schwelle (AUS
+        50,0 gegen 45), die Lampe galt also dauerhaft als an.
+
+        HOEHER HEISST AN -- gruene Pixel entstehen nur, wenn die Lampe
+        leuchtet. Das Niveau wird sonst langsam nachgefuehrt, damit eine
+        driftende Saalbeleuchtung mitgenommen wird, eine einzelne Messung
+        aber nicht.
+
+        Die Messtabelle steht bei `warmup_min_change` in der Konfiguration.
+        """
+        schwelle = self.cfg.warmup_min_change
+        if self._anlauf_niveau is None:
+            self._anlauf_niveau = value
+            return bisher
+        if value > self._anlauf_niveau + schwelle:
+            self._anlauf_niveau = value
+            self._anlauf_zustand = LampState.ON
+        elif value < self._anlauf_niveau - schwelle:
+            self._anlauf_niveau = value
+            self._anlauf_zustand = LampState.OFF
+        else:
+            d = self.cfg.warmup_level_decay
+            self._anlauf_niveau = (1.0 - d) * self._anlauf_niveau + d * value
+        # SIE HAELT IHREN ZUSTAND. Gaebe sie zwischen zwei Aenderungen das
+        # Schwellenurteil zurueck, waere sie wirkungslos: Gemessen auf Bahn 4
+        # meldete sie bei Frame 10470 richtig AUS (Score 77,1 auf 64,6) und
+        # fiel beim naechsten Bild sofort auf AN zurueck, weil 56,2 ueber der
+        # festen AN-Schwelle von 45 liegt. Ein einzelnes AUS aber reicht der
+        # Zustandsmaschine nicht (`min_stable_frames`), und der Wurf blieb
+        # verloren.
+        return bisher if self._anlauf_zustand is None else self._anlauf_zustand
+
     def detect(self, patch: np.ndarray) -> LampReading:
         if patch is None or patch.size == 0:
             # Leerer ROI heisst NICHT "Lampe aus" -- er heisst, dass nichts
@@ -355,6 +438,14 @@ class HsvGreenDetector:
             # In der Hysteresezone: Der bisherige Zustand bleibt bestehen.
             # Darueber entscheidet die Zustandsmaschine, nicht der Detektor.
             state = LampState.UNKNOWN
+
+        # ZUSAETZLICH, nicht ersatzweise: Solange keines der Lernverfahren
+        # spricht, darf auch eine AENDERUNG einen Wechsel melden. Die festen
+        # Schwellen bleiben unangetastet -- sie tragen den Normalfall, die
+        # Aenderung faengt den Fall ab, in dem beide Wolken ueber der festen
+        # Schwelle liegen (siehe `_anlaufzustand`).
+        if not verdeckt and self._im_anlauf():
+            state = self._anlaufzustand(value, state)
 
         return LampReading(
             state=state,

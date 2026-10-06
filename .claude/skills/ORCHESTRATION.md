@@ -2522,9 +2522,10 @@ ist im Plan behandelt.
 
 ## Die Grundlinie kommt nicht mehr aus einer Messung (2026-09-29)
 
-**Stand: gebaut, getestet, Vollauf laeuft.** Schalter
-`sampling.baseline_from_previous_state` steht auf `false`; er wird auf `true`
-gestellt, wenn der Vollauf ueber den 2. Spieltag ihn bestaetigt.
+**Stand: bestaetigt und Vorgabe.** Schalter
+`sampling.baseline_from_previous_state` steht seit dem Vollauf vom 2026-09-29
+auf `true` (1679 Wuerfe, 0 Rueckschritte, Spiele mit falschem Endstand 4 -> 1,
+39 Handkorrekturen -> 0).
 
 ### Was sich aendert
 
@@ -2560,16 +2561,75 @@ unveraendert das bisherige Verfahren.
 | `tools/simuliere_plateau.py` | die verworfene Plateau-Variante, zum Vergleich |
 | `tests/unit/test_grundlinie_aus_vorstand.py` | 17 Tests |
 
-### Was als naechstes ansteht
+### Erledigt
 
-1. Vollauf „Vorstand-Grundlinie" auswerten — **nach Bahnen
-   getrennt**: Bahn 5 traegt zugleich die korrigierte Kalibrierung
-   (`2Spieltag_neu.json`), Bahn 2–4 nur die Regel.
-2. Bei Erfolg `baseline_from_previous_state: true` als Vorgabe.
-3. Branch `rueckwaerts-vom-gruen-aus` nach `master`.
-4. Verwaiste Testlaeufe in der Datenbank loeschen: `Breakpoint Gate 0.7`,
-   `Breakpoint v3`, `Breakpoint v4`, `Breakpoint v5`, `Nur Fehlercode-Filter`.
-   (`Breakpoint-Test 2. Spieltag` ist bereits geloescht, 1679 Zeilen.)
-5. Offen geblieben: Bahn 4 liest die Kegelziffer 34-mal als `3`, wo `7` steht
-   — im GIF vom 2026-09-29 direkt zu sehen (Tafel `022 7 0170`, gelesen
-   `3`). Der Nutzer will das mit seinem Kumpel klaeren.
+1. Vollauf „Vorstand-Grundlinie" ausgewertet, nach Bahnen getrennt.
+2. `baseline_from_previous_state: true` ist Vorgabe.
+3. Branch `rueckwaerts-vom-gruen-aus` ist auf `master`.
+4. Bahn 4 las die Kegelziffer als `3`, wo `7` steht: **kein Lesefehler,
+   sondern ein Versatz von einem Pixel** (`tools/messe_ziffernversatz.py`,
+   89/191 -> 191/191). Seit dem Vollauf vom 2026-10-06 null Widersprueche.
+
+### Offen
+
+- Verwaiste Testlaeufe in der Datenbank loeschen: `Breakpoint Gate 0.7`,
+  `Breakpoint v3`, `Breakpoint v4`, `Breakpoint v5`, `Nur Fehlercode-Filter`.
+  (`Breakpoint-Test 2. Spieltag` ist bereits geloescht, 1679 Zeilen.) Dazu
+  kommen die Vollaeufe `Vorstand-Grundlinie` und `Anlaufregel`; der letzte
+  ist der gueltige Stand des 2. Spieltags.
+- Bahn 3 behaelt 13 Ziffernfehler, die KEIN Versatz repariert
+  (`docs/OPEN_QUESTIONS.md`).
+- Bahn 5 hat `digit_pin_count_1` an einer anderen Stelle als die uebrigen
+  Bahnen. Nicht untersucht.
+
+
+---
+
+## Der Anlauf hat keine zweite Wolke (2026-10-06)
+
+**Stand: gebaut, getestet, am ganzen Spieltag bestaetigt.**
+`detection.green.warmup_min_change: 15.0`.
+
+### Was sich aendert
+
+Die Gruenschwellen lernt der Detektor im Betrieb. Beide Lernverfahren
+brauchen BEIDE Zustaende im Fenster, und zu Beginn einer Aufzeichnung ist die
+Anlage freigegeben und die Lampe minutenlang durchgehend an — auf Bahn 4
+achteinhalb Minuten. So lange traegt allein die feste globale Schwelle
+(45/35), und die ist keine Eigenschaft der Anlage, sondern eine der ROI: Eine
+nach Trennschaerfe bessere Gruenlampen-ROI hob das AUS-Niveau auf Bahn 4 auf
+50,3 und damit darueber. Die Lampe ging nie aus, die ersten drei Wuerfe des
+Spieltags fehlten (BUG-038).
+
+Nutzeridee: *„am Anfang brauchen wir eine Aenderung > 10 oder so."* Eine
+Aenderung haengt an keiner ROI. Sie ERSETZT die Schwellen nicht, sie kommt
+hinzu, sie haelt ihren Zustand (sonst schluckt `min_stable_frames: 3` das
+einzelne AUS), und sie schweigt, sobald ein Lernverfahren spricht.
+
+### Wo es steht
+
+| Ort | Was |
+|---|---|
+| `detection/lamp_detectors.py` | `_im_anlauf()`, `_anlaufzustand()`, Ruecksetzen in `vergiss()` |
+| `config/default.yaml` | `warmup_min_change`, `warmup_level_decay` |
+| `tools/messe_gruenschwellen.py` | AUS/AN-Niveau je Bahn, warnt bei AUS ueber der festen Schwelle |
+| `tools/sammle_gruenfelder.py` | legt die Gruenlampen-Ausschnitte ab |
+| `tools/messe_lampensignal.py` | Lage der Lampe aus AN minus AUS (Weg B) |
+| `tools/messe_gruenfit_stabilitaet.py` | der widerlegte Weg A, zur Warnung aufbewahrt |
+| `tests/unit/test_gruen_anlaufregel.py` | 12 Tests |
+
+### Nachweis
+
+Vollauf „Anlaufregel" vom 2026-10-06 ueber den ganzen 2. Spieltag, gegen den
+Lauf vom 2026-09-29: 1679 -> 1680 Wuerfe, Luecken 1 -> 0, Spiele mit falschem
+Endstand 1/60 -> 0/60, keine einzige geaenderte Kegelzahl. In der Gegenprobe
+null Widersprueche zwischen den drei Zeugen.
+
+### Nicht gebaut
+
+Ein mitlaufendes Fitting der Gruenlampen-ROI aus dem Livestream. Weg A (eine
+Kennzahl ueber Lage und Groesse maximieren) ist **widerlegt** — die Ecken des
+Suchraums gewinnen. Weg B (Signalbild aus AN minus AUS) ist moeglich und
+stabil, aber der gemessene Versatz der heutigen ROIs liegt bei 0,4 bis 1,2 px
+und rechtfertigt keine Verschiebung. Details in `docs/VIDEO_ANALYSIS.md`.
+Wenn das Thema wiederkommt: Weg B nehmen, nie Weg A.

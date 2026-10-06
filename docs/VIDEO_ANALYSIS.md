@@ -4012,3 +4012,160 @@ Tafelsumme ohnehin am haeufigsten schweigt.
 
 Bahn 3 behaelt 13 Fehler, die KEIN Versatz repariert -- das ist etwas
 anderes und bleibt offen (`docs/OPEN_QUESTIONS.md`).
+
+
+## Die Gruenlampen-ROI auf Bahn 4 und 5 (2026-10-02)
+
+Auf Bahn 5 fehlte Wurf 19 des Laufs 1.4 -- der Nutzer hat ihn an der Tafel
+abgelesen (*„Wurf 19 ist eine 1 auf Kegel 8 ... Die Zeit ist exakt 01:01:56"*).
+Die Bahn hatte den unschaerfsten Gruenkanal aller vier, also wurde die ROI
+nachgemessen: `tools/fit_green_lamp.py` legt sie ueber etikettierte
+Referenzframes aus der Gruenspur neu.
+
+Gegenprobe ueber 2000 Bilder (Frame 64000-104000), beide ROIs normiert auf
+dieselbe Groesse, damit nur die LAGE verglichen wird:
+
+```
+=== vorher ===
+Bahn       AUS      AN   Abstand   Fisher  Graubereich
+2         25.5    63.5      37.9     38.2         0.8 %
+3         22.9    61.4      38.5     33.0         4.0 %
+4         31.4    60.0      28.6     16.0         9.3 %
+5         25.7    64.3      38.6     19.7         9.8 %
+
+=== nachher ===
+4         50.3    85.3      35.0     25.7         5.1 %
+5         34.8    74.0      39.2     20.3         5.9 %
+```
+
+Der Graubereich -- der Anteil der Messungen, der naeher an der Schwelle liegt
+als ein Viertel des Wolkenabstands -- halbiert sich auf beiden Bahnen. Bahn 5
+Wurf 19 ist seitdem da, mit allen drei Zeugen einig:
+
+```
+F74420  Wurf 19  1 Kegel [8]  Ziffer 1  Tafel 141 (vorher 133, danach 142)
+```
+
+**Und die Verbesserung auf Bahn 4 kostete zuerst drei Wuerfe.** Das AUS-Niveau
+stieg dabei von 31,4 auf 50,3, also ueber die feste globale AN-Schwelle von
+45. Warum das drei Wuerfe kostet und was dagegen gebaut wurde:
+BUG-038 und der uebernaechste Abschnitt.
+
+## Ein mitlaufendes Fitting der Gruenlampen-ROI: gemessen, nicht gebaut (2026-10-02)
+
+Nutzerfrage: *„aber koennte man daraus nicht bei einem Livestream theoretisch
+ein fitting bauen? ... das sollte halt irgendwie nicht unsupervised laufen,
+bevor dann die Lampe die ganze Zeit aus oder an ist (weil sie gar nicht mehr
+auf der Lampe liegt)."*
+
+Die Sorge im Nachsatz ist genau die richtige, und sie trifft den ersten
+Ansatz ins Mark.
+
+**Weg A -- eine Kennzahl ueber Lage und Groesse maximieren** (Fisher nach
+Otsu; Otsu deshalb, weil ein Livestream keine Etiketten hat).
+`tools/messe_gruenfit_stabilitaet.py`. Ergebnis: untauglich.
+
+- Ohne Sicherungen gewannen die **Ecken des Suchraums** mit Fisher 5,6e+31.
+  Eine ROI neben der Lampe liest fast immer denselben Wert, Otsu zerlegt auch
+  das in zwei Punkte, und Abstand²/Streuung explodiert. Das ist exakt der
+  Fall, den der Nutzer vorhergesagt hat.
+- Mit Mindestwolkenanteil (10 %) und Streuungsboden lief die **Groesse** an
+  den Rand des Suchbereichs.
+- Die **Lage** streute auf Bahn 4 und 5 um bis zu 12 px zwischen Fenstern --
+  ausgerechnet auf den beiden Bahnen, die einen Fehler hatten.
+
+Eine Kennzahl weiss nicht, wie eine Lampe aussieht. Sie hat entartete
+Richtungen, und ein Wachhund waere ihnen gefolgt.
+
+**Weg B -- das Signalbild statt einer Suche.** Nutzeridee: *„wie waere es,
+wenn wir anhand aller Gruenlampenbilder die wir haben (aus unserer Gruenspur)
+auch dort ein Bild-in-Bild Suche machen?"* Ist bekannt, wann die Lampe an war,
+dann ist
+
+```
+Signal(Pixel) = P(Pixel gruen | AN) - P(Pixel gruen | AUS)
+```
+
+ein direktes Bild der Lampe. Keine Suche, kein Suchraumrand, keine
+Groessenfreiheit. `tools/messe_lampensignal.py`, gerechnet auf 16 001
+Ausschnitten je Bahn aus `tools/sammle_gruenfelder.py`:
+
+```
+Bahn   AN / AUS      Gipfel   Flaeche > halber Gipfel   Lampenmitte (Zeile, Spalte)
+  2   9241 / 6716     1.00          35 px                  9.29  10.60
+  3   9130 / 6710     1.00          34 px                 10.76  10.49
+  4   8728 / 6923     1.00          27 px                  9.10  10.53
+  5   9543 / 5786     0.99          41 px                 10.02  10.41
+```
+
+Die Spalte stimmt ueber alle vier Bahnen auf 0,2 px ueberein -- bei baugleichen
+Tafeln ist das die Gegenprobe. Und die Schaetzung ist **stabil**, hier Bahn 5:
+
+```
+Fenster  Anzahl  dx median  dx Streuung  dx max-Abw  dy max-Abw
+    200      69       0.01         0.19        0.62        0.62
+    800      20      -0.01         0.11        0.32        0.48
+   3200       5      -0.04         0.08        0.15        0.27
+```
+
+Schon 200 Ausschnitte reichen fuer eine Lage auf einen Dreiviertelpixel.
+
+**Trotzdem nicht gebaut.** Der gemessene Versatz der heutigen ROIs liegt bei
+0,4 bis 1,2 px -- unter dem, was eine Verschiebung rechtfertigt, und die
+Etiketten stammen aus der bisherigen ROI, sind also leicht zirkulaer. Ein
+mitlaufender Wachhund hat damit nichts zu korrigieren, aber jede Menge
+Gelegenheit, etwas kaputtzumachen. **Weg A ist widerlegt, Weg B ist moeglich
+und unnoetig.** Wenn das Thema wiederkommt: Weg B nehmen, nie Weg A.
+
+## Der Anlauf: ohne zweite Wolke zaehlt nur die Aenderung (2026-10-06)
+
+Zu Beginn einer Aufzeichnung ist die Anlage freigegeben und die gruene Lampe
+durchgehend an. Histogramm und Perzentile brauchen beide Zustaende im Fenster,
+finden also nichts; es traegt allein die feste globale Schwelle 45/35.
+GEMESSEN am 2. Spieltag, Frame des ersten echten Gruen-AUS:
+
+```
+Bahn 2   7558       Bahn 4   10480   (achteinhalb Minuten)
+Bahn 3  10400       Bahn 5    5607
+```
+
+Dass die feste Schwelle dort passt, ist Zufall -- sie ist keine Eigenschaft
+der Anlage, sondern eine der ROI. Die bessere Bahn-4-ROI hob das AUS-Niveau
+auf 50,3 und damit darueber; die Lampe ging im Anlauf nie aus, und die ersten
+drei Wuerfe des Spieltags fehlten (BUG-038).
+
+Nutzeridee: *„am Anfang brauchen wir eine Aenderung > 10 oder so"*. Eine
+Aenderung haengt an keiner ROI. Frame des ersten erkannten Gruen-AUS, beide
+Vollaeufe:
+
+```
+                     absolut   >5     >10     >15     >20
+  alte ROIs  Bahn 2     7558    161   3200    7557    7558
+             Bahn 3    10400     40  10392   10392   10399
+             Bahn 4    10480     79   1801   10479   14124
+             Bahn 5     5607    977   5605    5605    5605
+  neue ROI   Bahn 4     KEINS    91   2097   10470   10479
+             Bahn 5     5607     87   5605    5605    5605
+```
+
+Bei 15 trifft die Regel ueberall dasselbe AUS wie die absolute Schwelle, ohne
+Fehlausloeser davor, und findet es auch dort, wo die absolute Schwelle nichts
+findet. `detection.green.warmup_min_change: 15.0`.
+
+**Vollauf zum Nachweis** (2026-10-06, 242 255 Frames, gegen den Lauf vom
+2026-09-29):
+
+```
+                              vorher     nachher
+Wuerfe                          1679        1680
+Luecken                            1           0
+Spiele mit falschem Endstand    1/60        0/60
+Gegenprobe: Lampen gegen Ziffer    0           0
+            Summe stuetzt eine Seite gegen die andere: 0
+```
+
+Wurf fuer Wurf: 1482 vergleichbar, 1446 in BEIDEN Laeufen richtig, keine
+einzige geaenderte Kegelzahl. Der einzige Unterschied ist Bahn 5 Wurf 19.
+Die 44 Ziffernwidersprueche auf Bahn 4 aus dem Vorlauf sind mit dem
+Ziffernversatz von einem Pixel ebenfalls weg -- Bahn 4 steht jetzt in jedem
+Lauf auf 29/29.

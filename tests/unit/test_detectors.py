@@ -342,17 +342,31 @@ class TestBug011GruenlampeDriftet:
         assert detektor.detect(self._patch(70.0)).state is LampState.ON
 
     def test_abschaltbar(self):
-        """Beide mitlaufenden Verfahren aus -> es gelten wieder die festen.
+        """Alle mitlaufenden Verfahren aus -> es gelten wieder die festen.
 
         Seit dem gleitenden Histogramm reicht `adaptive_thresholds=False`
         allein nicht mehr: Das Histogramm ist ein eigenes Verfahren mit
-        Vorrang. Wer die festen Schwellen will, muss beide abschalten.
+        Vorrang. Seit der Anlaufregel (2026-10-06) sind es DREI -- sie
+        ueberstimmt die festen Schwellen bewusst, weil auf Bahn 4 beide
+        Wolken darueber lagen. Wer die festen Schwellen will, muss alle drei
+        abschalten.
         """
+        detektor = self._detektor(adaptive_thresholds=False,
+                                  histogram_thresholds=False,
+                                  warmup_min_change=0.0)
+        self._fuellen(detektor, aus=37.0, an=70.0)
+
+        assert detektor.detect(self._patch(37.0)).state is LampState.UNKNOWN
+
+    def test_ohne_lerner_traegt_die_anlaufregel(self):
+        """Gegenprobe zum vorigen: Laesst man die Anlaufregel an, meldet sie
+        bei derselben Folge ein AUS -- 37 gegen ein Niveau von 70 ist eine
+        Aenderung von 33, und das ist mehr als `warmup_min_change`."""
         detektor = self._detektor(adaptive_thresholds=False,
                                   histogram_thresholds=False)
         self._fuellen(detektor, aus=37.0, an=70.0)
 
-        assert detektor.detect(self._patch(37.0)).state is LampState.UNKNOWN
+        assert detektor.detect(self._patch(37.0)).state is LampState.OFF
 
     def test_perzentile_bleiben_ohne_histogramm_erhalten(self):
         """Der alte Weg muss weiter tragen -- er ist die Rueckfallebene."""
