@@ -48,6 +48,35 @@ class NullSink(ResultSink):
         return None
 
 
+class FanOutSink(ResultSink):
+    """Gibt jeden Wurf an mehrere Abnehmer weiter -- etwa Supabase UND pin-scorer.
+
+    Jeder Abnehmer faengt seine Fehler laut Vertrag selbst ab. Wirft einer
+    trotzdem, bekommen die uebrigen den Wurf dennoch: Ein kaputter Abnehmer
+    darf den anderen nichts wegnehmen.
+    """
+
+    def __init__(self, abnehmer: list[ResultSink]) -> None:
+        self.abnehmer = list(abnehmer)
+
+    def _jeder(self, name: str, *args: object) -> None:
+        for sink in self.abnehmer:
+            try:
+                getattr(sink, name)(*args)
+            except Exception as exc:  # noqa: BLE001
+                log.error("Abnehmer %s: %s fehlgeschlagen: %s",
+                          type(sink).__name__, name, exc)
+
+    def send(self, throw: ThrowResult) -> None:
+        self._jeder("send", throw)
+
+    def flush(self) -> None:
+        self._jeder("flush")
+
+    def close(self) -> None:
+        self._jeder("close")
+
+
 class BahnFilterSink(ResultSink):
     """Laesst nur Wuerfe bestimmter Bahnen durch.
 

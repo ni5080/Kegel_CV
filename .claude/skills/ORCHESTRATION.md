@@ -95,6 +95,7 @@ Legende: ✅ fertig · 🔨 in Arbeit · ⬜ offen · ⏸ bewusst zurückgestell
 | 11 | Robustheit & Performance | ⬜ | `kegel-architektur` |
 | 12 | Ergebnisversand (`ResultSink` → Supabase, je Wurf) | ✅ | `kegel-architektur` |
 | 13 | Liveticker (Unterprojekt `apps/liveticker/`) | ✅ | — |
+| 14 | pin-scorer-Anbindung (Unterprojekt `apps/pin-scorer`, Fork) | 🔨 Events als Datei | `kegel-architektur` |
 
 **→ Phase 11 (Robustheit) ist durchgeführt: 52 Minuten, 482 Würfe, 99,2 %
 Erfassung, 3 Fehlerfälle. Bahn 3 und 4 bei 100 % Übereinstimmung.**
@@ -2633,3 +2634,37 @@ Suchraums gewinnen. Weg B (Signalbild aus AN minus AUS) ist moeglich und
 stabil, aber der gemessene Versatz der heutigen ROIs liegt bei 0,4 bis 1,2 px
 und rechtfertigt keine Verschiebung. Details in `docs/VIDEO_ANALYSIS.md`.
 Wenn das Thema wiederkommt: Weg B nehmen, nie Weg A.
+
+## Phase 14: pin-scorer statt Eintippen (2026-11-11)
+
+Ziel des Nutzers: Der pin-scorer (Fork `ni5080/pin-scorer`, Submodule unter
+`apps/pin-scorer`) uebernimmt die Wuerfe aus Kegel_CV, statt dass sie jemand
+eintippt. Pushen zum Original `sch-arne` ist im Submodule gesperrt -- der
+Nutzer will das ausdruecklich NICHT.
+
+Der pin-scorer bringt den Plan mit (`docs/wurferkennung-plan.md`): Die
+Erkennung liefert je Wurf nur Bahn und STEHENDES Kegelbild vor/nach dem Wurf,
+Spieler und Satz leitet die App ab. Das ist dieselbe Haltung wie unsere
+"nur Gemessenes senden".
+
+**Gebaut (Schritt 1):**
+
+```
+models/throw.py      pins_down_before -- Ausgangslage, nur wenn sicher gelesen
+sinks/pin_scorer.py  Wurf -> Kontrakt-Event, JSONL-Datei, seq ueber Neustarts
+sinks/base.py        FanOutSink -- Supabase UND pin-scorer gleichzeitig
+config               output.pin_scorer (Vorgabe aus)
+```
+
+Erweiterungen zum Kontrakt: `gefallen`, `status`, `quelle`, `videoZeit`.
+`gefallen` faehrt immer mit, auch wenn die Bilder null sind.
+
+**Naechste Schritte:**
+1. Einen Spieltag mit `output.pin_scorer.enabled: true` aufzeichnen -- die
+   Fixture, die der Plan als Phase 0 verlangt. Dabei zaehlen, wie oft
+   `bildVor` null ist.
+2. Im Fork: `erkennung-zuordnung.js` + Tests gegen diese Fixture (Plan Phase 1).
+3. Transport: Tabelle `wurf_event` im Supabase des pin-scorers als Migration
+   im Fork, Kegel_CV schreibt per REST wie bei `throws`.
+
+Offene Luecken: `docs/OPEN_QUESTIONS.md`, Abschnitt pin-scorer.

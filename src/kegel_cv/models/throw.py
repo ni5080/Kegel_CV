@@ -171,6 +171,19 @@ class ThrowResult:
     # eine Auswertung ueber viele Wuerfe sie ohne Umweg zaehlen kann.
     lamps_unknown: int = 0
     baseline_unknown: int | None = None      # None = keine Ausgangslage noetig
+    # WELCHE KEGEL VOR DEM WURF SCHON LAGEN -- die Ausgangslage, wie die
+    # Auswertung sie zuletzt verwendet hat (nach dem Verwerfen einer durch
+    # Neuaufstellung hinfaelligen Grundlinie). Leer heisst: alle neun standen.
+    #
+    # WOFUER (2026-11-11): Der pin-scorer will je Wurf das STEHENDE Bild vor
+    # und nach dem Wurf -- absolute Bilder statt Differenzen, damit ein
+    # verpasster Wurf beim naechsten auffaellt, statt sich fortzuschreiben.
+    #
+    # `None` heisst "nicht sicher bekannt": keine Grundlinie gemessen (etwa
+    # beim Leerwurf aus dem Fehlwurfzaehler) oder mindestens eine Lampe der
+    # Grundlinie unklar (BUG-027). Ein unklares Bild wird nicht als gutes
+    # weitergegeben.
+    pins_down_before: tuple[int, ...] | None = None
     confidence: float = 0.0
     timestamp: float = 0.0
     source_frame: int | None = None   # Ausloeser-Frame
@@ -218,6 +231,8 @@ class ThrowResult:
             "pins": list(self.pins),
             "pins_count": self.pins_count,
             "pins_bitmap": self.pins_bitmap,
+            "pins_down_before": (None if self.pins_down_before is None
+                                 else list(self.pins_down_before)),
             "displayed_pin_count": self.displayed_pin_count,
             "valid": self.valid,
             "status": self.status.value,

@@ -1831,3 +1831,22 @@ output:
     # Was nicht rausgeht, landet hier und wird beim naechsten Start
     # nachgeliefert. Ein gezogenes Netzwerkkabel kostet damit keinen Wurf.
     spool_file: "debug/versand_puffer.jsonl"
+
+  # WURF-EVENTS FUER DEN PIN-SCORER (apps/pin-scorer, 2026-11-11).
+  #
+  # Ziel: Der pin-scorer uebernimmt die Wuerfe, statt dass sie jemand
+  # eintippt. Kontrakt: apps/pin-scorer/docs/wurferkennung-plan.md, Abschnitt 1
+  # -- ein Event je Wurf mit dem STEHENDEN Bild vor und nach dem Wurf.
+  #
+  # Vorerst nur als Datei. Sie ist die echte Aufzeichnung, die der Plan vor
+  # der ersten Zeile Zuordnungslogik verlangt (Phase 0). Fuer einen Spieltag,
+  # der aufgezeichnet werden soll, hier einschalten. Aus als Vorgabe, damit
+  # eine Messdatei auf Basis dieser Vorgabe nicht unbemerkt mitschreibt.
+  pin_scorer:
+    enabled: false
+    # Unter debug/ und damit nicht versioniert. Mehrere Laeufe haengen an;
+    # `seq` laeuft dabei weiter.
+    events_file: "debug/pin_scorer_events.jsonl"
+    # Die Anlage, wie der pin-scorer sie kennt. Leer erlaubt, solange es dort
+    # noch keine Zuordnung gibt.
+    anlage: ""

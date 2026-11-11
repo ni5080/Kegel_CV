@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 
 from ..config.schema import AppConfig
-from .base import BahnFilterSink, NullSink, ResultSink
+from .base import BahnFilterSink, FanOutSink, NullSink, ResultSink
+from .pin_scorer import PinScorerEventSink
 from .queued import QueuedSink
 from .supabase import SupabaseSink
 
@@ -27,6 +28,14 @@ def build_sink(cfg: AppConfig, video_id: str = "",
     sonst faellt eine vertippte Bahnnummer erst am Spieltag auf.
     """
     innen = _baue_abnehmer(cfg, video_id, game_name)
+    pin_scorer = cfg.output.pin_scorer
+    if pin_scorer.enabled:
+        log.info("Wurf-Events fuer den pin-scorer gehen nach %s",
+                 pin_scorer.events_file)
+        events = PinScorerEventSink(Path(pin_scorer.events_file),
+                                    anlage=pin_scorer.anlage, quelle=video_id)
+        innen = (events if isinstance(innen, NullSink)
+                 else FanOutSink([innen, events]))
     if cfg.output.lanes:
         log.info("Gesendet werden nur die Bahnen %s", sorted(cfg.output.lanes))
         return BahnFilterSink(innen, cfg.output.lanes)

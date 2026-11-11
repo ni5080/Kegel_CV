@@ -708,6 +708,13 @@ class ThrowAnalyzer:
                 None if baseline is None
                 else sum(1 for lamp in baseline.lamps
                          if not lamp.state.is_known)),
+            # Die Ausgangslage, mit der gerechnet wurde -- nur wenn sie
+            # vollstaendig gelesen ist. Siehe ThrowResult.pins_down_before.
+            pins_down_before=(
+                tuple(sorted(base_pins))
+                if baseline is not None and all(
+                    lamp.state.is_known for lamp in baseline.lamps)
+                else None),
             pins=pin_numbers,
             pins_count=count,
             displayed_pin_count=displayed_count,

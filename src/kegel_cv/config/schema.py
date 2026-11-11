@@ -1830,10 +1830,29 @@ class SupabaseConfig(BaseModel):
     spool_file: str = "debug/versand_puffer.jsonl"
 
 
+class PinScorerConfig(BaseModel):
+    """Wurf-Events fuer den pin-scorer (apps/pin-scorer).
+
+    Kontrakt: `apps/pin-scorer/docs/wurferkennung-plan.md`, Abschnitt 1.
+    Geschrieben wird vorerst in eine JSONL-Datei -- das ist zugleich die
+    "echte Aufzeichnung", die der Plan vor der ersten Zeile Zuordnungslogik
+    verlangt (Phase 0). Der Transport zum pin-scorer kommt danach.
+    """
+
+    enabled: bool = False
+    # Eine Zeile je Event, angehaengt. Liegt unter debug/ und ist damit nicht
+    # versioniert -- eine Aufzeichnung gehoert zu einem Spieltag, nicht zum Code.
+    events_file: str = "debug/pin_scorer_events.jsonl"
+    # Die Anlage, wie der pin-scorer sie kennt. Leer ist erlaubt: Der Kontrakt
+    # fuehrt das Feld, die Zuordnung im pin-scorer gibt es noch nicht.
+    anlage: str = ""
+
+
 class OutputConfig(BaseModel):
     """Wohin die Ergebnisse gehen (Auftrag Paragraph 26)."""
 
     supabase: SupabaseConfig = Field(default_factory=SupabaseConfig)
+    pin_scorer: PinScorerConfig = Field(default_factory=PinScorerConfig)
 
     # WELCHE BAHNEN GESENDET WERDEN -- Bahnnummern wie auf der Anlage.
     #

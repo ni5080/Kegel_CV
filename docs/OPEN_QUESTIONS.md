@@ -650,3 +650,19 @@ Bahn 5 nicht. Aufgefallen beim Nachmessen des Ziffernversatzes; die Bahn
 liest trotzdem 177/178 richtig, also ist nichts kaputt. Ob die Tafel dort
 anders gebaut ist oder nur die Kalibrierung abweicht, ist nicht geprueft.
 
+
+### pin-scorer: drei Luecken im Event-Kontrakt (2026-11-11)
+
+Der Kontrakt des pin-scorers (`apps/pin-scorer/docs/wurferkennung-plan.md`)
+verlangt mehr, als Kegel_CV heute misst:
+
+1. **Aufstell-Event** (`art: "aufstellung"`) -- wird nicht erkannt. Der Plan
+   nutzt es nur als Plausibilitaetsanker, nicht zum Zaehlen. Ob die Tafel
+   eine Neuaufstellung zuverlaessig zeigt, ist nicht gemessen.
+2. **Leerwurf aus dem Fehlwurfzaehler** hat keine Grundlinie, `bildVor` und
+   `bildNach` sind dann null. Wie oft das vorkommt, ist ueber einen ganzen
+   Spieltag zu zaehlen, bevor man es verbessert.
+3. **Seitenrichtung der Raute** -- die Nummerierung stimmt mit `KEGEL_LAYOUT`
+   des pin-scorers ueberein, aber links/rechts ist bei uns nur angenommen
+   (kegel-domain Abschnitt 4). Ein Wurf mit einem einzelnen stehenden
+   Randkegel entscheidet es.
