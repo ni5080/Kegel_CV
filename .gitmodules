@@ -1,0 +1,3 @@
+[submodule "apps/pin-scorer"]
+	path = apps/pin-scorer
+	url = https://github.com/ni5080/pin-scorer.git
