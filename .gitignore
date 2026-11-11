@@ -62,7 +62,7 @@ desktop.ini
 
 # Personenmodell: AGPL-3.0 (Ultralytics), gehoert nicht ins Repo.
 # Holen mit tools/hole_personenmodell.py
-models/
+/models/
 
 # Das Personenmodell wird beim Bauen aus models/ kopiert.
 android/app/src/main/assets/*.onnx
